@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Листай</string>
-    <string name="destination_reader">Демо книги</string>
+    <string name="destination_reader">Книга</string>
     <string name="destination_library">Библиотека</string>
     <string name="destination_diagnostics">Диагностика</string>
     <string name="diagnostics_title">Диагностика этапа 3</string>

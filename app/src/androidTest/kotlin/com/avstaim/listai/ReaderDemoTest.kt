@@ -22,6 +22,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.designsystem.ListaiTheme
 import com.avstaim.listai.feature.reader.ReaderDemoScreen
 import com.avstaim.listai.feature.reader.ReaderPresentationMode
+import com.avstaim.listai.feature.reader.ReaderSemanticLocation
+import com.avstaim.listai.feature.reader.ReaderPaginationComplete
+import com.avstaim.listai.feature.reader.ReaderLayoutIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -82,18 +85,22 @@ class ReaderDemoTest {
     @Test
     fun fullscreenButtonHidesApplicationAndSystemChromeAndExitRestoresThem() {
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertIsDisplayed()
+        waitForPaginatedBook()
         val initialPosition = pageState()
         composeRule.onNodeWithTag(BOOK_TAG).performTouchInput {
             click(Offset(width * 0.58f, height * 0.54f))
         }
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != initialPosition }
-        val positionBeforeFullscreen = pageState()
+        val positionBeforeFullscreen = semanticLocation()
+        val layoutBeforeFullscreen = layoutIdentity()
 
         composeRule.onNodeWithTag(READER_FULLSCREEN_BUTTON_TAG).performClick()
 
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertDoesNotExist()
         composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreHidden() }
-        assertEquals(positionBeforeFullscreen, pageState())
+        waitForPaginatedBook()
+        assertEquals(positionBeforeFullscreen, semanticLocation())
+        assertNotEquals(layoutBeforeFullscreen, layoutIdentity())
 
         // A transient focus loss must not turn immersive mode off. This reproduces the
         // window lifecycle path used by system overlays and some OEM navigation shells.
@@ -109,14 +116,44 @@ class ReaderDemoTest {
         composeRule.activityRule.scenario.recreate()
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertDoesNotExist()
         composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreHidden() }
-        assertEquals(positionBeforeFullscreen, pageState())
+        waitForPaginatedBook()
+        assertEquals(positionBeforeFullscreen, semanticLocation())
 
         composeRule.onNodeWithTag(READER_FULLSCREEN_BUTTON_TAG).performClick()
 
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreVisible() }
-        assertEquals(positionBeforeFullscreen, pageState())
+        waitForPaginatedBook()
+        assertEquals(positionBeforeFullscreen, semanticLocation())
     }
+
+    @Test
+    fun parsedBookRestoresSemanticLocationAcrossRotationAndBack() {
+        waitForPaginatedBook()
+        val initial = semanticLocation()
+        composeRule.onNodeWithTag(BOOK_TAG).performClick()
+        composeRule.waitUntil(timeoutMillis = 3_000) { semanticLocation() != initial }
+        val anchor = semanticLocation()
+        val portraitKey = layoutIdentity()
+        requestOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, Configuration.ORIENTATION_LANDSCAPE)
+        waitForPaginatedBook()
+        assertEquals(anchor, semanticLocation())
+        assertNotEquals(portraitKey, layoutIdentity())
+        requestOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT)
+        waitForPaginatedBook()
+        assertEquals(anchor, semanticLocation())
+    }
+
+    private fun waitForPaginatedBook() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag(BOOK_TAG).fetchSemanticsNodes().any {
+                it.config.getOrElse(ReaderPaginationComplete) { false }
+            }
+        }
+    }
+
+    private fun semanticLocation() = composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config[ReaderSemanticLocation]
+    private fun layoutIdentity() = composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config[ReaderLayoutIdentity]
 
     @Test
     fun diagnosticsScreenParsesAndDisplaysBundledFb2() {

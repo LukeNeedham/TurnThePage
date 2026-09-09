@@ -42,6 +42,8 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
+    sourceSets.getByName("test").resources.srcDir("src/main/res/raw")
+
     lint {
         abortOnError = true
         checkReleaseBuilds = true

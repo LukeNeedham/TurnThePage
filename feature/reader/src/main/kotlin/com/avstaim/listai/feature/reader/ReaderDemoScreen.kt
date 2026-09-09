@@ -29,6 +29,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.avstaim.listai.core.adaptive.DevicePosture
+import com.avstaim.listai.core.model.BookDocument
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import com.avstaim.listai.feature.reader.bookview.BookPresentation
 import com.avstaim.listai.feature.reader.bookview.PhysicalBookView
 import com.avstaim.listai.feature.reader.demo.FakeBookDocumentFactory
@@ -49,8 +51,34 @@ fun ReaderDemoScreen(
     initialPageIndex: Int = 0,
     isFullscreen: Boolean = false,
     onFullscreenChange: ((Boolean) -> Unit)? = null,
+) = ReaderBookScreen(null, modifier, devicePosture, presentationMode, initialPageIndex, isFullscreen, onFullscreenChange)
+
+/** Production document reader. Demo fixtures remain isolated to graphical regression tests. */
+@Composable
+fun ReaderScreen(
+    document: BookDocument,
+    modifier: Modifier = Modifier,
+    devicePosture: DevicePosture = DevicePosture.Unknown,
+    presentationMode: ReaderPresentationMode = ReaderPresentationMode.AUTOMATIC,
+    isFullscreen: Boolean = false,
+    onFullscreenChange: ((Boolean) -> Unit)? = null,
+) = ReaderBookScreen(document, modifier, devicePosture, presentationMode, 0, isFullscreen, onFullscreenChange)
+
+val ReaderSemanticLocation = SemanticsPropertyKey<String>("ReaderSemanticLocation")
+val ReaderPaginationComplete = SemanticsPropertyKey<Boolean>("ReaderPaginationComplete")
+val ReaderLayoutIdentity = SemanticsPropertyKey<String>("ReaderLayoutIdentity")
+
+@Composable
+private fun ReaderBookScreen(
+    parsedDocument: BookDocument?,
+    modifier: Modifier,
+    devicePosture: DevicePosture,
+    presentationMode: ReaderPresentationMode,
+    initialPageIndex: Int,
+    isFullscreen: Boolean,
+    onFullscreenChange: ((Boolean) -> Unit)?,
 ) {
-    val document = remember { FakeBookDocumentFactory.create() }
+    val document = parsedDocument ?: remember { FakeBookDocumentFactory.create() }
     if (onFullscreenChange != null) {
         BackHandler(enabled = isFullscreen) {
             onFullscreenChange(false)
@@ -59,7 +87,8 @@ fun ReaderDemoScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         PhysicalBookView(
-            pages = document.toDemoPages(),
+            pages = if (parsedDocument == null) document.toDemoPages() else emptyList(),
+            document = parsedDocument,
             bookTitle = document.metadata.title,
             bookAuthor = document.metadata.authors.joinToString().ifBlank { null },
             initialPageIndex = initialPageIndex,

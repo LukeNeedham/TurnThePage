@@ -7,9 +7,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -18,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -41,7 +45,14 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.avstaim.listai.core.adaptive.DevicePosture
+import com.avstaim.listai.core.model.BookDocument
+import com.avstaim.listai.core.model.BookLocation
+import com.avstaim.listai.reader.pagination.LayoutKey
+import com.avstaim.listai.reader.pagination.PageMode
 import com.avstaim.listai.feature.reader.R
+import com.avstaim.listai.feature.reader.ReaderSemanticLocation
+import com.avstaim.listai.feature.reader.ReaderPaginationComplete
+import com.avstaim.listai.feature.reader.ReaderLayoutIdentity
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
 import com.avstaim.listai.reader.rendering.geometry.Point
@@ -51,6 +62,7 @@ import com.avstaim.listai.reader.rendering.turn.SettleTarget
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
 import com.avstaim.listai.reader.rendering.turn.decideSettleTarget
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -100,10 +112,16 @@ internal fun PhysicalBookView(
     previewDisplayFeature: BookDisplayFeature? = null,
     outerPadding: Dp = 14.dp,
     coverInset: Dp = 7.dp,
+    document: BookDocument? = null,
+    initialLocation: BookLocation? = null,
 ) {
-    require(pages.isNotEmpty()) { "BookView requires at least one page" }
+    require(pages.isNotEmpty() || document != null) { "BookView requires pages or a document" }
 
     var viewportBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
+    val readingPosition = document?.let { rememberReaderPosition(it, initialLocation) }
+    var dragSession by remember { mutableStateOf<DragSession?>(null) }
+    var settleSession by remember { mutableStateOf<SettleSession?>(null) }
+    var gestureActive by remember { mutableStateOf(false) }
     BoxWithConstraints(
         modifier = modifier.onGloballyPositioned { coordinates ->
             viewportBoundsInWindow = coordinates.boundsInWindow()
@@ -154,7 +172,37 @@ internal fun PhysicalBookView(
                 displayFeature = displayFeature,
             )
         }
-        val preparedPages = rememberDemoPageSurfaces(
+        val pagination = document?.let {
+            rememberPaginationSession(it, LayoutKey(
+                viewportWidthPx = canvasSize.width.roundToInt().coerceAtLeast(1),
+                viewportHeightPx = canvasSize.height.roundToInt().coerceAtLeast(1),
+                pageWidthPx = layout.pageWidth.roundToInt().coerceAtLeast(1),
+                pageHeightPx = layout.pageHeight.roundToInt().coerceAtLeast(1),
+                pageMode = if (presentation == BookPresentation.SPREAD) PageMode.SPREAD else PageMode.SINGLE,
+                density = density.density,
+                densityKey = density.density.toString(),
+                textScale = density.fontScale,
+                localeTag = it.metadata.language ?: "en",
+            ), requireNotNull(readingPosition))
+        }
+        // Read during composition even while a displayed snapshot is pinned. Reading only in
+        // SideEffect would not subscribe this host to subsequent background publications.
+        val latestPagination = pagination?.ready
+        var displayedPagination by remember(pagination) { mutableStateOf<PreparedPagination?>(null) }
+        // Do not replace navigation/surfaces while a finger or settle animation owns a leaf.
+        SideEffect {
+            if (!gestureActive && dragSession == null && settleSession == null) displayedPagination = latestPagination
+        }
+        val ready = displayedPagination ?: latestPagination
+        if (pagination != null && ready == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(stringResource(if (pagination.failed) R.string.reader_pagination_failed else R.string.reader_paginating))
+            }
+            // Resize can dispose the previous gesture before its settle job clears these fields.
+            LaunchedEffect(pagination) { dragSession = null; settleSession = null; gestureActive = false }
+            return@BoxWithConstraints
+        }
+        val preparedPages = ready?.surfaces ?: rememberDemoPageSurfaces(
             pages = pages,
             pageSize = IntSize(
                 width = layout.pageWidth.roundToInt().coerceAtLeast(1),
@@ -173,23 +221,25 @@ internal fun PhysicalBookView(
             PhysicalBookNavigator(pageCount = preparedPages.size)
         }
         val resolvedInitialState = remember(
-            preparedPages.size,
+            pagination ?: preparedPages.size,
             initialPageIndex,
             initialBookState,
         ) {
-            initialBookState
+            ready?.let { requireNotNull(readingPosition).initialState(it.snapshot) } ?: initialBookState
                 ?.normalized(preparedPages.size)
                 ?: PhysicalBookState.Open(initialPageIndex.coerceIn(0, preparedPages.lastIndex))
         }
-        var savedBookPosition by rememberSaveable(
+        val savedPositionState = if (pagination != null) remember(pagination) {
+            // Persist the source anchor, never restore an obsolete numeric page after recreation.
+            mutableIntStateOf(resolvedInitialState.toSavedPosition(preparedPages.size))
+        } else rememberSaveable(
             preparedPages.size,
             resolvedInitialState,
         ) {
             mutableIntStateOf(resolvedInitialState.toSavedPosition(preparedPages.size))
         }
+        var savedBookPosition by savedPositionState
         val bookState = savedBookPosition.toPhysicalBookState(preparedPages.size)
-        var dragSession by remember { mutableStateOf<DragSession?>(null) }
-        var settleSession by remember { mutableStateOf<SettleSession?>(null) }
         val settleFraction = remember { Animatable(0f) }
         val geometryEngine = remember { PageCurlGeometryEngine() }
         val physicsConfig = remember { PageTurnPhysicsConfig() }
@@ -203,7 +253,13 @@ internal fun PhysicalBookView(
         }
 
         fun transition(direction: TurnDirection): PhysicalBookTransition? =
-            navigator.transition(bookState, direction, presentation)
+            navigator.transition(bookState, direction, presentation)?.takeIf { transition ->
+                if (ready == null || ready.snapshot.complete || direction == TurnDirection.BACKWARD) true
+                else (transition.to as? PhysicalBookState.Open)?.let { target ->
+                    val anchor = navigator.layoutAnchor(target, presentation) ?: 0
+                    anchor + (if (presentation == BookPresentation.SPREAD && anchor > 0) 1 else 0) < preparedPages.size
+                } == true
+            }
 
         fun canTurn(direction: TurnDirection): Boolean = transition(direction) != null
 
@@ -270,6 +326,7 @@ internal fun PhysicalBookView(
                 val finished = settleSession
                 if (finished?.target == SettleTarget.COMPLETE) {
                     savedBookPosition = finished.completedState.toSavedPosition(preparedPages.size)
+                    ready?.let { readingPosition?.commit(finished.completedState, it.snapshot) }
                 }
                 settleSession = null
                 settleFraction.snapTo(0f)
@@ -296,7 +353,7 @@ internal fun PhysicalBookView(
 
         val openPageState = (bookState as? PhysicalBookState.Open)?.let { state ->
             stringResource(
-                R.string.reader_page_progress,
+                if (ready != null && !ready.snapshot.complete) R.string.reader_page_progress_pending else R.string.reader_page_progress,
                 state.semanticPageIndex.coerceIn(0, preparedPages.lastIndex) + 1,
                 preparedPages.size,
             )
@@ -316,6 +373,12 @@ internal fun PhysicalBookView(
         val semanticsModifier = Modifier.semantics {
             contentDescription = bookDescription
             stateDescription = stateText
+            ready?.let {
+                val anchor = readingPosition?.location ?: it.snapshot.pages.first().start
+                this[ReaderSemanticLocation] = "${anchor.blockId.value}:${anchor.charOffset}:${anchor.fallbackGlobalOffset}"
+                this[ReaderPaginationComplete] = it.snapshot.complete
+                this[ReaderLayoutIdentity] = it.snapshot.key.toString()
+            }
             // A tap on the outside of the back cover is deliberately reserved for the future
             // "return to shelf" action. The book can still be reopened with a backward swipe or
             // the explicit accessibility action.
@@ -340,84 +403,92 @@ internal fun PhysicalBookView(
             Modifier.pointerInput(layout, savedBookPosition, preparedPages.size, presentation) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    if (dragSession != null || settleSession != null) {
-                        waitUntilReleased(down.id)
-                        return@awaitEachGesture
-                    }
-                    if (!layout.containsPage(down.position)) {
-                        waitUntilReleased(down.id)
-                        return@awaitEachGesture
-                    }
-
-                    val tracker = VelocityTracker()
-                    tracker.addPosition(down.uptimeMillis, down.position)
-                    var current: PointerInputChange = down
-                    var dragging = false
-                    var movedBeyondTapSlop = false
-                    var direction: TurnDirection? = null
-
-                    while (current.pressed) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        tracker.addPosition(change.uptimeMillis, change.position)
-                        val displacement = change.position - down.position
-                        if (displacement.getDistance() >= viewConfiguration.touchSlop) {
-                            movedBeyondTapSlop = true
+                    gestureActive = true
+                    try {
+                        if (dragSession != null || settleSession != null) {
+                            waitUntilReleased(down.id)
+                            return@awaitEachGesture
                         }
-                        if (
-                            !dragging &&
-                            abs(displacement.x) >= viewConfiguration.touchSlop &&
-                            abs(displacement.x) >= abs(displacement.y) * 0.6f
-                        ) {
-                            direction = layout.dragDirection(
-                                down = down.position,
-                                horizontalDisplacement = displacement.x,
-                                canForward = canTurn(TurnDirection.FORWARD),
-                                canBackward = canTurn(TurnDirection.BACKWARD),
+                        if (!layout.containsPage(down.position)) {
+                            waitUntilReleased(down.id)
+                            return@awaitEachGesture
+                        }
+
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var current: PointerInputChange = down
+                        var dragging = false
+                        var movedBeyondTapSlop = false
+                        var direction: TurnDirection? = null
+
+                        while (current.pressed) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            val displacement = change.position - down.position
+                            if (displacement.getDistance() >= viewConfiguration.touchSlop) {
+                                movedBeyondTapSlop = true
+                            }
+                            if (
+                                !dragging &&
+                                abs(displacement.x) >= viewConfiguration.touchSlop &&
+                                abs(displacement.x) >= abs(displacement.y) * 0.6f
+                            ) {
+                                direction = layout.dragDirection(
+                                    down = down.position,
+                                    horizontalDisplacement = displacement.x,
+                                    canForward = canTurn(TurnDirection.FORWARD),
+                                    canBackward = canTurn(TurnDirection.BACKWARD),
+                                )
+                                dragging = direction != null
+                            }
+                            if (dragging) {
+                                dragSession = DragSession(
+                                    direction = requireNotNull(direction),
+                                    origin = CurlOrigin.OUTER_EDGE,
+                                    rawStart = down.position,
+                                    rawCurrent = change.position,
+                                )
+                                change.consume()
+                            }
+                            current = change
+                        }
+
+                        if (!dragging) {
+                            if (!movedBeyondTapSlop && bookState != PhysicalBookState.ClosedBack) {
+                                layout.tapDirection(
+                                    position = down.position,
+                                    canForward = canTurn(TurnDirection.FORWARD),
+                                    canBackward = canTurn(TurnDirection.BACKWARD),
+                                )?.let(::launchAutomaticTurn)
+                            }
+                        } else {
+                            val session = dragSession ?: return@awaitEachGesture
+                            val velocity = tracker.calculateVelocity()
+                            val target = decideSettleTarget(
+                                direction = session.direction,
+                                pointerDisplacement = Point(
+                                    x = (session.rawCurrent.x - session.rawStart.x).toDouble(),
+                                    y = (session.rawCurrent.y - session.rawStart.y).toDouble(),
+                                ),
+                                velocityPxPerSecond = Point(velocity.x.toDouble(), velocity.y.toDouble()),
+                                pageWidthPx = layout.pageWidth.toDouble(),
+                                config = physicsConfig,
                             )
-                            dragging = direction != null
-                        }
-                        if (dragging) {
-                            dragSession = DragSession(
-                                direction = requireNotNull(direction),
-                                origin = CurlOrigin.OUTER_EDGE,
-                                rawStart = down.position,
-                                rawCurrent = change.position,
+                            launchSettle(
+                                direction = session.direction,
+                                target = target,
+                                startPointer = session.pointer(layout),
+                                origin = session.origin,
+                                edgeAnchorY = session.edgeAnchorY,
+                                customAnchor = session.customAnchor,
                             )
-                            change.consume()
                         }
-                        current = change
-                    }
-
-                    if (!dragging) {
-                        if (!movedBeyondTapSlop && bookState != PhysicalBookState.ClosedBack) {
-                            layout.tapDirection(
-                                position = down.position,
-                                canForward = canTurn(TurnDirection.FORWARD),
-                                canBackward = canTurn(TurnDirection.BACKWARD),
-                            )?.let(::launchAutomaticTurn)
-                        }
-                    } else {
-                        val session = dragSession ?: return@awaitEachGesture
-                        val velocity = tracker.calculateVelocity()
-                        val target = decideSettleTarget(
-                            direction = session.direction,
-                            pointerDisplacement = Point(
-                                x = (session.rawCurrent.x - session.rawStart.x).toDouble(),
-                                y = (session.rawCurrent.y - session.rawStart.y).toDouble(),
-                            ),
-                            velocityPxPerSecond = Point(velocity.x.toDouble(), velocity.y.toDouble()),
-                            pageWidthPx = layout.pageWidth.toDouble(),
-                            config = physicsConfig,
-                        )
-                        launchSettle(
-                            direction = session.direction,
-                            target = target,
-                            startPointer = session.pointer(layout),
-                            origin = session.origin,
-                            edgeAnchorY = session.edgeAnchorY,
-                            customAnchor = session.customAnchor,
-                        )
+                    } catch (cancelled: CancellationException) {
+                        dragSession = null
+                        throw cancelled
+                    } finally {
+                        gestureActive = false
                     }
                 }
             }
@@ -814,16 +885,16 @@ private fun PhysicalBookState.normalized(pageCount: Int): PhysicalBookState = wh
 
 private fun PhysicalBookState.toSavedPosition(pageCount: Int): Int = when (this) {
     PhysicalBookState.ClosedFront -> -1
-    PhysicalBookState.BackBoundary -> pageCount
-    PhysicalBookState.ClosedBack -> pageCount + 1
+    PhysicalBookState.BackBoundary -> -2
+    PhysicalBookState.ClosedBack -> -3
     is PhysicalBookState.Open -> semanticPageIndex.coerceIn(0, pageCount - 1)
 }
 
 private fun Int.toPhysicalBookState(pageCount: Int): PhysicalBookState = when {
-    this < 0 -> PhysicalBookState.ClosedFront
-    this == pageCount -> PhysicalBookState.BackBoundary
-    this > pageCount -> PhysicalBookState.ClosedBack
-    else -> PhysicalBookState.Open(semanticPageIndex = this)
+    this == -1 -> PhysicalBookState.ClosedFront
+    this == -2 -> PhysicalBookState.BackBoundary
+    this == -3 -> PhysicalBookState.ClosedBack
+    else -> PhysicalBookState.Open(semanticPageIndex = coerceIn(0, pageCount - 1))
 }
 
 private fun PhysicalBookState.toPhysicalBookPose(): PhysicalBookPose = when (this) {

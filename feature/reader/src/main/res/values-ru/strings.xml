@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="reader_paginating">Подготавливаем страницы…</string>
+    <string name="reader_page_progress_pending">Страница %1$d · подготавливаем остальные страницы</string>
+    <string name="reader_pagination_failed">Не удалось подготовить книгу.</string>
+    <string name="reader_missing_image">Изображение недоступно</string>
     <string name="reader_page_progress">Страница %1$d из %2$d</string>
     <string name="reader_page_number">%1$d</string>
     <string name="reader_book_accessibility">Интерактивная физическая книга</string>

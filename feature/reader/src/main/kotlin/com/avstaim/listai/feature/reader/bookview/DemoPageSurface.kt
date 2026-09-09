@@ -41,8 +41,9 @@ internal data class DemoPageSurface(
     val kind: DemoPageKind,
     val title: TextLayoutResult?,
     val body: TextLayoutResult?,
-    val footer: TextLayoutResult,
+    val footer: TextLayoutResult?,
     val imageAlternativeText: String?,
+    val paginated: PaginatedPageSurface? = null,
 ) : PageSurface
 
 @Composable
@@ -224,6 +225,10 @@ private fun DrawScope.drawPreparedContent(
     bounds: Rect,
     alpha: Float,
 ) {
+    surface.paginated?.let {
+        drawPaginatedPage(it, bounds, alpha)
+        return
+    }
     val horizontalPadding = bounds.width * 0.115f
     val topPadding = bounds.height * 0.075f
     val contentWidth = bounds.width - horizontalPadding * 2f
@@ -281,7 +286,7 @@ private fun DrawScope.drawPreparedContent(
         )
     }
 
-    val footer = surface.footer
+    val footer = surface.footer ?: return
     drawText(
         textLayoutResult = footer,
         topLeft = Offset(

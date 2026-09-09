@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +46,7 @@ import com.avstaim.listai.core.model.ParagraphRole
 import com.avstaim.listai.core.model.QuoteRole
 import com.avstaim.listai.core.model.plainText
 import com.avstaim.listai.feature.library.LibraryPlaceholderScreen
-import com.avstaim.listai.feature.reader.ReaderDemoScreen
+import com.avstaim.listai.feature.reader.ReaderScreen
 import com.avstaim.listai.format.fb2.Fb2BookParser
 import com.avstaim.listai.format.fb2.BookParseException
 import kotlinx.coroutines.CancellationException
@@ -66,6 +67,7 @@ fun ListaiApp(
     onReaderFullscreenChange: (Boolean) -> Unit = {},
 ) {
     var destination by rememberSaveable { mutableStateOf(AppDestination.READER) }
+    val readerStateHolder = rememberSaveableStateHolder()
     val readerFullscreenActive = destination == AppDestination.READER && readerFullscreen
 
     LaunchedEffect(destination) {
@@ -102,16 +104,18 @@ fun ListaiApp(
         },
     ) { contentPadding ->
         when (destination) {
-            AppDestination.READER -> ReaderDemoScreen(
-                modifier = if (readerFullscreenActive) {
-                    Modifier.fillMaxSize()
-                } else {
-                    Modifier.padding(contentPadding)
-                },
-                devicePosture = devicePosture,
-                isFullscreen = readerFullscreenActive,
-                onFullscreenChange = onReaderFullscreenChange,
-            )
+            AppDestination.READER -> readerStateHolder.SaveableStateProvider("reader") {
+                BundledBookReader(
+                    modifier = if (readerFullscreenActive) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier.padding(contentPadding)
+                    },
+                    devicePosture = devicePosture,
+                    isFullscreen = readerFullscreenActive,
+                    onFullscreenChange = onReaderFullscreenChange,
+                )
+            }
 
             AppDestination.LIBRARY -> LibraryPlaceholderScreen(
                 modifier = Modifier.padding(contentPadding),
@@ -127,6 +131,37 @@ fun ListaiApp(
 
 internal const val APP_BOTTOM_NAVIGATION_TAG = "app_bottom_navigation"
 internal const val APP_DIAGNOSTICS_NAVIGATION_TAG = "app_diagnostics_navigation"
+
+@Composable
+private fun BundledBookReader(
+    modifier: Modifier,
+    devicePosture: DevicePosture,
+    isFullscreen: Boolean,
+    onFullscreenChange: (Boolean) -> Unit,
+) {
+    val resources = LocalResources.current
+    var state by remember { mutableStateOf<Stage3PreviewState>(Stage3PreviewState.Loading) }
+    LaunchedEffect(resources) {
+        state = try {
+            Stage3PreviewState.Ready(withContext(Dispatchers.IO) {
+                resources.openRawResource(R.raw.stage4_reading_sample).use {
+                    Fb2BookParser().parse(it, "stage4_reading_sample.fb2")
+                }
+            })
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Stage3PreviewState.Failed(error.toLocalizedStage3Error())
+        }
+    }
+    when (val current = state) {
+        is Stage3PreviewState.Ready -> ReaderScreen(current.document, modifier, devicePosture,
+            isFullscreen = isFullscreen, onFullscreenChange = onFullscreenChange)
+        else -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(stringResource((current as? Stage3PreviewState.Failed)?.messageRes ?: R.string.diagnostics_fb2_loading))
+        }
+    }
+}
 
 @Composable
 private fun DestinationMarker(selected: Boolean) {

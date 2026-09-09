@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="reader_paginating">Preparing pages…</string>
+    <string name="reader_pagination_failed">Could not prepare this book.</string>
+    <string name="reader_missing_image">Image unavailable</string>
     <string name="reader_page_progress">Page %1$d of %2$d</string>
+    <string name="reader_page_progress_pending">Page %1$d · preparing remaining pages</string>
     <string name="reader_page_number">%1$d</string>
     <string name="reader_book_accessibility">Interactive physical book</string>
     <string name="reader_turn_forward_action">Turn the page forward</string>
