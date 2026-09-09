@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+    xmlns:l="http://www.w3.org/1999/xlink">
+    <description>
+        <title-info>
+            <genre>prose_contemporary</genre>
+            <author>
+                <first-name>Open Book</first-name>
+                <last-name>Workshop</last-name>
+            </author>
+            <book-title>The Atlas of Quiet Pages</book-title>
+            <annotation>
+                <p>A compact document bundled to exercise the stage 3 FB2 pipeline.</p>
+            </annotation>
+            <lang>en</lang>
+            <sequence name="Listai Samples" number="1" />
+            <coverpage>
+                <image l:href="#cover" />
+            </coverpage>
+        </title-info>
+        <document-info>
+            <author>
+                <nickname>Listai</nickname>
+            </author>
+            <program-used>Turn the Page stage 3 fixture</program-used>
+            <date value="2026-09-09">9 September 2026</date>
+            <id>listai-stage-3-preview</id>
+            <version>1.0</version>
+        </document-info>
+    </description>
+    <body>
+        <title>
+            <p>Quiet Pages</p>
+        </title>
+        <epigraph>
+            <p>A page begins as silence.</p>
+            <text-author>Open Book Workshop</text-author>
+        </epigraph>
+        <section id="chapter-one">
+            <title>
+                <p>Chapter One</p>
+            </title>
+            <p>This is <emphasis>real parsed text</emphasis>, with a
+                <strong>format-neutral model</strong> and a
+                <a l:href="#note-one" type="note">basic note</a>.</p>
+            <subtitle>A small subtitle</subtitle>
+            <cite>
+                <p>Unknown presentation details stay outside the parser.</p>
+                <text-author>Architecture note</text-author>
+            </cite>
+            <poem>
+                <title><p>Paper</p></title>
+                <stanza>
+                    <v>White leaf, quiet light,</v>
+                    <v>Words wait for the reader.</v>
+                </stanza>
+                <text-author>Listai</text-author>
+            </poem>
+            <image l:href="#cover" alt="A tiny cover fixture" />
+            <empty-line />
+            <section id="chapter-one-detail">
+                <title><p>A Nested Section</p></title>
+                <p>Its location is also represented in the table of contents.</p>
+            </section>
+        </section>
+    </body>
+    <body name="notes">
+        <section id="note-one">
+            <title><p>Note 1</p></title>
+            <p>A note remains addressable without becoming a main-body block.</p>
+        </section>
+    </body>
+    <binary id="cover" content-type="image/png">
+        iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+    </binary>
+</FictionBook>

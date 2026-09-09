@@ -78,6 +78,28 @@ internal fun BookDocument.toDemoPages(): List<DemoPageUiModel> {
                 kind = DemoPageKind.IMAGE,
             )
 
+            is BookBlock.Quote -> DemoPageUiModel(
+                stableId = block.id.value,
+                title = null,
+                body = block.plainText(),
+                imageAlternativeText = null,
+                kind = DemoPageKind.TEXT,
+            )
+
+            is BookBlock.Poem -> DemoPageUiModel(
+                stableId = block.id.value,
+                title = block.title
+                    .joinToString(separator = "\n") { it.plainText() }
+                    .ifBlank { null },
+                body = block.stanzas.joinToString(separator = "\n\n") { it.plainText() } +
+                    block.textAuthors
+                        .joinToString(separator = "\n", prefix = "\n") { it.plainText() }
+                        .takeIf { block.textAuthors.isNotEmpty() }
+                        .orEmpty(),
+                imageAlternativeText = null,
+                kind = DemoPageKind.TEXT,
+            )
+
             is BookBlock.Spacer -> DemoPageUiModel(
                 stableId = block.id.value,
                 title = null,

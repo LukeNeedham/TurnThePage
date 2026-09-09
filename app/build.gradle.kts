@@ -55,14 +55,17 @@ android {
 dependencies {
     implementation(project(":core:adaptive"))
     implementation(project(":core:designsystem"))
+    implementation(project(":core:model"))
     implementation(project(":feature:library"))
     implementation(project(":feature:reader"))
+    implementation(project(":format:fb2"))
 
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)

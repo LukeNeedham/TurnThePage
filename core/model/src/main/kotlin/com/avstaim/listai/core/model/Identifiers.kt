@@ -22,5 +22,13 @@ value class ImageId(val value: String) {
 }
 
 @JvmInline
-value class PageId(val value: Long)
+value class NoteId(val value: String) {
+    init {
+        require(value.isNotBlank() && value == value.trim() && '#' !in value) {
+            "NoteId must be normalized and must not contain '#'"
+        }
+    }
+}
 
+@JvmInline
+value class PageId(val value: Long)

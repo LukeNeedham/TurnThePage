@@ -1,4 +1,4 @@
-# Архитектурные решения этапов 0–2
+# Архитектурные решения этапов 0–3
 
 ## Границы слоёв
 
@@ -136,3 +136,67 @@ preview/screenshot/test сценариев; продуктовый путь ис
   поэтому `connectedDebugAndroidTest`, реальные hinge bounds и переходы
   flat ↔ half-opened на Fold не запускались. Для аппаратной приёмки нужен ручной
   smoke-test на одном Fold в flat, book и tabletop posture, включая resize/split-screen.
+
+## Stage 3 Internal Book Model + FB2
+
+### Нейтральная модель документа
+
+`:core:model` остаётся чистым Kotlin и не содержит XML-, FB2-, Android- или
+Base64-типов. `BookDocument` хранит основной поток отдельно от `notes`, индексирует
+изображения и сноски по типизированным идентификаторам и предоставляет:
+
+- метаданные title/authors/language/genres/annotation/sequence/cover/document id;
+- абзацы с ролями, заголовки, пустые строки, изображения, cite/epigraph и poem;
+- inline text/emphasis/strong/strikethrough/image и типизированные link targets;
+- иерархическое оглавление и XML anchors через стабильный `BookLocation`;
+- ленивый `BookBinaryContent`, который возвращает декодированные bytes без утечки
+  способа хранения в pagination/rendering.
+
+`BookLocation.charOffset` и `fallbackGlobalOffset` измеряются в UTF-16 code units,
+как индексы Kotlin `String`. Все block id уникальны глобально, включая вложенные
+цитаты и сноски; TOC может ссылаться только на основной поток. Неразрешённая
+внутренняя ссылка сохраняется отдельным типом и не делает книгу нечитаемой.
+
+### Потоковый parser и контейнер ZIP
+
+`:format:fb2` использует namespace-aware SAX прямо над исходным `InputStream`,
+поэтому XML declaration, BOM, UTF-8/UTF-16 и legacy encodings обрабатывает XML
+reader, а полный DOM не строится. Разбор выполняется на IO dispatcher и не забирает
+владение переданным stream.
+
+Поддерживаются `.fb2`, `.fb2.zip` и ZIP, распознанный по сигнатуре. Архив временно
+spool-ится в ограниченный файл, чтобы выбрать FB2 детерминированно: лексикографически
+первый путь без учёта порядка записей в ZIP. Диалог выбора для архива с несколькими
+FB2 пока сознательно не входит в scope. Nested archives отклоняются.
+
+Parser ограничивает размер исходника и архива, заявленные размеры ZIP entries,
+заявленный коэффициент сжатия, фактически прочитанный размер выбранного FB2 и объём
+binary. DTD и external entities запрещены независимо от неодинаковой поддержки SAX
+features на JDK и Android. Ошибки формата, структуры, пустого архива и resource
+limits представлены типизированными `BookParseException`, которые UI переводит в
+локализованный текст.
+
+### Семантика FB2
+
+Основной `body` преобразуется в последовательность независимых блоков. Именованный
+`body name="notes"` не попадает в reading flow. Вложенные `section/title` формируют
+TOC, ссылки `xlink:href` разрешаются после полного прохода, а неизвестные inline
+обёртки сохраняют дочерний текст. `<binary>` индексируется по id без декодирования;
+первый `load()` кеширует как успех, так и ошибку, поэтому битый base64 не валит
+остальной документ.
+
+На экране «Диагностика» встроенный fixture отображает метаданные, TOC, типы блоков,
+сноски и состояние ленивых изображений. Это временный stream view этапа 3, а не
+обход пагинации: соединение настоящего `BookDocument` с `BookView` выполняется на
+этапе 4.
+
+### Проверка и ограничения
+
+- JVM-тесты покрывают модель, metadata, namespaces, nested inline SAX chunks,
+  rich blocks, TOC, notes, links, lazy binary cache, encodings, malformed/hostile XML
+  и граничные случаи ZIP.
+- Android instrumentation smoke-test разбирает raw, windows-1251 и ZIP fixtures
+  системным SAX implementation.
+- Выбор одного FB2 из multi-book ZIP пока детерминированный, без UI.
+- Импорт через SAF и копирование исходника в private app storage начинаются на
+  этапе импорта; stage 3 принимает уже открытый `InputStream`.

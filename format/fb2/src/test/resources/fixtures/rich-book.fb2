@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+             xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>science_fiction</genre>
+      <genre>prose</genre>
+      <author>
+        <first-name>Ада</first-name>
+        <middle-name>М.</middle-name>
+        <last-name>Лавлейс</last-name>
+      </author>
+      <author><nickname>Second Author</nickname></author>
+      <book-title>Карта тихих страниц</book-title>
+      <annotation>
+        <p>Первая строка <emphasis>аннотации</emphasis>.</p>
+        <p>Вторая строка.</p>
+      </annotation>
+      <coverpage><image l:href="#cover.png"/></coverpage>
+      <lang>ru</lang>
+      <sequence name="Quiet Atlas" number="3"/>
+    </title-info>
+    <document-info><id>rich-document-id</id></document-info>
+  </description>
+  <body>
+    <section id="chapter-one">
+      <title><p>Глава <emphasis>первая</emphasis></p></title>
+      <p id="opening">Обычный <emphasis>курсив</emphasis>, <strong>жирный</strong>,
+        <strikethrough>зачёркнутый</strikethrough> и <future-inline>сохранённый текст</future-inline>.
+        <a l:href="#note-one" type="note">Сноска</a>,
+        <a l:href="#chapter-two">переход</a>,
+        <a l:href="#missing-anchor">битая ссылка</a> и
+        <a l:href="https://example.com/reference">внешняя ссылка</a>.
+        <image l:href="#inline.png" alt="inline icon"/>
+      </p>
+      <subtitle>Подзаголовок</subtitle>
+      <epigraph id="epigraph-one">
+        <p>У каждой книги есть дверь.</p>
+        <text-author>Неизвестный читатель</text-author>
+      </epigraph>
+      <cite><p>Цитируемый абзац.</p></cite>
+      <poem id="poem-one">
+        <title><p>Песня страницы</p></title>
+        <stanza>
+          <v id="verse-one">Первая строка</v>
+          <v>Вторая <emphasis>строка</emphasis></v>
+        </stanza>
+        <text-author>Поэт</text-author>
+      </poem>
+      <image l:href="#illustration.jpg" alt="Иллюстрация"/>
+      <empty-line/>
+      <section id="chapter-two">
+        <title><p>Глава вторая</p></title>
+        <p id="ending">Последний абзац.</p>
+      </section>
+    </section>
+  </body>
+  <body name="notes">
+    <section id="note-one">
+      <title><p>Сноска 1</p></title>
+      <p>Текст сноски.</p>
+    </section>
+  </body>
+  <binary id="cover.png" content-type="image/png">AQIDBA==</binary>
+  <binary id="inline.png" content-type="image/png"> BQYH </binary>
+  <binary id="illustration.jpg" content-type="image/jpeg">CAkK</binary>
+  <binary id="broken.png" content-type="image/png">%%% definitely not base64 %%%</binary>
+</FictionBook>

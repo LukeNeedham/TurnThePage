@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -115,6 +116,19 @@ class ReaderDemoTest {
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreVisible() }
         assertEquals(positionBeforeFullscreen, pageState())
+    }
+
+    @Test
+    fun diagnosticsScreenParsesAndDisplaysBundledFb2() {
+        composeRule.onNodeWithTag(APP_DIAGNOSTICS_NAVIGATION_TAG).performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag(STAGE3_DIAGNOSTICS_READY_TAG)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        composeRule.onNodeWithTag(STAGE3_DIAGNOSTICS_READY_TAG).assertIsDisplayed()
+        composeRule.onNodeWithTag(STAGE3_DIAGNOSTICS_ERROR_TAG).assertDoesNotExist()
     }
 
     @Test
