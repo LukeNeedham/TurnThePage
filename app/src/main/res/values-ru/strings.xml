@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Листай</string>
+    <string name="destination_reader">Демо книги</string>
+    <string name="destination_library">Библиотека</string>
+    <string name="destination_diagnostics">Диагностика</string>
+    <string name="diagnostics_title">Диагностика этапа 2</string>
+    <string name="diagnostics_description">Физическая книга учитывает текущий размер окна и геометрию сгиба. Тяните из любой точки страницы или коснитесь нужной стороны.</string>
+    <string name="diagnostics_package">Пакет</string>
+    <string name="diagnostics_platform">Платформа</string>
+    <string name="diagnostics_platform_value">Android 8.0+ / API 26–36</string>
+    <string name="diagnostics_posture">Положение окна</string>
+    <string name="diagnostics_posture_unknown">В этом окне нет сгиба</string>
+    <string name="diagnostics_posture_flat">Плоский сгиб или шарнир</string>
+    <string name="diagnostics_posture_half_opened">Полусложенное устройство</string>
+    <string name="diagnostics_renderer">Рендер</string>
+    <string name="diagnostics_renderer_value">Canvas curl / прямое управление</string>
+    <string name="diagnostics_fake_book">Демо-документ</string>
+    <string name="diagnostics_fake_book_value">32 детерминированных листа</string>
+</resources>

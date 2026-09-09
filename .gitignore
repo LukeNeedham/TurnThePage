@@ -1,0 +1,33 @@
+# Android Studio and local tooling
+*.iml
+.idea/
+.gradle/
+.kotlin/
+.agents/
+.codex/
+local.properties
+
+# Build outputs and generated files
+build/
+**/build/
+out/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.hprof
+benchmark-data/
+
+# Signing keys and local secrets
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+.env
+.env.*
+!.env.example
+
+# Operating-system files
+.DS_Store
+Thumbs.db

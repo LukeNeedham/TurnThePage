@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_placeholder_title">Your library</string>
+    <string name="library_placeholder_message">FB2 import and saved books will arrive in stage 6.</string>
+</resources>
+

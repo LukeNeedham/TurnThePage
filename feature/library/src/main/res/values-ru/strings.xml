@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_placeholder_title">Ваша библиотека</string>
+    <string name="library_placeholder_message">Импорт FB2 и сохранённые книги появятся на этапе 6.</string>
+</resources>
+
