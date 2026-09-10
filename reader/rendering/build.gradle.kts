@@ -19,5 +19,6 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":reader:pagination"))
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
 }

@@ -67,6 +67,9 @@ interface BlockMeasurement {
     val width: Float
 }
 
+/** The persistent index must not retain platform text layouts, paints, bitmaps or decoded images. */
+data class MeasurementMetrics(override val lines: List<MeasuredLine>, override val width: Float) : BlockMeasurement
+
 fun interface BlockMeasurer {
     fun measure(block: FlowBlock, key: LayoutKey): BlockMeasurement
 }

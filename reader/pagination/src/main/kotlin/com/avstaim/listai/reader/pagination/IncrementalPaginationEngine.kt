@@ -58,6 +58,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
             val measured = nextMeasurement ?: measurer.measure(block, layoutKey)
             nextMeasurement = null
             require(measured.lines.isNotEmpty() && measured.width.isFinite() && measured.width > 0)
+            val metrics = MeasurementMetrics(measured.lines, measured.width)
             if (block.source is BookBlock.Heading) {
                 val following = flow.getOrNull(blockIndex + 1)?.let { measurer.measure(it, layoutKey) }
                 nextMeasurement = following
@@ -86,7 +87,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
                 fragments += PageBlockLayout(block.source.id, first.start, last.endExclusive,
                     layoutKey.marginX + (layoutKey.contentWidth - measured.width * scale) / 2f,
                     layoutKey.marginY + y, measured.width * scale, height,
-                    lineIndex, endLine, scale, measured)
+                    lineIndex, endLine, scale, metrics)
                 y += height
                 lineIndex = endLine
                 if (lineIndex < measured.lines.size) finishPage()

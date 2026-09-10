@@ -67,6 +67,9 @@ fun ReaderScreen(
 val ReaderSemanticLocation = SemanticsPropertyKey<String>("ReaderSemanticLocation")
 val ReaderPaginationComplete = SemanticsPropertyKey<Boolean>("ReaderPaginationComplete")
 val ReaderLayoutIdentity = SemanticsPropertyKey<String>("ReaderLayoutIdentity")
+val ReaderCacheBytes = SemanticsPropertyKey<Long>("ReaderCacheBytes")
+val ReaderCachedPages = SemanticsPropertyKey<Int>("ReaderCachedPages")
+val ReaderSurfaceRenders = SemanticsPropertyKey<Long>("ReaderSurfaceRenders")
 
 @Composable
 private fun ReaderBookScreen(

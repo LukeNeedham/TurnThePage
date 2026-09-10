@@ -39,6 +39,20 @@ class IncrementalPaginationEngineTest {
         assertEquals(a.size, a.map { it.id }.toSet().size)
     }
 
+    @Test fun pageIndexDetachesHeavyMeasurementObjectsButKeepsExactLineMetrics() = runBlocking {
+        val measured = mutableListOf<BlockMeasurement>()
+        val engine = IncrementalPaginationEngine { block, layout ->
+            measurer.measure(block, layout).also { measured += it }
+        }
+        val pages = engine.paginate(longBook, null, key).last().pages
+        val fragments = pages.flatMap { it.blocks }
+        assertTrue(fragments.all { it.measurement is MeasurementMetrics })
+        assertTrue(fragments.none { fragment -> measured.any { it === fragment.measurement } })
+        val first = fragments.first().measurement
+        assertEquals(measured.first().lines, first.lines)
+        assertTrue(fragments.filter { it.blockId == BlockId("p0") }.all { it.measurement === first })
+    }
+
     @Test fun paragraphFragmentsCoverSourceExactlyWithoutOverlapsOrMissingCharacters() = runBlocking {
         val source = paragraph("body", 1801)
         val pages = engine.paginate(book(source), null, key).last().pages

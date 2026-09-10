@@ -7,8 +7,12 @@ import android.text.style.StyleSpan
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.reader.pagination.*
+import com.avstaim.listai.reader.rendering.cache.SurfaceStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,17 +35,18 @@ class AndroidPaginationTest {
         assertEquals(source.plainText(), fragments.joinToString("") {
             source.plainText().substring(it.startCharOffset, it.endCharOffsetExclusive)
         })
-        val measurement = fragments.first().measurement as AndroidTextMeasurement
+        val measurement = AndroidBookMeasurer(document, "Нет изображения")
+            .measure(document.readingFlow().first(), key) as AndroidTextMeasurement
         val spans = measurement.layout.text as Spanned
         assertEquals(2, spans.getSpans(0, spans.length, StyleSpan::class.java).size)
         fragments.forEach {
             assertFalse(it.startCharOffset > 0 && Character.isLowSurrogate(source.plainText()[it.startCharOffset]))
             assertTrue(it.y + it.height <= key.marginY + key.contentHeight + .001f)
         }
-        // The exact measured object is reused across fragments and can draw without remeasurement.
-        assertTrue(fragments.all { it.measurement === measurement })
-        val bitmap = Bitmap.createBitmap(key.pageWidthPx, key.pageHeightPx, Bitmap.Config.ARGB_8888)
-        measurement.layout.draw(Canvas(bitmap))
+        // All fragments share numeric metrics, never a retained StaticLayout or decoded image.
+        assertTrue(fragments.all { it.measurement is MeasurementMetrics })
+        assertTrue(fragments.all { it.measurement === fragments.first().measurement })
+        val bitmap = AndroidPageRasterizer(document, key, "Нет изображения").render(pages.first()).bitmap
         assertTrue((0 until bitmap.height).any { y -> (0 until bitmap.width).any { x -> bitmap.getPixel(x, y) != 0 } })
     }
 
@@ -55,7 +60,12 @@ class AndroidPaginationTest {
         val page = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Нет изображения"))
             .paginate(document, null, key).last().pages.single()
         assertEquals(1, loads)
-        val measured = page.blocks.single().measurement as AndroidImageMeasurement
+        assertTrue(page.blocks.single().measurement is MeasurementMetrics)
+        val boundsOnly = AndroidBookMeasurer(document, "Нет изображения")
+            .measure(document.readingFlow().first(), key) as AndroidImageMeasurement
+        assertNull(boundsOnly.bitmap)
+        val measured = AndroidBookMeasurer(document, "Нет изображения", decodeImages = true)
+            .measure(document.readingFlow().first(), key) as AndroidImageMeasurement
         assertNotNull(measured.bitmap)
         assertTrue(requireNotNull(measured.bitmap).width < 1200)
         assertTrue(measured.width <= key.contentWidth && measured.height <= key.contentHeight)
@@ -68,10 +78,60 @@ class AndroidPaginationTest {
         val document = doc(source, following)
         val pages = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Нет изображения"))
             .paginate(document, null, key).last().pages
-        val measured = pages.first().blocks.first().measurement as AndroidImageMeasurement
+        assertTrue(pages.first().blocks.first().measurement is MeasurementMetrics)
+        val measured = AndroidBookMeasurer(document, "Нет изображения", decodeImages = true)
+            .measure(document.readingFlow().first(), key) as AndroidImageMeasurement
         assertNull(measured.bitmap)
         assertNotNull(measured.placeholder)
         assertTrue(pages.flatMap { it.blocks }.any { it.blockId == following.id })
+        val surface = AndroidPageRasterizer(document, key, "Нет изображения").render(pages.first())
+        assertTrue(surface.accessibleText.contains("Недоступная иллюстрация"))
+        assertTrue(surface.accessibleText.contains("Текст продолжается."))
+    }
+
+    @Test fun renderingRepeatedFramesUsesTheSameBitmapWithoutTextLayoutOrDecoding() = runBlocking {
+        val document = doc(BookBlock.Paragraph(BlockId("p"), listOf(InlineNode.Text("Тихий город. ".repeat(100)))))
+        val pages = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Нет изображения"))
+            .paginate(document, null, key).last().pages
+        val rasterizer = AndroidPageRasterizer(document, key, "Нет изображения")
+        val first = rasterizer.render(pages.first())
+        rasterizer.render(pages[1])
+        assertEquals(1L, rasterizer.measureCount)
+        val target = Bitmap.createBitmap(key.pageWidthPx, key.pageHeightPx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(target)
+        val bounds = android.graphics.RectF(0f, 0f, key.pageWidthPx.toFloat(), key.pageHeightPx.toFloat())
+        repeat(120) { first.drawTo(canvas, bounds) }
+        assertEquals(1L, rasterizer.measureCount)
+        assertEquals(2L, rasterizer.renderCount)
+        assertTrue(first.accessibleText.startsWith("Тихий город."))
+        assertFalse(first.bitmap.isRecycled)
+    }
+
+    @Test fun hugeViewportIsResolutionCappedAndEvictionDoesNotRecycleAnActiveLeaf() = runBlocking {
+        val document = doc(*Array(40) { BookBlock.Paragraph(BlockId("p$it"),
+            listOf(InlineNode.Text("Белые страницы хранят историю. ".repeat(50)))) })
+        val largeKey = key.copy(pageWidthPx = 4000, pageHeightPx = 4000, density = 5f, pageMode = PageMode.SPREAD)
+        val pages = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Нет изображения"))
+            .paginate(document, null, largeKey).last().pages
+        assertTrue(pages.size >= 12)
+        val rasterizer = AndroidPageRasterizer(document, largeKey, "Нет изображения")
+        val store = SurfaceStore<Int, PaginatedPageSurface>(this, Dispatchers.Default, PAGE_CACHE_BYTES, { it.byteCount }) {
+            rasterizer.render(pages[it])
+        }
+        try {
+            store.request((0..5).toList(), listOf(6, 7))
+            val first = withTimeout(15_000) { store.state.first { 7 in it.values } }.values.getValue(0)
+            assertTrue(first.bitmap.width.toLong() * first.bitmap.height <= 2_097_152)
+            assertTrue(first.byteCount <= 8L * 1024 * 1024)
+            store.request((6..11).toList())
+            withTimeout(15_000) { store.state.first { 11 in it.values } }
+            assertTrue(store.state.value.bytes <= PAGE_CACHE_BYTES)
+            assertTrue(store.state.value.evictions > 0)
+            store.trimMemory()
+            assertEquals((6..11).toSet(), store.state.value.values.keys)
+            assertFalse(first.bitmap.isRecycled)
+            assertTrue(first.bitmap.getPixel(0, 0) == 0) // Transparent surface; white paper is a separate layer.
+        } finally { store.close() }
     }
 
     @Test fun reflowUsesSourceAnchorAndCoverPoseInsteadOfObsoletePageIndex() = runBlocking {

@@ -50,10 +50,11 @@ internal data class AndroidImageMeasurement(
     override val lines = listOf(MeasuredLine(0, sourceLength, 0f, height))
 }
 
-/** Built on the pagination dispatcher. Drawing reuses these exact layouts, including source spans. */
+/** Worker-only layout. Pagination keeps metrics; the rasterizer briefly caches native objects. */
 internal class AndroidBookMeasurer(
     private val document: BookDocument,
     private val missingImageLabel: String,
+    private val decodeImages: Boolean = false,
 ) : BlockMeasurer {
     // API 36's IntDefs name LineBreaker constants; these inline to the identical Layout values
     // supported since APIs 23 (break strategy) and 26 (justification). No API 29 object is used.
@@ -112,10 +113,11 @@ internal class AndroidBookMeasurer(
         var sample = 1
         if (valid) while (sample < (1 shl 29) && bounds.outWidth / (sample * 2) >= targetWidth &&
             bounds.outHeight / (sample * 2) >= targetHeight) sample *= 2
-        val bitmap = if (valid && bytes != null) runCatching {
+        while (valid && bounds.outWidth.toLong() / sample * (bounds.outHeight / sample) > 2_000_000L) sample *= 2
+        val bitmap = if (decodeImages && valid && bytes != null) runCatching {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
         }.getOrNull() else null
-        val placeholder = if (bitmap == null) {
+        val placeholder = if (decodeImages && bitmap == null) {
             val text = source.alternativeText?.takeIf { it.isNotBlank() } ?: missingImageLabel
             StaticLayout.Builder.obtain(text, 0, text.length, textPaint(key, Typeface.ITALIC, .85f), key.contentWidth)
                 .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(3).build()

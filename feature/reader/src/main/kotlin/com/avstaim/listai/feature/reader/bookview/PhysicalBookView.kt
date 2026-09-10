@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,9 @@ import com.avstaim.listai.feature.reader.R
 import com.avstaim.listai.feature.reader.ReaderSemanticLocation
 import com.avstaim.listai.feature.reader.ReaderPaginationComplete
 import com.avstaim.listai.feature.reader.ReaderLayoutIdentity
+import com.avstaim.listai.feature.reader.ReaderCacheBytes
+import com.avstaim.listai.feature.reader.ReaderCachedPages
+import com.avstaim.listai.feature.reader.ReaderSurfaceRenders
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
 import com.avstaim.listai.reader.rendering.geometry.Point
@@ -240,6 +245,9 @@ internal fun PhysicalBookView(
         }
         var savedBookPosition by savedPositionState
         val bookState = savedBookPosition.toPhysicalBookState(preparedPages.size)
+        SideEffect {
+            if (!gestureActive && dragSession == null && settleSession == null) pagination?.request(bookState, presentation)
+        }
         val settleFraction = remember { Animatable(0f) }
         val geometryEngine = remember { PageCurlGeometryEngine() }
         val physicsConfig = remember { PageTurnPhysicsConfig() }
@@ -254,11 +262,12 @@ internal fun PhysicalBookView(
 
         fun transition(direction: TurnDirection): PhysicalBookTransition? =
             navigator.transition(bookState, direction, presentation)?.takeIf { transition ->
-                if (ready == null || ready.snapshot.complete || direction == TurnDirection.BACKWARD) true
+                val indexed = if (ready == null || ready.snapshot.complete || direction == TurnDirection.BACKWARD) true
                 else (transition.to as? PhysicalBookState.Open)?.let { target ->
                     val anchor = navigator.layoutAnchor(target, presentation) ?: 0
                     anchor + (if (presentation == BookPresentation.SPREAD && anchor > 0) 1 else 0) < preparedPages.size
                 } == true
+                indexed && visiblePageIndices(transition.to, presentation, preparedPages.size).all { preparedPages[it] != null }
             }
 
         fun canTurn(direction: TurnDirection): Boolean = transition(direction) != null
@@ -327,6 +336,7 @@ internal fun PhysicalBookView(
                 if (finished?.target == SettleTarget.COMPLETE) {
                     savedBookPosition = finished.completedState.toSavedPosition(preparedPages.size)
                     ready?.let { readingPosition?.commit(finished.completedState, it.snapshot) }
+                    pagination?.request(finished.completedState, presentation, finished.direction)
                 }
                 settleSession = null
                 settleFraction.snapTo(0f)
@@ -378,6 +388,12 @@ internal fun PhysicalBookView(
                 this[ReaderSemanticLocation] = "${anchor.blockId.value}:${anchor.charOffset}:${anchor.fallbackGlobalOffset}"
                 this[ReaderPaginationComplete] = it.snapshot.complete
                 this[ReaderLayoutIdentity] = it.snapshot.key.toString()
+                this[ReaderCacheBytes] = it.cacheBytes
+                this[ReaderCachedPages] = it.cachedPages
+                this[ReaderSurfaceRenders] = it.renderedPages
+                text = AnnotatedString(visiblePageIndices(bookState, presentation, preparedPages.size).mapNotNull { index ->
+                    preparedPages[index]?.paginated?.accessibleText
+                }.joinToString("\n\n"))
             }
             // A tap on the outside of the back cover is deliberately reserved for the future
             // "return to shelf" action. The book can still be reopened with a backward swipe or
@@ -400,7 +416,7 @@ internal fun PhysicalBookView(
         }
 
         val gestureModifier = if (previewTurn == null) {
-            Modifier.pointerInput(layout, savedBookPosition, preparedPages.size, presentation) {
+            Modifier.pointerInput(layout, savedBookPosition, preparedPages.size, presentation, ready?.interactionToken) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     gestureActive = true
@@ -629,7 +645,7 @@ internal fun PhysicalBookView(
 }
 
 private fun resolveTurn(
-    pages: List<DemoPageSurface>,
+    pages: List<DemoPageSurface?>,
     coverSurface: ExternalBookCoverSurface,
     state: PhysicalBookState,
     transition: PhysicalBookTransition?,
@@ -799,7 +815,7 @@ private fun resolveTurn(
 }
 
 private fun visibleBookSurfaces(
-    pages: List<DemoPageSurface>,
+    pages: List<DemoPageSurface?>,
     coverSurface: ExternalBookCoverSurface,
     state: PhysicalBookState,
     presentation: BookPresentation,

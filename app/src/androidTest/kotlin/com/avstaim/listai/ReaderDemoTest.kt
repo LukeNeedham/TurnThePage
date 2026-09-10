@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
@@ -20,11 +21,20 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.designsystem.ListaiTheme
+import com.avstaim.listai.core.model.BookBlock
+import com.avstaim.listai.core.model.BlockId
+import com.avstaim.listai.core.model.BookDocument
+import com.avstaim.listai.core.model.BookId
+import com.avstaim.listai.core.model.BookMetadata
+import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.feature.reader.ReaderDemoScreen
+import com.avstaim.listai.feature.reader.ReaderScreen
 import com.avstaim.listai.feature.reader.ReaderPresentationMode
 import com.avstaim.listai.feature.reader.ReaderSemanticLocation
 import com.avstaim.listai.feature.reader.ReaderPaginationComplete
 import com.avstaim.listai.feature.reader.ReaderLayoutIdentity
+import com.avstaim.listai.feature.reader.ReaderCacheBytes
+import com.avstaim.listai.feature.reader.ReaderSurfaceRenders
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -142,6 +152,54 @@ class ReaderDemoTest {
         requestOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, Configuration.ORIENTATION_PORTRAIT)
         waitForPaginatedBook()
         assertEquals(anchor, semanticLocation())
+    }
+
+    @Test
+    fun realBitmapPagesStayPinnedDuringDragAndLongWalkRespectsMemoryBudget() {
+        val document = BookDocument(BookId("cache-walk"), BookMetadata("Проверка кэша", language = "ru"),
+            List(60) { index -> BookBlock.Paragraph(BlockId("p$index"), listOf(InlineNode.Text(
+                "Запись $index. Белые страницы хранят историю дороги через лес. ".repeat(30)))) })
+        composeRule.runOnUiThread {
+            composeRule.activity.setContent {
+                ListaiTheme { ReaderScreen(document, presentationMode = ReaderPresentationMode.SINGLE) }
+            }
+        }
+        waitForPaginatedBook()
+        val book = composeRule.onNodeWithTag(BOOK_TAG)
+        val initial = semanticLocation()
+        book.performTouchInput {
+            down(Offset(width * .58f, height * .52f))
+            advanceEventTime(SLOW_EVENT_DELAY_MS)
+            moveTo(Offset(width * .38f, height * .52f), delayMillis = SLOW_EVENT_DELAY_MS)
+        }
+        composeRule.waitForIdle()
+        val pinned = book.fetchSemanticsNode().config[ReaderSurfaceRenders]
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.waitForIdle()
+        assertEquals(pinned, book.fetchSemanticsNode().config[ReaderSurfaceRenders])
+        assertEquals(initial, semanticLocation())
+        book.performTouchInput { cancel() }
+        composeRule.waitForIdle()
+
+        repeat(20) {
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                book.fetchSemanticsNode().config.contains(SemanticsActions.OnClick)
+            }
+            val before = semanticLocation()
+            book.performClick()
+            composeRule.waitUntil(timeoutMillis = 10_000) { semanticLocation() != before }
+            assertTrue(book.fetchSemanticsNode().config[ReaderCacheBytes] <= 64L * 1024 * 1024)
+            assertTrue(book.fetchSemanticsNode().config[SemanticsProperties.Text].any { it.text.isNotBlank() })
+        }
+        repeat(20) {
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                book.fetchSemanticsNode().config[SemanticsActions.CustomActions].size == 2
+            }
+            val before = semanticLocation()
+            book.performTouchInput { click(Offset(width * .25f, height * .5f)) }
+            composeRule.waitUntil(timeoutMillis = 10_000) { semanticLocation() != before }
+        }
+        assertEquals(initial, semanticLocation())
     }
 
     private fun waitForPaginatedBook() {
