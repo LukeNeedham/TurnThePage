@@ -13,8 +13,14 @@ kotlinx-coroutines = "1.10.2"
 lifecycle = "2.10.0"
 screenshot = "0.0.1-alpha15"
 window = "1.5.1"
+room = "2.8.4"
+datastore = "1.2.1"
+ksp = "2.3.9"
 
 [libraries]
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
 androidx-benchmark-macro-junit4 = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "benchmark" }
 androidx-compose-animation-core = { module = "androidx.compose.animation:animation-core" }
@@ -38,6 +44,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 screenshot-validation-api = { module = "com.android.tools.screenshot:screenshot-validation-api", version.ref = "screenshot" }
 
 [plugins]
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 android-test = { id = "com.android.test", version.ref = "agp" }

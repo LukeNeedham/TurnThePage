@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="library_import_in_progress">Another book is being imported. Wait for it to finish or cancel the import in the library.</string>
+    <string name="library_error_title">Could not complete the operation</string>
+    <string name="library_error_access">This file is no longer available. Choose it again from the library.</string>
+    <string name="library_error_too_large">This book exceeds the supported size or complexity limits.</string>
+    <string name="library_error_empty_zip">This ZIP archive contains no FB2 book.</string>
+    <string name="library_error_invalid">This file is not a valid FB2 book or supported ZIP archive.</string>
+    <string name="library_error_storage">Could not read or save book data. Check available storage and try again.</string>
+    <string name="action_ok">OK</string>
+    <string name="action_close">Close</string>
+    <string name="reader_add_bookmark">Add bookmark</string>
+    <string name="reader_bookmarks">Bookmarks</string>
+    <string name="reader_no_bookmarks">No bookmarks yet. Add one from the current page.</string>
+    <string name="reader_bookmark_location">Saved location</string>
+    <string name="reader_delete_bookmark">Delete</string>
     <string name="app_name">Turn the Page</string>
     <string name="destination_reader">Book</string>
     <string name="destination_library">Library</string>

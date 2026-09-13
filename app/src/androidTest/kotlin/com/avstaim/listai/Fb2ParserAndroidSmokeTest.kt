@@ -52,6 +52,46 @@ class Fb2ParserAndroidSmokeTest {
     }
 
     @Test
+    fun androidSaxHonorsUtf16ByteOrderMarks() = runBlocking {
+        val xml = """<?xml version="1.0" encoding="UTF-16"?>
+            <FictionBook>
+              <description><title-info><book-title>Тихая книга</book-title></title-info></description>
+              <body><section><p>Русский текст ёж</p></section></body>
+            </FictionBook>
+        """.trimIndent()
+        val encodings = listOf(
+            Charsets.UTF_16BE to byteArrayOf(0xfe.toByte(), 0xff.toByte()),
+            Charsets.UTF_16LE to byteArrayOf(0xff.toByte(), 0xfe.toByte()),
+        )
+        for ((charset, bom) in encodings) {
+            val document = Fb2BookParser().parse(ByteArrayInputStream(bom + xml.toByteArray(charset)))
+            assertEquals(charset.name(), "Тихая книга", document.metadata.title)
+            assertEquals(charset.name(), "Русский текст ёж", document.blocks.single().plainText())
+        }
+    }
+
+    @Test
+    fun androidSaxHonorsLegacyEncodingInsideZip() = runBlocking {
+        val xml = """<?xml version='1.0' encoding = 'windows-1251'?>
+            <FictionBook>
+              <description><title-info><book-title>Тихая книга</book-title></title-info></description>
+              <body><section><p>Русский текст ёж</p></section></body>
+            </FictionBook>
+        """.trimIndent().toByteArray(Charset.forName("windows-1251"))
+        val archive = ByteArrayOutputStream().also { output ->
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry("book.fb2"))
+                zip.write(xml)
+                zip.closeEntry()
+            }
+        }.toByteArray()
+        val document = Fb2BookParser().parse(ByteArrayInputStream(archive), "legacy.fb2.zip")
+
+        assertEquals("Тихая книга", document.metadata.title)
+        assertEquals("Русский текст ёж", document.blocks.single().plainText())
+    }
+
+    @Test
     fun androidRuntimeParsesZipContainer() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val rawFb2 = context.resources.openRawResource(R.raw.stage3_preview).use { it.readBytes() }

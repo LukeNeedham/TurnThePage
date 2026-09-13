@@ -29,8 +29,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-private val CoverDark = Color(0xFF10271F)
-private val CoverLight = Color(0xFF315846)
+private val CoverDark = Color(0xFF1C2E40)
+private val CoverLight = Color(0xFF426078)
 private val PageEdgeLine = Color(0xFFB8B8B8)
 private val CurlBandEngine = PageCurlBandGeometryEngine()
 
@@ -39,6 +39,7 @@ internal sealed interface BookVisualSurface {
 
     /** The unprinted reverse of a real final sheet, used only before the inner back cover. */
     data object PlainPaper : BookVisualSurface
+    data object DarkPlainPaper : BookVisualSurface
 
     data class Cover(
         val surface: ExternalBookCoverSurface,
@@ -266,7 +267,7 @@ private fun DrawScope.drawRigidCoverTurn(frame: CurlFrame) {
     // Board thickness remains visible at the edge-on midpoint. It is deliberately dark and has
     // no white specular ridge, so the page underneath cannot appear as a bright corner artifact.
     drawLine(
-        color = Color(0xFF07140F),
+        color = Color(0xFF101C28),
         start = Offset(projection.projectedHingeX, projection.projectedBounds.top + 1f),
         end = Offset(projection.projectedHingeX, projection.projectedBounds.bottom - 1f),
         strokeWidth = edgeWidth,
@@ -282,7 +283,7 @@ private fun DrawScope.drawRigidCoverTurn(frame: CurlFrame) {
             else -> projection.projectedBounds.right
         }
         drawLine(
-            color = Color(0xFF0A1B15).copy(alpha = 0.82f),
+            color = Color(0xFF152637).copy(alpha = 0.82f),
             start = Offset(outerX, projection.projectedBounds.top + 1f),
             end = Offset(outerX, projection.projectedBounds.bottom - 1f),
             strokeWidth = (edgeWidth * 0.72f).coerceAtLeast(1f),
@@ -367,6 +368,9 @@ private fun DrawScope.drawBookVisualSurface(
         BookVisualSurface.PlainPaper -> if (drawSubstrate) {
             drawWhitePaper(bounds = bounds, side = side)
         }
+        BookVisualSurface.DarkPlainPaper -> if (drawSubstrate) {
+            drawWhitePaper(bounds = bounds, side = side, paperColor = DarkPaper)
+        }
 
         is BookVisualSurface.Page -> drawDemoPageSurface(
             surface = surface.surface,
@@ -416,7 +420,7 @@ private fun DrawScope.drawBookShadowAndCover(
     )
     drawRoundRect(
         brush = Brush.linearGradient(
-            colors = listOf(CoverLight, CoverDark, Color(0xFF392C21)),
+            colors = listOf(CoverLight, CoverDark, Color(0xFF213246)),
             start = cover.topLeft,
             end = cover.bottomRight,
         ),
@@ -425,7 +429,7 @@ private fun DrawScope.drawBookShadowAndCover(
         cornerRadius = CornerRadius(corner),
     )
     drawRoundRect(
-        color = Color(0xFFB79B76).copy(alpha = 0.16f),
+        color = Color(0xFFA7C1D5).copy(alpha = 0.16f),
         topLeft = Offset(cover.left + 1f, cover.top + 1f),
         size = androidx.compose.ui.geometry.Size(cover.width - 2f, cover.height - 2f),
         cornerRadius = CornerRadius(corner),

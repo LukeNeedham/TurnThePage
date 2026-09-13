@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="library_placeholder_title">Your library</string>
-    <string name="library_placeholder_message">FB2 import and saved books will arrive in stage 6.</string>
+    <string name="library_title">Your library</string>
+    <string name="library_import">Import book</string>
+    <string name="library_importing">Importing book…</string>
+    <string name="library_cancel">Cancel</string>
+    <string name="library_all">All books</string>
+    <string name="library_recent">Recent</string>
+    <string name="library_sort_recent">Last opened first</string>
+    <string name="library_no_recent">Open a book to find it here.</string>
+    <string name="library_empty">Import an FB2 or FB2.ZIP book to start reading.</string>
+    <string name="library_unknown_author">Unknown author</string>
+    <string name="library_progress">%1$d%% read</string>
+    <string name="library_delete">Delete</string>
+    <string name="library_delete_title">Delete book?</string>
+    <string name="library_delete_message">“%1$s”, its reading progress and bookmarks will be removed from this app. Your original file will be kept.</string>
 </resources>
-

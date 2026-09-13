@@ -42,6 +42,9 @@ jobs:
           ./gradlew --stacktrace --continue
           assembleDebug assembleRelease test lintRelease
           :feature:reader:validateDebugScreenshotTest
+          :feature:library:validateDebugScreenshotTest
+          :app:assembleDebugAndroidTest :feature:reader:assembleDebugAndroidTest
+          :core:files:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest
           :benchmark:assemble
 
       - name: Upload reports and APKs
@@ -91,9 +94,11 @@ jobs:
           profile: pixel_7
           disable-animations: true
           emulator-options: >-
-            -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+            -no-window -gpu swangle -noaudio -no-boot-anim
             -camera-back none
-          script: ./gradlew --stacktrace connectedDebugAndroidTest
+          script: |
+            adb shell settings put secure immersive_mode_confirmations confirmed
+            ./gradlew --stacktrace connectedDebugAndroidTest
 
       - name: Upload instrumentation reports
         if: always()
@@ -104,4 +109,3 @@ jobs:
           path: |
             **/build/reports/androidTests/**
             **/build/outputs/androidTest-results/**
-

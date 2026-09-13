@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insert_bookmark_return_to_text">Return to the text to add a bookmark.</string>
+    <string name="insert_invalid_position">Enter 0–100 percent or an available page number.</string>
+    <string name="insert_title">Between the pages</string>
+    <string name="insert_settings">Reading settings</string>
+    <string name="insert_bookmarks">Bookmarks</string>
+    <string name="insert_progress">Find a place</string>
+    <string name="insert_read">Back to reading</string>
+    <string name="insert_toc">Table of contents</string>
+    <string name="insert_toc_short">Contents</string>
+    <string name="insert_return_from_toc">Return to saved text</string>
+    <string name="insert_shelf">Return to the shelf</string>
+    <string name="insert_text_size">Text size</string>
+    <string name="insert_font_value">%1$d pt</string>
+    <string name="insert_type_sample">A quiet moment, a new page.</string>
+    <string name="insert_appearance">Appearance</string>
+    <string name="insert_theme_light">Light</string>
+    <string name="insert_theme_dark">Dark</string>
+    <string name="insert_theme_system">System</string>
+    <string name="insert_remove_current">Remove this bookmark</string>
+    <string name="insert_add_bookmark">Mark this place</string>
+    <string name="insert_no_bookmarks">A paper strip will keep your place here.</string>
+    <string name="insert_preview_position">Choose a place, then confirm</string>
+    <string name="insert_main_text">Book text</string>
+    <string name="insert_page_unknown">Page number is not available yet</string>
+    <string name="insert_page_available">Page %1$d</string>
+    <string name="insert_page_of">Page %1$d of %2$d</string>
+    <string name="insert_percent">Percent</string>
+    <string name="insert_page">Page</string>
+    <string name="insert_pagination_pending">%1$d pages laid out · the book is still being paginated</string>
+    <string name="insert_start">Start</string>
+    <string name="insert_end">End</string>
+    <string name="insert_confirm">Open this place</string>
+    <string name="insert_cancel">Cancel — keep my place</string>
+    <string name="insert_back">Back to the insert</string>
+    <string name="insert_saved_place">Saved place</string>
+</resources>

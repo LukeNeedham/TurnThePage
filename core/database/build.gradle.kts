@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -8,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -16,7 +18,15 @@ android {
     }
 }
 
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
 dependencies {
     implementation(project(":core:model"))
+    api(libs.androidx.room.runtime)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.kotlinx.coroutines.android)
+    ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

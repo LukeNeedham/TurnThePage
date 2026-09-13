@@ -210,13 +210,12 @@ class Fb2BookParser(
     private fun parseXml(input: InputStream, byteLimit: Long): BookDocument {
         val digest = MessageDigest.getInstance("SHA-256")
         val limited = LimitedInputStream(input, byteLimit, "FB2 document")
-        val guarded = RejectingDoctypeInputStream(limited)
-        val digested = DigestInputStream(guarded, digest)
+        val digested = DigestInputStream(limited, digest)
         val handler = Fb2SaxHandler(limits)
 
         try {
             val reader = createSecureXmlReader(handler)
-            reader.parse(InputSource(digested))
+            reader.parse(fb2XmlInputSource(digested))
             return handler.toBookDocument(digest.digest().toHexString())
         } catch (error: BookParseException) {
             throw error
@@ -256,8 +255,8 @@ class Fb2BookParser(
         try {
             reader.setProperty("http://xml.org/sax/properties/lexical-handler", handler)
         } catch (_: SAXException) {
-            // Android's SAX implementation may not expose this optional property. The raw stream
-            // guard still rejects DOCTYPE in ASCII-compatible, UTF-16 and UTF-32 XML.
+            // Android's SAX implementation may not expose this optional property. The decoded
+            // stream guard still rejects DOCTYPE before SAX can process its declaration.
         }
         return reader
     }
@@ -291,7 +290,7 @@ private fun XMLReader.trySetFeature(name: String, enabled: Boolean) {
         setFeature(name, enabled)
     } catch (_: SAXException) {
         // Feature support differs between the JDK and Android API 26. Security does not depend on
-        // these optional flags alone: DOCTYPE is rejected in the byte stream and entities have a
+        // these optional flags alone: DOCTYPE is rejected in the character stream and entities have a
         // rejecting resolver.
     }
 }
@@ -319,63 +318,6 @@ private class LimitedInputStream(
         consumed = checkedAdd(consumed, count, limit, resource)
     }
 }
-
-/** Detects the only construct that can declare XML entities before SAX sees the full token. */
-private class RejectingDoctypeInputStream(input: InputStream) : FilterInputStream(input) {
-    private val matchers = DOCTYPE_PATTERNS.map(::BytePatternMatcher)
-
-    override fun read(): Int {
-        val value = super.read()
-        if (value >= 0) inspect(value.toByte())
-        return value
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val count = super.read(buffer, offset, length)
-        if (count > 0) {
-            for (index in offset until offset + count) inspect(buffer[index])
-        }
-        return count
-    }
-
-    private fun inspect(value: Byte) {
-        if (matchers.any { it.accept(value) }) {
-            throw IOException("DOCTYPE is forbidden in FB2 documents")
-        }
-    }
-}
-
-private class BytePatternMatcher(private val pattern: ByteArray) {
-    private var matched = 0
-
-    fun accept(value: Byte): Boolean {
-        matched = when {
-            value == pattern[matched] -> matched + 1
-            value == pattern[0] -> 1
-            else -> 0
-        }
-        if (matched == pattern.size) {
-            matched = 0
-            return true
-        }
-        return false
-    }
-}
-
-private val DOCTYPE_PATTERNS = listOf(
-    "<!DOCTYPE".toByteArray(Charsets.US_ASCII),
-    "<!DOCTYPE".toByteArray(Charsets.UTF_16LE),
-    "<!DOCTYPE".toByteArray(Charsets.UTF_16BE),
-    asciiAsUtf32("<!DOCTYPE", littleEndian = true),
-    asciiAsUtf32("<!DOCTYPE", littleEndian = false),
-)
-
-private fun asciiAsUtf32(value: String, littleEndian: Boolean): ByteArray =
-    ByteArray(value.length * 4).also { bytes ->
-        value.forEachIndexed { index, character ->
-            bytes[index * 4 + if (littleEndian) 0 else 3] = character.code.toByte()
-        }
-    }
 
 private fun BufferedInputStream.peekHeader(): ByteArray {
     mark(8)

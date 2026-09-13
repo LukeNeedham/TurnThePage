@@ -1,0 +1,4 @@
+<resources>
+    <string name="reader_contents">Contents</string>
+    <string name="reader_text_start">Begin reading</string>
+</resources>

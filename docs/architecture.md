@@ -1,4 +1,4 @@
-# Архитектурные решения этапов 0–5
+# Архитектурные решения этапов 0–7
 
 ## Границы слоёв
 
@@ -20,7 +20,7 @@ Book source → parser → BookDocument → pagination → PageLayout
 
 - `minSdk = 26`, `targetSdk = compileSdk = 36`.
 - Этапы 0–2 образуют официальный графический MVP.
-- Исходная книга на этапе импорта будет копироваться в private app storage.
+- Исходная книга копируется в private app storage при импорте.
 - Полное закрытие передней и задней обложки входит в v1.
 - Верхний corner curl и ZIP с несколькими FB2 не входят в v1.
 - Backup и telemetry отключены; разрешение `INTERNET` не требуется.
@@ -366,3 +366,141 @@ pressure, не трогая pinned окно, индекс и `BookLocation`. Pre
   фактические FPS, GPU upload и process-memory plateau на Fold не измерены.
 
 Disk cache, SAF/Room, библиотека и постоянный прогресс не входят в этап 5.
+
+## Stage 6 Library + persistence
+
+### Владение исходниками и атомарная публикация
+
+`PrivateBookStorage` владеет только `filesDir/books`. SAF `ACTION_OPEN_DOCUMENT`,
+входящие `ACTION_VIEW` и `ACTION_SEND` передают URI в `LibraryRepository`.
+Metadata query, bounded copy, SHA/XML parsing и thumbnail decode выполняются на IO.
+`runInterruptible` прерывает копирование, parser сам использует interruptible IO.
+Новый persistable grant, если доступен, удерживается до завершения копирования и
+отпускается: чтение дальше не зависит от доступности внешнего provider.
+
+Копия сначала записывается в UUID `.part` и синхронизируется на диск. После полного
+разбора валидная книга получает стабильное имя по `BookDocument.id` (SHA-256 XML,
+одинаковый для raw/ZIP). В небольшой `NonCancellable` секции файл переименовывается
+в `.book`, сохраняется thumbnail до 512 px и вставляется строка Room. При ошибке
+INSERT собственные файлы откатываются. Отмена до публикации удаляет `.part`.
+Повторный импорт оставляет прежний прогресс и закладки. Повреждённая optional
+обложка даёт заглушку, ошибка файловой записи прерывает импорт.
+
+Удаление сначала выставляет Room tombstone `deleting`, затем удаляет собственные
+файлы и последнюю selection, затем строку книги (закладки удаляются FK CASCADE).
+Startup reconciliation завершает tombstones, удаляет записи с отсутствующей
+собственной копией и очищает неопубликованные файлы/`.part` после прерывания процесса.
+Внешний источник никогда не входит в область удаления. Один repository Mutex
+сериализует import/open/delete/bookmark mutations и startup cleanup. Checkpoint
+записывается отдельным атомарным UPDATE с `deleting = 0`: длительный импорт не
+задерживает сохранение текущей книги, удалённая запись не создаётся заново.
+
+### Room, DataStore и жизненный цикл
+
+Room 2.8.4 + KSP 2.3.9 создаёт schema v1; экспорт хранится в `core/database/schemas`.
+Таблица `books` хранит metadata, owned file/cover names, время импорта/открытия,
+длину UTF-16 потока и атомарный checkpoint: block id, char offset, fallback offset,
+положение обложки и процент. `bookmarks` хранит BookId, тот же semantic anchor,
+timestamp и snippet до 160 символов; уникальный индекс предотвращает дубликат
+при повторном нажатии на той же позиции. Никакие номера страниц не сохраняются.
+
+DataStore 1.2.1 содержит только lastBook и initialized. Стартовый sample проходит
+общий импорт один раз; initialized предотвращает его восстановление после удаления.
+Потоки Room обновляют библиотеку и закладки; сортировка по lastOpenedAt с
+детерминированными importedAt/id tie-breakers, Recent фильтрует уже открытые книги.
+
+`ListaiApplication` владеет `LibraryController` и последовательной очередью команд
+на application-lifetime scope. Composable disposal или Activity recreation не
+отменяет запись checkpoint. `MainActivity.onStop` повторно ставит актуальный
+checkpoint в очередь. Ошибки переводятся в English/ru UI; незавершённый import
+можно отменить. Выбор документов с provider-specific MIME поддерживается через
+общий SAF picker; данные валидирует parser.
+
+### Контракт с физическим ридером
+
+`ReaderScreen(initialProgress, onProgressChanged)` получает восстановленное состояние
+только после загрузки Room и документа. `ReaderPosition` сохраняет исходный anchor
+при reflow и публикует новый checkpoint после успешного settle. Отменённый жест,
+изменение размеров и публикация bitmap-кэша не продвигают чтение. Длина документа
+кэшируется по document, snippet вычисляется в фоне по действию пользователя.
+
+Явный `ReaderSelection.session` вместе с BookId задаёт ключ композиции для открытия
+и bookmark jump; он пересоздаёт pagination session даже при прежнем `LayoutKey`.
+Callbacks от устаревшей session отбрасываются. После commit контроллер обновляет
+initialProgress той же session, поэтому переход Library/Diagnostics → Reader
+восстанавливает последний checkpoint. Передняя/задняя обложки и back boundary
+сохраняются вместе с BookLocation. Fullscreen и геометрия физической книги не менялись.
+
+### Проверка
+
+JVM storage acceptance проверяет сохранность оригинала, rollback по IO/лимиту/
+interrupt, запрет overwrite и startup reconciliation. Instrumentation проверяет
+raw/ZIP дедуп без потери прогресса, реальные Room reopen/cover poses, FK cascade,
+отмену parse до публикации, rollback при отказе INSERT, concurrent imports,
+DataStore selection, входящий URI и полный bookmark/remount/recreate flow.
+Screenshot previews библиотеки покрывают ru/en, thumbnail/placeholder и пустое
+состояние; 41 существующий графический эталон ридера сохранён.
+На машине нет ADB-устройства; instrumentation собраны, выполнение отложено до
+подключения устройства или CI emulator.
+
+## Stage 7 — физическое управление и постоянный fullscreen
+
+Следующие решения заменяют навигационные панели, диагностику и Recent-фильтр
+этапа 6. Шкаф состоит из матовых полок и обложек; сортировка остаётся
+`lastOpenedAt DESC, importedAt DESC, id ASC`. Cover tap открывает книгу, long press
+вызывает подтверждение удаления; маленький полупрозрачный FAB запускает прежний SAF import.
+Thumbnail и полноразмерная обложка происходят из одного FB2 binary и вписываются
+без обрезки. Повреждённая обложка заменяется холодным переплётом с названием и автором.
+
+`MainActivity` всегда скрывает system bars, повторяет hide в `onPostResume`, после
+возврата focus и на следующем кадре. BookView учитывает display cutout и прежнюю
+геометрию hinge. Постоянные navigation bars, fullscreen toggle и диагностический экран
+удалены. `FLAG_KEEP_SCREEN_ON` зависит от видимой открытой книги и resumed Activity:
+вкладка не отпускает флаг, shelf и `onPause` отпускают. Яркость устройства не меняется.
+
+`ReaderPreferences(fontSizeSp, theme)` хранит только размер 12–32 sp и
+`ReaderTheme.LIGHT/DARK/SYSTEM`. DataStore сохраняет оба значения атомарно рядом с
+lastBook/initialized. Отсутствующие или некорректные значения дают 18 sp/LIGHT,
+системное оформление включается только явным выбором. App разрешает SYSTEM в
+фактический darkTheme и передаёт его всему интерфейсу. Бумага LIGHT чисто белая,
+DARK графитовая; исходные обложки и иллюстрации не инвертируются.
+
+`PaperReaderInsert` — отдельный лист с формой загнутого угла, холодной тенью и
+нарисованными на бумаге действиями. Центральный тап открывает его после приоритетной
+обработки ссылок, drag продолжает прежний curl. Settings, bookmark strips и bookmark
+ruler раскрываются внутри этого листа; backdrop tap и Back закрывают вкладку.
+Она владеет временным preview и вводом процента/страницы. `ReaderNavigationState`
+вычисляет source location, раздел и известные номера страниц без записи checkpoint;
+только подтверждение вызывает переход. Неверный точный ввод блокирует подтверждение,
+отмена сохраняет исходное место. Общее число страниц отсутствует, пока индекс неполон.
+
+`PhysicalContents` создаёт отдельный синтетический документ для пагинации и растеризации.
+Его листы становятся префиксом обычной последовательности `PhysicalBookNavigator`,
+получают лицевую/оборотную поверхность и прежний curl. Исходный `BookDocument`, его
+BookId, source index, проценты и bookmarks остаются неизменными. Индекс навигации
+по исходному тексту разделяется между последовательными pagination snapshots.
+
+Room schema v2 добавляет к `books` только nullable `tocEntryIndex` и
+`tocCharOffset INTEGER NOT NULL DEFAULT 0`. Миграция 1→2 использует два `ALTER TABLE`,
+сохраняет все прежние строки, foreign keys и уникальность bookmark anchors.
+Entry index и UTF-16 offset восстанавливают семантическое место внутри оглавления
+после смены размера текста; номер физического листа не сохраняется. Исходный
+`BookLocation` в том же checkpoint остаётся местом возврата из оглавления.
+
+Успешный переход по-прежнему записывается одним атомарным UPDATE без ожидания
+длительного import mutex. Controller защищает callbacks сочетанием BookId/session,
+обновляет initialProgress той же session и сохраняет последнее место при `onPause`.
+Явный возврат на полку сначала ставит checkpoint в FIFO, затем очищает selection
+и durable lastBook: холодный старт уважает возврат в шкаф. Открытая книга восстанавливается
+после завершения процесса; session не позволяет позднему callback отменить bookmark jump.
+
+Текст и оглавление разделяют лимит поверхностей 64 МиБ; budget Android measurement
+делится на 3 МиБ source и 1 МиБ contents. Настоящая обложка декодируется в фоне под
+viewport с ограничением 4 млн пикселей, её поверхность закрепляется на весь жест.
+`LayoutKey.darkTheme` инвалидирует цвета страниц при смене оформления.
+
+Новые screenshot fixtures покрывают шкаф, вкладку/настройки/закладки/линейку на en/ru
+в светлом, тёмном и системном оформлении, реальные обложки и физическое оглавление.
+Android 36 emulator используется для проверки v1→v2 на настоящем SQLite,
+повторного открытия DataStore, shell lifecycle и пользовательских переходов.
+Итоговые команды и ограничения проверки записаны в `docs/stage7-task.md`.

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insert_bookmark_return_to_text">Вернитесь к тексту, чтобы добавить закладку.</string>
+    <string name="insert_invalid_position">Введите процент от 0 до 100 или номер готовой страницы.</string>
+    <string name="insert_title">Между страницами</string>
+    <string name="insert_settings">Настройки чтения</string>
+    <string name="insert_bookmarks">Закладки</string>
+    <string name="insert_progress">Найти место</string>
+    <string name="insert_read">Вернуться к чтению</string>
+    <string name="insert_toc">Оглавление</string>
+    <string name="insert_toc_short">Оглавление</string>
+    <string name="insert_return_from_toc">Вернуться к тексту</string>
+    <string name="insert_shelf">Вернуть книгу на полку</string>
+    <string name="insert_text_size">Размер текста</string>
+    <string name="insert_font_value">%1$d пт</string>
+    <string name="insert_type_sample">Тихий час и новая страница.</string>
+    <string name="insert_appearance">Оформление</string>
+    <string name="insert_theme_light">Светлая</string>
+    <string name="insert_theme_dark">Тёмная</string>
+    <string name="insert_theme_system">Системная</string>
+    <string name="insert_remove_current">Убрать эту закладку</string>
+    <string name="insert_add_bookmark">Заложить эту страницу</string>
+    <string name="insert_no_bookmarks">Бумажная полоска сохранит здесь нужное место.</string>
+    <string name="insert_preview_position">Выберите место и подтвердите переход</string>
+    <string name="insert_main_text">Текст книги</string>
+    <string name="insert_page_unknown">Номер страницы пока неизвестен</string>
+    <string name="insert_page_available">Страница %1$d</string>
+    <string name="insert_page_of">Страница %1$d из %2$d</string>
+    <string name="insert_percent">Процент</string>
+    <string name="insert_page">Страница</string>
+    <string name="insert_pagination_pending">Подготовлено страниц: %1$d · разбивка книги продолжается</string>
+    <string name="insert_start">Начало</string>
+    <string name="insert_end">Конец</string>
+    <string name="insert_confirm">Открыть выбранное место</string>
+    <string name="insert_cancel">Отмена — остаться здесь</string>
+    <string name="insert_back">Вернуться к вкладке</string>
+    <string name="insert_saved_place">Сохранённое место</string>
+</resources>

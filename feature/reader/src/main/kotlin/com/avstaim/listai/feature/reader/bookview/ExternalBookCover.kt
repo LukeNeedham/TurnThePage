@@ -2,6 +2,16 @@ package com.avstaim.listai.feature.reader.bookview
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntOffset
+import android.graphics.BitmapFactory
+import com.avstaim.listai.core.model.BookDocument
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -42,6 +52,8 @@ internal data class ExternalBookCoverSurface(
     val title: TextLayoutResult?,
     val author: TextLayoutResult?,
     val preparedSize: IntSize,
+    val image: ImageBitmap? = null,
+    val darkTheme: Boolean = false,
 )
 
 /**
@@ -54,17 +66,43 @@ internal fun rememberExternalBookCoverSurface(
     title: String,
     author: String?,
     coverSize: IntSize,
+    document: BookDocument? = null,
+    darkTheme: Boolean = false,
 ): ExternalBookCoverSurface {
     val textMeasurer = rememberTextMeasurer(cacheSize = 4)
-    return remember(title, author, coverSize, textMeasurer) {
+    val inspection = LocalInspectionMode.current
+    val previewImage = remember(document, coverSize, inspection) {
+        if (inspection) decodeCover(document, coverSize) else null
+    }
+    val image by produceState(previewImage, document, coverSize) {
+        value = withContext(Dispatchers.Default) { decodeCover(document, coverSize) }
+    }
+    return remember(title, author, coverSize, textMeasurer, image, darkTheme) {
         prepareExternalBookCoverSurface(
             title = title,
             author = author,
             coverSize = coverSize,
             textMeasurer = textMeasurer,
-        )
+        ).copy(image = image, darkTheme = darkTheme)
     }
 }
+
+/** Decode the original FB2 binary at the physical cover's resolution, outside animation frames. */
+internal fun decodeCover(document: BookDocument?, size: IntSize): ImageBitmap? = runCatching {
+    val bytes = document?.metadata?.coverImageId?.let { document.imagesById[it] }?.content?.load()
+        ?: return null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val fit = min(size.width.toFloat() / bounds.outWidth, size.height.toFloat() / bounds.outHeight)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= bounds.outWidth * fit &&
+        bounds.outHeight / (sample * 2) >= bounds.outHeight * fit && sample < 16384) sample *= 2
+    while (bounds.outWidth.toLong() / sample * (bounds.outHeight / sample) > 4_194_304L) sample *= 2
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply {
+        inSampleSize = sample
+    })?.also { it.prepareToDraw() }?.asImageBitmap()
+}.getOrNull()
 
 private fun prepareExternalBookCoverSurface(
     title: String,
@@ -178,7 +216,16 @@ internal fun DrawScope.drawExternalBookCover(
     drawCoverEdge(bounds = bounds, cornerRadius = radius, alpha = alpha)
 
     if (face == ExternalBookCoverFace.FRONT) {
-        drawFrontCoverCopy(surface = surface, bounds = bounds, alpha = alpha)
+        val image = surface.image
+        if (image != null) {
+            val fit = min(bounds.width / image.width, bounds.height / image.height)
+            val width = (image.width * fit).roundToInt().coerceAtLeast(1)
+            val height = (image.height * fit).roundToInt().coerceAtLeast(1)
+            drawImage(image, dstOffset = IntOffset((bounds.center.x - width / 2f).roundToInt(),
+                (bounds.center.y - height / 2f).roundToInt()), dstSize = IntSize(width, height), alpha = alpha)
+            drawCoverSpine(bounds, side != PageSide.LEFT, alpha)
+            drawCoverEdge(bounds, radius, alpha)
+        } else drawFrontCoverCopy(surface = surface, bounds = bounds, alpha = alpha)
     }
 }
 
@@ -389,14 +436,14 @@ private fun DrawScope.drawEmbossedText(
     )
 }
 
-private val CoverBoardCore = Color(0xFF10261F)
-private val CoverClothLight = Color(0xFF315C4B)
-private val CoverCloth = Color(0xFF24483B)
-private val CoverClothDark = Color(0xFF173329)
-private val CoverClothThreadLight = Color(0xFF9DB7A7)
-private val CoverClothThreadDark = Color(0xFF061A14)
-private val CoverEdgeShadow = Color(0xFF07140F)
-private val CoverEdgeHighlight = Color(0xFF8CAC9B)
-private val CoverGilt = Color(0xFFD8BC76)
-private val CoverLettering = Color(0xFFE4D29D)
-private val CoverLetterShadow = Color(0xFF09130F)
+private val CoverBoardCore = Color(0xFF172532)
+private val CoverClothLight = Color(0xFF46637B)
+private val CoverCloth = Color(0xFF334F67)
+private val CoverClothDark = Color(0xFF253B50)
+private val CoverClothThreadLight = Color(0xFFA7BDCF)
+private val CoverClothThreadDark = Color(0xFF152230)
+private val CoverEdgeShadow = Color(0xFF101C28)
+private val CoverEdgeHighlight = Color(0xFF9BB5CA)
+private val CoverGilt = Color(0xFFB1CCDF)
+private val CoverLettering = Color(0xFFE1EDF6)
+private val CoverLetterShadow = Color(0xFF111B28)

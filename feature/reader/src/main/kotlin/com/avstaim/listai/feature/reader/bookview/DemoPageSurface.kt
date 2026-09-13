@@ -32,6 +32,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 internal val WhitePaper = Color(0xFFFFFFFF)
+internal val DarkPaper = Color(0xFF252D35)
 internal val PaperInk = Color(0xFF242424)
 internal val PaperEdge = Color(0xFFB8B8B8)
 
@@ -160,7 +161,7 @@ internal fun DrawScope.drawDemoPageSurface(
     if (bounds.width <= 0f || bounds.height <= 0f) return
 
     clipRect(bounds.left, bounds.top, bounds.right, bounds.bottom) {
-        if (drawPaper) drawWhitePaper(bounds, side)
+        if (drawPaper) drawWhitePaper(bounds, side, if (surface.paginated?.darkTheme == true) DarkPaper else WhitePaper)
         drawPreparedContent(surface, bounds, contentAlpha)
     }
 }
@@ -171,12 +172,12 @@ internal fun DrawScope.drawDemoPageSurface(
  * The reading surface is deliberately white. Only narrow, neutral edge shadows describe the
  * sheet's position inside the book; there is no warm tint or full-page lighting wash.
  */
-internal fun DrawScope.drawWhitePaper(bounds: Rect, side: PageSide) {
+internal fun DrawScope.drawWhitePaper(bounds: Rect, side: PageSide, paperColor: Color = WhitePaper) {
     if (bounds.width <= 0f || bounds.height <= 0f) return
 
     val innerIsLeft = side != PageSide.LEFT
     drawRect(
-        color = WhitePaper,
+        color = paperColor,
         topLeft = bounds.topLeft,
         size = bounds.size,
     )
@@ -311,7 +312,7 @@ private fun DrawScope.drawDemoIllustration(bounds: Rect, alpha: Float) {
         alpha = alpha,
     )
     drawCircle(
-        color = Color(0xFFFFE6A6).copy(alpha = alpha),
+        color = Color(0xFFDBEAF5).copy(alpha = alpha),
         radius = min(bounds.width, bounds.height) * 0.09f,
         center = Offset(bounds.left + bounds.width * 0.72f, bounds.top + bounds.height * 0.23f),
     )
@@ -329,5 +330,5 @@ private fun DrawScope.drawDemoIllustration(bounds: Rect, alpha: Float) {
         lineTo(bounds.right - bounds.width * 0.06f, bounds.bottom)
         close()
     }
-    drawPath(mountain, Color(0xFFD8C8A8).copy(alpha = alpha))
+    drawPath(mountain, Color(0xFFB4C5D6).copy(alpha = alpha))
 }

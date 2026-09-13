@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="library_placeholder_title">Ваша библиотека</string>
-    <string name="library_placeholder_message">Импорт FB2 и сохранённые книги появятся на этапе 6.</string>
+    <string name="library_title">Ваша библиотека</string>
+    <string name="library_import">Импорт книги</string>
+    <string name="library_importing">Импорт книги…</string>
+    <string name="library_cancel">Отмена</string>
+    <string name="library_all">Все книги</string>
+    <string name="library_recent">Недавние</string>
+    <string name="library_sort_recent">Сначала последние открытые</string>
+    <string name="library_no_recent">Откройте книгу, чтобы найти её здесь.</string>
+    <string name="library_empty">Импортируйте книгу FB2 или FB2.ZIP, чтобы начать читать.</string>
+    <string name="library_unknown_author">Автор неизвестен</string>
+    <string name="library_progress">Прочитано %1$d%%</string>
+    <string name="library_delete">Удалить</string>
+    <string name="library_delete_title">Удалить книгу?</string>
+    <string name="library_delete_message">«%1$s», прогресс чтения и закладки будут удалены из приложения. Исходный файл сохранится.</string>
 </resources>
-

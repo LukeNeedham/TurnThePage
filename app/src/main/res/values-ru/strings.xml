@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="library_import_in_progress">Другая книга уже импортируется. Дождитесь завершения или отмените импорт в библиотеке.</string>
+    <string name="library_error_title">Не удалось завершить операцию</string>
+    <string name="library_error_access">Файл больше недоступен. Выберите его заново в библиотеке.</string>
+    <string name="library_error_too_large">Книга превышает допустимый размер или ограничения сложности.</string>
+    <string name="library_error_empty_zip">В ZIP-архиве нет книги FB2.</string>
+    <string name="library_error_invalid">Файл не является корректной книгой FB2 или поддерживаемым ZIP-архивом.</string>
+    <string name="library_error_storage">Не удалось прочитать или сохранить данные книги. Проверьте свободное место и повторите попытку.</string>
+    <string name="action_ok">ОК</string>
+    <string name="action_close">Закрыть</string>
+    <string name="reader_add_bookmark">Добавить закладку</string>
+    <string name="reader_bookmarks">Закладки</string>
+    <string name="reader_no_bookmarks">Закладок пока нет. Добавьте закладку на текущей странице.</string>
+    <string name="reader_bookmark_location">Сохранённое место</string>
+    <string name="reader_delete_bookmark">Удалить</string>
     <string name="app_name">Листай</string>
     <string name="destination_reader">Книга</string>
     <string name="destination_library">Библиотека</string>

@@ -1,107 +1,107 @@
 package com.avstaim.listai
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.avstaim.listai.core.adaptive.WindowManagerDevicePostureProvider
 import com.avstaim.listai.core.designsystem.ListaiTheme
+import com.avstaim.listai.core.model.ReaderTheme
 
 class MainActivity : ComponentActivity() {
-    private var readerFullscreenRequested = false
+    private var readerVisible = false
+    private var foreground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        readerFullscreenRequested =
-            savedInstanceState?.getBoolean(READER_FULLSCREEN_REQUESTED_KEY) ?: false
         enableEdgeToEdge()
-        val postureProvider = WindowManagerDevicePostureProvider(
-            activity = this,
-            lifecycle = lifecycle,
-            scope = lifecycleScope,
-        )
+        applyFullscreen()
+        val controller = (application as ListaiApplication).controller
+        val postureProvider = WindowManagerDevicePostureProvider(this, lifecycle, lifecycleScope)
         setContent {
             val devicePosture by postureProvider.posture.collectAsState()
-            var readerFullscreen by rememberSaveable {
-                mutableStateOf(readerFullscreenRequested)
+            val preferences by controller.readerPreferences.collectAsState()
+            val darkTheme = when (preferences.theme) {
+                ReaderTheme.LIGHT -> false
+                ReaderTheme.DARK -> true
+                ReaderTheme.SYSTEM -> isSystemInDarkTheme()
             }
-
-            SideEffect {
-                requestReaderFullscreen(readerFullscreen)
-            }
-
-            ListaiTheme {
-                ListaiApp(
-                    devicePosture = devicePosture,
-                    readerFullscreen = readerFullscreen,
-                    onReaderFullscreenChange = { fullscreen ->
-                        // Apply the window change from the input event immediately. SideEffect
-                        // below remains the source-of-truth sync after recreation/restoration.
-                        requestReaderFullscreen(fullscreen)
-                        readerFullscreen = fullscreen
-                    },
-                )
+            ListaiTheme(darkTheme = darkTheme) {
+                ListaiApp(devicePosture = devicePosture, darkTheme = darkTheme,
+                    onReaderVisibleChange = { visible ->
+                        readerVisible = visible
+                        updateScreenAwake()
+                    })
             }
         }
+        if (savedInstanceState == null) consumeBookIntent(intent)
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(READER_FULLSCREEN_REQUESTED_KEY, readerFullscreenRequested)
-        super.onSaveInstanceState(outState)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Handle this delivery without replacing the Activity's launch identity.
+        // Recreation restores the selected book through the controller, while retaining
+        // the original launcher intent also keeps lifecycle observers attached.
+        consumeBookIntent(intent)
+    }
+
+    private fun consumeBookIntent(incoming: Intent) {
+        val uri = when (incoming.action) {
+            Intent.ACTION_VIEW -> incoming.data
+            Intent.ACTION_SEND -> androidx.core.content.IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java)
+            else -> null
+        } ?: return
+        (application as ListaiApplication).controller.import(uri, incoming.flags)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        foreground = true
+        updateScreenAwake()
+        applyFullscreen()
+    }
+
+    override fun onPause() {
+        foreground = false
+        updateScreenAwake()
+        (application as ListaiApplication).controller.saveOnBackground()
+        super.onPause()
     }
 
     override fun onPostResume() {
         super.onPostResume()
-        applySystemBarsVisibility(fullscreen = readerFullscreenRequested)
-        reapplySystemBarsVisibilityOnNextFrame()
+        reassertFullscreen()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // Losing focus must not actively show the bars: dialogs, permission surfaces and
-        // system transitions can cause a brief focus loss. Re-assert the requested state
-        // only after this window owns the insets again.
-        if (hasFocus) {
-            applySystemBarsVisibility(fullscreen = readerFullscreenRequested)
-            reapplySystemBarsVisibilityOnNextFrame()
-        }
+        if (hasFocus) reassertFullscreen()
     }
 
-    private fun requestReaderFullscreen(fullscreen: Boolean) {
-        readerFullscreenRequested = fullscreen
-        // WindowInsetsControllerCompat keeps a hide request pending when this window does
-        // not currently control an inset, then applies it when control returns.
-        applySystemBarsVisibility(fullscreen = fullscreen)
-        reapplySystemBarsVisibilityOnNextFrame()
+    private fun updateScreenAwake() {
+        if (foreground && readerVisible) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    private fun reapplySystemBarsVisibilityOnNextFrame() {
-        window.decorView.post {
-            applySystemBarsVisibility(fullscreen = readerFullscreenRequested)
-        }
+    private fun reassertFullscreen() {
+        applyFullscreen()
+        window.decorView.post { applyFullscreen() }
     }
 
-    private fun applySystemBarsVisibility(fullscreen: Boolean) {
+    private fun applyFullscreen() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (fullscreen) {
-                hide(WindowInsetsCompat.Type.systemBars())
-            } else {
-                show(WindowInsetsCompat.Type.systemBars())
-            }
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 }
-
-private const val READER_FULLSCREEN_REQUESTED_KEY = "reader_fullscreen_requested"

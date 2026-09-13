@@ -128,7 +128,7 @@ internal class AndroidBookMeasurer(
 
 internal fun textPaint(key: LayoutKey, style: Int = Typeface.NORMAL, multiplier: Float = 1f) =
     TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-        color = android.graphics.Color.rgb(36, 36, 36)
+        color = if (key.darkTheme) 0xFFE3EAF0.toInt() else 0xFF242A30.toInt()
         textSize = key.fontSizeSp * key.density * key.textScale * multiplier
         typeface = Typeface.create(key.fontFamilyId, style)
         textLocale = Locale.forLanguageTag(key.localeTag)

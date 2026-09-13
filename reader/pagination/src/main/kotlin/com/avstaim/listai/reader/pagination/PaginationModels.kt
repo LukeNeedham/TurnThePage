@@ -27,6 +27,7 @@ data class LayoutKey(
     val textScale: Float = 1f,
     val densityKey: String = "1.0",
     val themeMetricsVersion: Int = 1,
+    val darkTheme: Boolean = false,
     val hyphenationMode: HyphenationMode = HyphenationMode.NORMAL,
     val density: Float = 1f,
     val localeTag: String = "en",

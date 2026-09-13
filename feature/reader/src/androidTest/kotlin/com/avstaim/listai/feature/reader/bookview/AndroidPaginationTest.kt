@@ -148,4 +148,24 @@ class AndroidPaginationTest {
         position.commit(PhysicalBookState.ClosedBack, old)
         assertEquals(PhysicalBookState.ClosedBack, position.initialState(resized))
     }
+
+    @Test fun restoredCheckpointKeepsExactSourceOffsetAndEveryCoverPoseAcrossReflow() = runBlocking {
+        val source = BookBlock.Paragraph(BlockId("p"), listOf(InlineNode.Text("Source anchor 😀. ".repeat(300))))
+        val document = doc(source)
+        val location = BookLocation(source.id, 1200, 1200)
+        val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Missing"))
+            .paginate(document, location, key.copy(pageWidthPx = 280, pageMode = PageMode.SPREAD)).last()
+        CoverPosition.entries.forEach { cover ->
+            val restored = ReaderPosition(location, cover.name.lowercase())
+            val expected = when (cover) {
+                CoverPosition.OPEN -> PhysicalBookState.Open(snapshot.anchorPageIndex)
+                CoverPosition.FRONT -> PhysicalBookState.ClosedFront
+                CoverPosition.BACK -> PhysicalBookState.ClosedBack
+                CoverPosition.BOUNDARY -> PhysicalBookState.BackBoundary
+            }
+            assertEquals(expected, restored.initialState(snapshot))
+            assertEquals(location, restored.location) // Reflow never rounds persistence to the page start.
+            assertEquals(cover, restored.progress(document.readingLength()).cover)
+        }
+    }
 }

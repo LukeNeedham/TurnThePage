@@ -38,7 +38,8 @@ internal const val MEASUREMENT_CACHE_BYTES = 4L * 1024 * 1024
 private const val HOT_SURFACES_BYTES = 48L * 1024 * 1024
 
 /** Published bitmaps are immutable by ownership. Never recycle a bitmap retained by a scene/GPU. */
-internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val accessibleText: String) {
+internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val accessibleText: String,
+    val darkTheme: Boolean = false) {
     val byteCount: Long get() = bitmap.allocationByteCount.toLong()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
@@ -56,10 +57,11 @@ internal class AndroidPageRasterizer(
     private val document: BookDocument,
     private val key: LayoutKey,
     missingImageLabel: String,
+    measurementCacheBytes: Long = MEASUREMENT_CACHE_BYTES,
 ) {
     private val sources by lazy { document.readingFlow().associateBy { it.source.id } }
     private val measurer = AndroidBookMeasurer(document, missingImageLabel, decodeImages = true)
-    private val measurements = WeightedLruCache<BlockId, BlockMeasurement>(MEASUREMENT_CACHE_BYTES) {
+    private val measurements = WeightedLruCache<BlockId, BlockMeasurement>(measurementCacheBytes) {
         when (it) {
             is AndroidImageMeasurement -> (it.bitmap?.allocationByteCount?.toLong() ?: 0L) + 1024
             is AndroidTextMeasurement -> it.layout.text.length * 8L + it.lines.size * 160L + 1024
@@ -127,7 +129,7 @@ internal class AndroidPageRasterizer(
                 requireNotNull(sources[fragment.blockId]).source.plainText()
                     .substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
             }
-            return PaginatedPageSurface(page.id, bitmap, text)
+            return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme)
         } catch (error: Throwable) {
             // This bitmap has never been published and cannot be referenced by the renderer.
             bitmap.recycle()

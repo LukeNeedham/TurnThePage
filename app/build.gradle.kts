@@ -56,6 +56,8 @@ android {
 
 dependencies {
     implementation(project(":core:adaptive"))
+    implementation(project(":core:database"))
+    implementation(project(":core:files"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:model"))
     implementation(project(":feature:library"))
@@ -67,6 +69,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)

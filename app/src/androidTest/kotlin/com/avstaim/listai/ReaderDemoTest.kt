@@ -3,6 +3,10 @@ package com.avstaim.listai
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.view.WindowManager
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import androidx.activity.compose.setContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
@@ -51,6 +55,13 @@ class ReaderDemoTest {
 
     @Before
     fun usePortraitSinglePagePresentation() {
+        val controller = (composeRule.activity.application as ListaiApplication).controller
+        composeRule.waitUntil(30_000) { !controller.busy.value }
+        if (controller.selection.value == null) {
+            val id = runBlocking { controller.repository.books.first().first().id }
+            composeRule.runOnUiThread { controller.open(id) }
+            composeRule.waitUntil(30_000) { !controller.busy.value && controller.selection.value != null }
+        }
         requestOrientation(
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
             expectedOrientation = Configuration.ORIENTATION_PORTRAIT,
@@ -71,8 +82,8 @@ class ReaderDemoTest {
         assertEquals(initialState, pageState())
 
         book.dragSlowly(
-            startFraction = Offset(0.58f, 0.56f),
-            endFraction = Offset(0.22f, 0.55f),
+            startFraction = Offset(0.68f, 0.56f),
+            endFraction = Offset(0.16f, 0.55f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != initialState }
         val nextState = pageState()
@@ -86,62 +97,62 @@ class ReaderDemoTest {
         assertEquals(nextState, pageState())
 
         book.dragSlowly(
-            startFraction = Offset(0.42f, 0.44f),
-            endFraction = Offset(0.78f, 0.45f),
+            startFraction = Offset(0.32f, 0.44f),
+            endFraction = Offset(0.84f, 0.45f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() == initialState }
     }
 
     @Test
-    fun fullscreenButtonHidesApplicationAndSystemChromeAndExitRestoresThem() {
-        composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertIsDisplayed()
+    fun fullscreenAndAwakeFollowTheVisibleBookAcrossShelfAndActivityLifecycle() {
         waitForPaginatedBook()
-        val initialPosition = pageState()
-        composeRule.onNodeWithTag(BOOK_TAG).performTouchInput {
-            click(Offset(width * 0.58f, height * 0.54f))
-        }
-        composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != initialPosition }
-        val positionBeforeFullscreen = semanticLocation()
-        val layoutBeforeFullscreen = layoutIdentity()
-
-        composeRule.onNodeWithTag(READER_FULLSCREEN_BUTTON_TAG).performClick()
-
         composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertDoesNotExist()
-        composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreHidden() }
-        waitForPaginatedBook()
-        assertEquals(positionBeforeFullscreen, semanticLocation())
-        assertNotEquals(layoutBeforeFullscreen, layoutIdentity())
+        composeRule.onNodeWithTag(READER_FULLSCREEN_BUTTON_TAG).assertDoesNotExist()
+        composeRule.waitUntil(3_000) { allSystemBarsAreHidden() && screenIsKeptAwake() }
+        val controller = (composeRule.activity.application as ListaiApplication).controller
+        val id = requireNotNull(controller.selection.value).opened.book.id
+        val anchor = semanticLocation()
+        composeRule.onNodeWithTag(BOOK_TAG).performTouchInput { click(center) }
+        composeRule.onNodeWithTag("reader_paper_insert").assertIsDisplayed()
+        assertTrue(screenIsKeptAwake())
+        composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
+        composeRule.onNodeWithTag("reader_paper_insert").assertDoesNotExist()
+        assertEquals(anchor, semanticLocation())
 
-        // A transient focus loss must not turn immersive mode off. This reproduces the
-        // window lifecycle path used by system overlays and some OEM navigation shells.
-        composeRule.runOnUiThread {
-            composeRule.activity.onWindowFocusChanged(false)
-        }
+        composeRule.runOnUiThread { composeRule.activity.onWindowFocusChanged(false) }
         assertSystemBarsStayHidden()
-        composeRule.runOnUiThread {
-            composeRule.activity.onWindowFocusChanged(true)
-        }
-        composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreHidden() }
-
+        composeRule.runOnUiThread { composeRule.activity.onWindowFocusChanged(true) }
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        assertTrue(!screenIsKeptAwake())
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        composeRule.waitUntil(3_000) { allSystemBarsAreHidden() && screenIsKeptAwake() }
         composeRule.activityRule.scenario.recreate()
-        composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertDoesNotExist()
-        composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreHidden() }
         waitForPaginatedBook()
-        assertEquals(positionBeforeFullscreen, semanticLocation())
+        assertEquals(anchor, semanticLocation())
+        composeRule.waitUntil(3_000) { allSystemBarsAreHidden() && screenIsKeptAwake() }
 
-        composeRule.onNodeWithTag(READER_FULLSCREEN_BUTTON_TAG).performClick()
-
-        composeRule.onNodeWithTag(APP_BOTTOM_NAVIGATION_TAG).assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 3_000) { allSystemBarsAreVisible() }
+        composeRule.onNodeWithTag(BOOK_TAG).performTouchInput { click(center) }
+        composeRule.onNodeWithTag("reader_return_to_shelf").performClick()
+        composeRule.onNodeWithTag("library_screen").assertIsDisplayed()
+        composeRule.waitUntil(3_000) { allSystemBarsAreHidden() && !screenIsKeptAwake() }
+        composeRule.activityRule.scenario.recreate()
+        composeRule.onNodeWithTag("library_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("library_book_${id.value}").performClick()
         waitForPaginatedBook()
-        assertEquals(positionBeforeFullscreen, semanticLocation())
+        assertEquals(anchor, semanticLocation())
     }
+
+    private fun screenIsKeptAwake(): Boolean =
+        composeRule.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
 
     @Test
     fun parsedBookRestoresSemanticLocationAcrossRotationAndBack() {
         waitForPaginatedBook()
         val initial = semanticLocation()
-        composeRule.onNodeWithTag(BOOK_TAG).performClick()
+        composeRule.waitUntil(10_000) {
+            composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config.contains(SemanticsActions.OnClick)
+        }
+        composeRule.onNodeWithTag(BOOK_TAG).performTouchInput { click(Offset(width * .86f, height * .54f)) }
         composeRule.waitUntil(timeoutMillis = 3_000) { semanticLocation() != initial }
         val anchor = semanticLocation()
         val portraitKey = layoutIdentity()
@@ -186,7 +197,7 @@ class ReaderDemoTest {
                 book.fetchSemanticsNode().config.contains(SemanticsActions.OnClick)
             }
             val before = semanticLocation()
-            book.performClick()
+            book.performTouchInput { click(Offset(width * .86f, height * .54f)) }
             composeRule.waitUntil(timeoutMillis = 10_000) { semanticLocation() != before }
             assertTrue(book.fetchSemanticsNode().config[ReaderCacheBytes] <= 64L * 1024 * 1024)
             assertTrue(book.fetchSemanticsNode().config[SemanticsProperties.Text].any { it.text.isNotBlank() })
@@ -212,19 +223,6 @@ class ReaderDemoTest {
 
     private fun semanticLocation() = composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config[ReaderSemanticLocation]
     private fun layoutIdentity() = composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config[ReaderLayoutIdentity]
-
-    @Test
-    fun diagnosticsScreenParsesAndDisplaysBundledFb2() {
-        composeRule.onNodeWithTag(APP_DIAGNOSTICS_NAVIGATION_TAG).performClick()
-
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithTag(STAGE3_DIAGNOSTICS_READY_TAG)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRule.onNodeWithTag(STAGE3_DIAGNOSTICS_READY_TAG).assertIsDisplayed()
-        composeRule.onNodeWithTag(STAGE3_DIAGNOSTICS_ERROR_TAG).assertDoesNotExist()
-    }
 
     @Test
     fun firstMovementFromPageCenterShowsCurlWithoutCommittingPage() {
@@ -297,15 +295,15 @@ class ReaderDemoTest {
         val firstPageState = pageState()
 
         book.dragSlowly(
-            startFraction = Offset(0.42f, 0.52f),
-            endFraction = Offset(0.78f, 0.52f),
+            startFraction = Offset(0.32f, 0.52f),
+            endFraction = Offset(0.84f, 0.52f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != firstPageState }
         val frontCoverState = pageState()
 
         book.dragSlowly(
-            startFraction = Offset(0.58f, 0.52f),
-            endFraction = Offset(0.22f, 0.52f),
+            startFraction = Offset(0.68f, 0.52f),
+            endFraction = Offset(0.16f, 0.52f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() == firstPageState }
         assertNotEquals(firstPageState, frontCoverState)
@@ -321,8 +319,8 @@ class ReaderDemoTest {
         val lastPageState = pageState()
 
         book.dragSlowly(
-            startFraction = Offset(0.58f, 0.52f),
-            endFraction = Offset(0.22f, 0.52f),
+            startFraction = Offset(0.68f, 0.52f),
+            endFraction = Offset(0.16f, 0.52f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != lastPageState }
         val backCoverState = pageState()
@@ -332,8 +330,8 @@ class ReaderDemoTest {
         assertEquals(backCoverState, pageState())
 
         book.dragSlowly(
-            startFraction = Offset(0.42f, 0.52f),
-            endFraction = Offset(0.78f, 0.52f),
+            startFraction = Offset(0.32f, 0.52f),
+            endFraction = Offset(0.84f, 0.52f),
         )
         composeRule.waitUntil(timeoutMillis = 3_000) { pageState() == lastPageState }
     }
@@ -345,9 +343,11 @@ class ReaderDemoTest {
         composeRule.onNodeWithTag(BOOK_TAG).performTouchInput {
             val grab = Offset(width * 0.40f, height * 0.54f)
             down(grab)
-            advanceEventTime(16)
-            moveTo(grab - Offset(width * 0.16f, 4f))
-            advanceEventTime(16)
+            // Uniform motion supplies a real velocity trace. A lone move followed by
+            // a stationary up can fit a decelerating/outward terminal velocity.
+            for (sample in 1..4) {
+                moveTo(grab - Offset(width * .04f * sample, sample.toFloat()), delayMillis = 8)
+            }
             up()
         }
 
@@ -391,26 +391,34 @@ class ReaderDemoTest {
 
     @Test
     fun semanticPagePositionSurvivesPortraitLandscapePortraitResize() {
-        val initialState = pageState()
+        waitForPaginatedBook()
+        val initialState = semanticLocation()
+        composeRule.waitUntil(10_000) {
+            composeRule.onNodeWithTag(BOOK_TAG).fetchSemanticsNode().config.contains(SemanticsActions.OnClick)
+        }
         composeRule.onNodeWithTag(BOOK_TAG).performTouchInput {
             click(Offset(width * 0.75f, height * 0.58f))
         }
-        composeRule.waitUntil(timeoutMillis = 3_000) { pageState() != initialState }
-        val positionBeforeResize = pageState()
+        composeRule.waitUntil(timeoutMillis = 3_000) { semanticLocation() != initialState }
+        val positionBeforeResize = semanticLocation()
 
         requestOrientation(
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
             expectedOrientation = Configuration.ORIENTATION_LANDSCAPE,
         )
-        assertEquals(positionBeforeResize, pageState())
+        waitForPaginatedBook()
+        assertEquals(positionBeforeResize, semanticLocation())
 
         requestOrientation(
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
             expectedOrientation = Configuration.ORIENTATION_PORTRAIT,
         )
-        assertEquals(positionBeforeResize, pageState())
+        waitForPaginatedBook()
+        assertEquals(positionBeforeResize, semanticLocation())
     }
 
+    // Fullscreen leaves nearly fill the node. Complete single-page drags travel 52%
+    // of its width, crossing the existing 45%-of-leaf distance threshold without a flick.
     private fun androidx.compose.ui.test.SemanticsNodeInteraction.dragSlowly(
         startFraction: Offset,
         endFraction: Offset,
