@@ -87,6 +87,7 @@ class PaperControlsFlowTest {
             openInsert()
             compose.onNodeWithTag("reader_insert_return_from_toc").performClick()
             waitForBook()
+            compose.waitUntil(10_000) { controller.selection.value?.initialProgress?.tocEntryIndex == null }
             assertNull(controller.selection.value?.initialProgress?.tocEntryIndex)
             assertEquals(jumped, controller.selection.value?.initialProgress?.location)
         } finally {

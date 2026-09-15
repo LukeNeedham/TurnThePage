@@ -25,6 +25,7 @@ class LibraryController(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val commands = Channel<suspend () -> Unit>(Channel.UNLIMITED)
     private var serial = 0L
+    private var openRequest = 0L
     private var checkpoint: ReadingProgress? = null
     private var importJob: Job? = null
     private val _selection = MutableStateFlow<ReaderSelection?>(null)
@@ -69,19 +70,29 @@ class LibraryController(
     fun setReaderPreferences(value: ReaderPreferences) = enqueue { preferences.setReaderPreferences(value) }
 
     fun returnToShelf() {
+        // A back press during parsing invalidates its eventual selection as well.
+        openRequest++
         saveOnBackground()
         _selection.value = null
         checkpoint = null
         // Explicitly shelving a book is durable; a process restart restores the shelf.
         enqueue { preferences.selectBook(null) }
     }
-    fun open(id: BookId) = enqueue {
-        _busy.value = true
-        try { select(id) } finally { _busy.value = false }
+    fun open(id: BookId) {
+        val request = ++openRequest
+        enqueue {
+            if (request != openRequest) return@enqueue
+            _busy.value = true
+            try { select(id) { request == openRequest } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (request == openRequest) throw failure }
+            finally { _busy.value = false }
+        }
     }
 
-    private suspend fun select(id: BookId) {
+    private suspend fun select(id: BookId, stillRequested: () -> Boolean = { true }) {
         val opened = repository.open(id)
+        if (!stillRequested()) return
         checkpoint = opened.book.progress
         _selection.value = ReaderSelection(opened, opened.book.progress, ++serial)
     }

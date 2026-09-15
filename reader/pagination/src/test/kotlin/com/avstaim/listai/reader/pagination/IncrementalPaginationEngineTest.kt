@@ -79,6 +79,21 @@ class IncrementalPaginationEngineTest {
         assertEquals(heading.id, headingPage.chapterId)
     }
 
+    @Test fun cameraAndInkFieldReserveOnlyTheTopOfPaper() = runBlocking {
+        val reserved = key.copy(topContentInsetDp = 58f)
+        assertEquals(key.marginY, reserved.marginY, 0f)
+        assertEquals(58f, reserved.contentTop, 0f)
+        val pages = engine.paginate(longBook, null, reserved).last().pages
+        pages.flatMap { it.blocks }.forEach { fragment ->
+            assertTrue(fragment.y >= reserved.contentTop)
+            assertTrue(fragment.y + fragment.height <= reserved.pageHeightPx - reserved.marginY - reserved.footerHeight + .001f)
+        }
+        val anchor = BookLocation(BlockId("p15"), 371, 0)
+        assertTrue(engine.pageContaining(longBook, anchor, reserved).blocks.any {
+            it.blockId == anchor.blockId && it.startCharOffset <= anchor.charOffset && it.endCharOffsetExclusive > anchor.charOffset
+        })
+    }
+
     @Test fun oversizedImageIsSingleScaledFragmentAndDoesNotCropOrLoop() = runBlocking {
         val image = BookBlock.Image(BlockId("image"), ImageId("image"), "Illustration")
         val imageEngine = IncrementalPaginationEngine { block, layout ->

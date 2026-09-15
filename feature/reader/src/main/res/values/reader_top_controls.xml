@@ -1,0 +1,7 @@
+<resources>
+    <string name="reader_top_bookmarks">Bookmarks</string>
+    <string name="reader_top_light">Use light theme</string>
+    <string name="reader_top_dark">Use dark theme</string>
+    <string name="reader_top_contents">Contents</string>
+    <string name="reader_top_close">Close book and return to shelf</string>
+</resources>

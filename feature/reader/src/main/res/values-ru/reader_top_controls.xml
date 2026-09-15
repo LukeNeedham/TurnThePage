@@ -1,0 +1,7 @@
+<resources>
+    <string name="reader_top_bookmarks">Закладки</string>
+    <string name="reader_top_light">Светлая тема</string>
+    <string name="reader_top_dark">Тёмная тема</string>
+    <string name="reader_top_contents">Оглавление</string>
+    <string name="reader_top_close">Закрыть книгу и вернуться в шкаф</string>
+</resources>

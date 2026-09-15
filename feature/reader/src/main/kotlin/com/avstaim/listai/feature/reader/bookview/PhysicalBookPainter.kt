@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import com.avstaim.listai.core.designsystem.bindingColor
 import com.avstaim.listai.reader.rendering.geometry.AffineTransform2D
 import com.avstaim.listai.reader.rendering.geometry.PageCurlBandGeometry
 import com.avstaim.listai.reader.rendering.geometry.PageCurlBandGeometryEngine
@@ -139,12 +140,18 @@ internal fun DrawScope.drawPhysicalBook(
     logicalProgress: Float,
     pose: PhysicalBookPose,
     curl: CurlFrame? = null,
+    coverSurface: ExternalBookCoverSurface? = null,
 ) {
+    val bindingColor = (coverSurface ?: (curl?.source as? BookVisualSurface.Cover)?.surface
+        ?: (curl?.back as? BookVisualSurface.Cover)?.surface
+        ?: (visibleSurfaces.left as? BookVisualSurface.Cover)?.surface
+        ?: (visibleSurfaces.right as? BookVisualSurface.Cover)?.surface)?.bindingColor
     when (pose) {
         PhysicalBookPose.OPEN -> drawOpenBook(
             layout = layout,
             visibleSurfaces = visibleSurfaces,
             logicalProgress = logicalProgress,
+            bindingColor = bindingColor,
         )
 
         PhysicalBookPose.CLOSED_FRONT -> {
@@ -264,10 +271,10 @@ private fun DrawScope.drawRigidCoverTurn(frame: CurlFrame) {
         }
     }
 
-    // Board thickness remains visible at the edge-on midpoint. It is deliberately dark and has
-    // no white specular ridge, so the page underneath cannot appear as a bright corner artifact.
+    // The board's edge belongs to the same prepared artwork, including at the edge-on midpoint.
+    val bindingColor = (frame.source as? BookVisualSurface.Cover)?.surface?.bindingColor
     drawLine(
-        color = Color(0xFF101C28),
+        color = bindingColor ?: Color(0xFF101C28),
         start = Offset(projection.projectedHingeX, projection.projectedBounds.top + 1f),
         end = Offset(projection.projectedHingeX, projection.projectedBounds.bottom - 1f),
         strokeWidth = edgeWidth,
@@ -283,7 +290,7 @@ private fun DrawScope.drawRigidCoverTurn(frame: CurlFrame) {
             else -> projection.projectedBounds.right
         }
         drawLine(
-            color = Color(0xFF152637).copy(alpha = 0.82f),
+            color = bindingColor ?: Color(0xFF152637).copy(alpha = 0.82f),
             start = Offset(outerX, projection.projectedBounds.top + 1f),
             end = Offset(outerX, projection.projectedBounds.bottom - 1f),
             strokeWidth = (edgeWidth * 0.72f).coerceAtLeast(1f),
@@ -299,11 +306,13 @@ private fun DrawScope.drawOpenBook(
     layout: BookCanvasLayout,
     visibleSurfaces: VisibleBookSurfaces,
     logicalProgress: Float,
+    bindingColor: Color?,
 ) {
     drawBookShadowAndCover(
         layout = layout,
         hasLeftSurface = visibleSurfaces.left != null,
         hasRightSurface = visibleSurfaces.right != null,
+        bindingColor = bindingColor,
     )
     drawPageStacks(
         layout = layout,
@@ -394,6 +403,7 @@ private fun DrawScope.drawBookShadowAndCover(
     layout: BookCanvasLayout,
     hasLeftSurface: Boolean,
     hasRightSurface: Boolean,
+    bindingColor: Color?,
 ) {
     val cover = when {
         layout.presentation == BookPresentation.SINGLE || hasLeftSurface && hasRightSurface -> {
@@ -418,6 +428,11 @@ private fun DrawScope.drawBookShadowAndCover(
         size = cover.size,
         cornerRadius = CornerRadius(corner),
     )
+    if (bindingColor != null) {
+        drawRoundRect(color = bindingColor, topLeft = cover.topLeft, size = cover.size,
+            cornerRadius = CornerRadius(corner))
+        return
+    }
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(CoverLight, CoverDark, Color(0xFF213246)),

@@ -1,0 +1,71 @@
+package com.avstaim.listai.feature.reader.bookview
+
+import com.avstaim.listai.core.model.ReadingProgress
+import com.avstaim.listai.reader.pagination.PaginationSnapshot
+import com.avstaim.listai.reader.pagination.pageIndexContaining
+import com.avstaim.listai.reader.rendering.turn.TurnDirection
+
+/** A one-shot command; its checkpoint is applied only after the physical leaf settles. */
+internal data class ReaderJumpRequest(val sequence: Long, val progress: ReadingProgress)
+
+internal data class PreparedReaderJump(val request: ReaderJumpRequest, val target: PhysicalBookState.Open)
+
+/** A partial index must never silently clamp a distant bookmark to its current last page. */
+internal fun resolveReaderJump(
+    request: ReaderJumpRequest,
+    snapshot: PaginationSnapshot,
+    contents: PhysicalContents?,
+    tocSnapshot: PaginationSnapshot?,
+    presentation: BookPresentation,
+): PreparedReaderJump? {
+    val progress = request.progress
+    val tocCount = tocSnapshot?.pages?.size ?: 0
+    val tocEntry = progress.tocEntryIndex
+    val targetIndex = if (tocEntry != null) {
+        if (contents == null || tocSnapshot == null) return null
+        tocSnapshot.pages.pageIndexContaining(contents.location(tocEntry, progress.tocCharOffset))
+    } else {
+        val location = progress.location ?: return null
+        if (!snapshot.complete && location.fallbackGlobalOffset >= snapshot.pages.last().endExclusive.fallbackGlobalOffset) return null
+        tocCount + snapshot.pages.pageIndexContaining(location)
+    }
+    val target = PhysicalBookState.Open(targetIndex)
+    // A right-hand leaf that has not been indexed yet cannot be substituted by a back cover.
+    val count = tocCount + snapshot.pages.size
+    val anchor = requireNotNull(PhysicalBookNavigator(count).layoutAnchor(target, presentation))
+    if (!snapshot.complete && presentation == BookPresentation.SPREAD && anchor > 0 && anchor + 1 >= count) return null
+    return PreparedReaderJump(request, target)
+}
+
+/** TOC leaves precede the source even though their fallback source offsets are unrelated. */
+internal fun readerJumpDirection(
+    source: PhysicalBookState,
+    target: PhysicalBookState.Open,
+    current: ReadingProgress,
+    requested: ReadingProgress,
+): TurnDirection = when (source) {
+    PhysicalBookState.ClosedFront -> TurnDirection.FORWARD
+    PhysicalBookState.ClosedBack, PhysicalBookState.BackBoundary -> TurnDirection.BACKWARD
+    is PhysicalBookState.Open -> when {
+        target.semanticPageIndex < source.semanticPageIndex -> TurnDirection.BACKWARD
+        target.semanticPageIndex > source.semanticPageIndex -> TurnDirection.FORWARD
+        requested.tocEntryIndex != null && current.tocEntryIndex != null ->
+            if (compareValuesBy(requested, current, { it.tocEntryIndex }, { it.tocCharOffset }) < 0)
+                TurnDirection.BACKWARD else TurnDirection.FORWARD
+        (requested.location?.fallbackGlobalOffset ?: 0) < (current.location?.fallbackGlobalOffset ?: 0) -> TurnDirection.BACKWARD
+        else -> TurnDirection.FORWARD
+    }
+}
+
+/** Long jumps own at most two visible spreads, regardless of the distance travelled. */
+internal fun readerJumpSurfaceIndices(source: PhysicalBookState, target: PhysicalBookState,
+    presentation: BookPresentation, pageCount: Int): List<Int> =
+    (visiblePageIndices(source, presentation, pageCount) + visiblePageIndices(target, presentation, pageCount)).distinct()
+
+/** Drop offscreen bitmap references before pinning a source while its destination prepares. */
+internal fun PreparedPagination.visibleOnly(state: PhysicalBookState, presentation: BookPresentation): PreparedPagination {
+    val indices = visiblePageIndices(state, presentation, surfaces.size)
+    return PreparedPagination(snapshot, BookSurfaceWindow(surfaces.size,
+        indices.mapNotNull { index -> surfaces[index]?.let { index to it } }.toMap()),
+        cacheBytes, cachedPages, renderedPages, contents, tocSnapshot, interactionToken)
+}

@@ -33,20 +33,24 @@ data class LayoutKey(
     val localeTag: String = "en",
     val pageWidthPx: Int = if (pageMode == PageMode.SPREAD) viewportWidthPx / 2 else viewportWidthPx,
     val pageHeightPx: Int = viewportHeightPx,
+    // The book reaches the screen edge; camera/actions reserve paper, not an external toolbar.
+    val topContentInsetDp: Float = 0f,
 ) {
     init {
         require(viewportWidthPx > 0 && viewportHeightPx > 0 && pageWidthPx > 0 && pageHeightPx > 0) {
             "Viewport dimensions must be positive"
         }
         require(listOf(fontSizeSp, lineHeightMultiplier, textScale, density).all { it.isFinite() && it > 0 })
-        require(listOf(paragraphSpacingDp, horizontalMarginsDp, verticalMarginsDp).all { it.isFinite() && it >= 0 })
+        require(listOf(paragraphSpacingDp, horizontalMarginsDp, verticalMarginsDp, topContentInsetDp).all { it.isFinite() && it >= 0 })
         require(fontFamilyId.isNotBlank() && densityKey.isNotBlank() && localeTag.isNotBlank())
     }
 
     val marginX: Float get() = (horizontalMarginsDp * density).coerceAtMost(pageWidthPx * .22f)
     val marginY: Float get() = (verticalMarginsDp * density).coerceAtMost(pageHeightPx * .18f)
+    val contentTop: Float get() = maxOf(marginY, topContentInsetDp * density)
+        .coerceAtMost((pageHeightPx - marginY - footerHeight - 1f).coerceAtLeast(0f))
     val contentWidth: Int get() = (pageWidthPx - marginX * 2).toInt().coerceAtLeast(1)
-    val contentHeight: Float get() = (pageHeightPx - marginY * 2 - footerHeight).coerceAtLeast(1f)
+    val contentHeight: Float get() = (pageHeightPx - contentTop - marginY - footerHeight).coerceAtLeast(1f)
     val footerHeight: Float get() = (24f * density).coerceAtMost(pageHeightPx * .12f)
     val paragraphGap: Float get() = paragraphSpacingDp * density
 }

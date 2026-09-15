@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.avstaim.listai.feature.reader.ReaderPaginationComplete
+import com.avstaim.listai.feature.reader.ReaderJumpInProgress
 import com.avstaim.listai.feature.reader.ReaderSemanticLocation
 import com.avstaim.listai.core.model.BookId
 import kotlinx.coroutines.flow.first
@@ -80,14 +81,28 @@ class LibraryFlowTest {
             waitForBook()
             assertEquals(advanced, location())
             openBookmarks()
-            val obsolete = requireNotNull(controller.selection.value)
+            val liveSession = requireNotNull(controller.selection.value).session
             compose.onNodeWithTag("bookmark_jump_$bookmarkId").performClick()
-            waitForBook()
-            assertEquals(anchor, location())
-            compose.runOnUiThread {
-                controller.progressChanged(id, obsolete.session, obsolete.initialProgress)
+            compose.waitUntil(10_000) {
+                location() == anchor && !compose.onNodeWithTag("book_view_demo")
+                    .fetchSemanticsNode().config.getOrElse(ReaderJumpInProgress) { false }
             }
-            assertEquals(anchor, location()) // A callback from the disposed session cannot undo the jump.
+            assertEquals(anchor, location())
+            assertEquals("A printed bookmark turns the page without remounting the reader",
+                liveSession, controller.selection.value?.session)
+
+            // An explicitly replaced controller session still rejects genuinely stale callbacks.
+            val obsolete = requireNotNull(controller.selection.value)
+            val bookmark = runBlocking { controller.repository.bookmarks(id).first().single() }
+            compose.runOnUiThread { controller.jump(bookmark) }
+            compose.waitUntil(10_000) { controller.selection.value?.session != obsolete.session }
+            waitForBook()
+            compose.runOnUiThread {
+                controller.progressChanged(id, obsolete.session,
+                    obsolete.initialProgress.copy(location = null, fraction = 0f))
+            }
+            assertEquals(anchor, location())
+            assertEquals(bookmark.location, controller.selection.value?.initialProgress?.location)
             compose.activityRule.scenario.recreate()
             waitForBook()
             assertEquals(anchor, location())

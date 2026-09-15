@@ -86,7 +86,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
                 pageEnd = BookLocation(block.source.id, last.endExclusive, block.globalOffset + last.endExclusive)
                 fragments += PageBlockLayout(block.source.id, first.start, last.endExclusive,
                     layoutKey.marginX + (layoutKey.contentWidth - measured.width * scale) / 2f,
-                    layoutKey.marginY + y, measured.width * scale, height,
+                    layoutKey.contentTop + y, measured.width * scale, height,
                     lineIndex, endLine, scale, metrics)
                 y += height
                 lineIndex = endLine

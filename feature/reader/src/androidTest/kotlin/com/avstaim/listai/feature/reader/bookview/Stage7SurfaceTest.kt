@@ -24,6 +24,31 @@ class Stage7SurfaceTest {
         assertEquals(2f / 3f, decoded.width.toFloat() / decoded.height, .001f)
         assertEquals(SOURCE_COLOR, decoded.getPixel(decoded.width / 2, decoded.height / 2))
         assertNull(decodeCover(document(image.copy(content = BookBinaryContent { byteArrayOf(1, 2, 3) })), IntSize(1000, 1500)))
+        decoded.recycle()
+    }
+
+    @Test fun fullBoardArtworkDecodeKeepsEnoughPixelsForBothStretchedAxes() {
+        // Fit would downsample both sources, leaving the tall board under-resolved.
+        for (sourceSize in listOf(IntSize(900, 1350), IntSize(1800, 900))) {
+            val board = IntSize(398, 786)
+            val decoded = requireNotNull(decodeCover(document(image(sourceSize.width, sourceSize.height)), board))
+                .asAndroidBitmap()
+            assertTrue("A full-board cover must retain resolution for its horizontal axis", decoded.width >= board.width)
+            assertTrue("A full-board cover must retain resolution for its vertical axis", decoded.height >= board.height)
+            assertEquals(SOURCE_COLOR, decoded.getPixel(decoded.width / 2, decoded.height / 2))
+            decoded.recycle()
+        }
+    }
+
+    @Test fun fullBoardDecodeStillDownsamplesLargeArtworkToItsPixelBudget() {
+        // A landscape source stretched onto a tall phone would otherwise decode at full size.
+        val decoded = requireNotNull(decodeCover(document(image(3600, 1800)), IntSize(600, 1600)))
+            .asAndroidBitmap()
+        assertTrue("The cover bitmap must stay within the existing 4 Mi-pixel budget",
+            decoded.width.toLong() * decoded.height <= 4_194_304L)
+        assertEquals(2f, decoded.width.toFloat() / decoded.height, .001f)
+        assertEquals(SOURCE_COLOR, decoded.getPixel(decoded.width / 2, decoded.height / 2))
+        decoded.recycle()
     }
 
     @Test fun darkTextChangesButImagePixelsAndLayoutStayOriginal() = runBlocking {
@@ -51,6 +76,7 @@ class Stage7SurfaceTest {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         Canvas(bitmap).drawColor(SOURCE_COLOR)
         ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            .also { bitmap.recycle() }
     })
 
     private fun document(image: BookImage) = BookDocument(BookId("source-image"),
