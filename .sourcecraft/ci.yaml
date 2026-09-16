@@ -1,0 +1,63 @@
+# Cloud workers are required for GitHub Actions integration.
+on:
+  push:
+    - workflows: [android-quality]
+      filter:
+        branches: ["**"]
+      skip_on_pull_request: true
+    - workflows: [android-quality]
+      filter:
+        tags: ["v*"]
+  pull_request:
+    - workflows: [android-quality]
+
+workflows:
+  android-quality:
+    tasks:
+      - name: android-host
+        checkout:
+          remove_credentials: true
+        cubes:
+          - name: setup-java
+            action: actions/setup-java@v4
+            with:
+              distribution: temurin
+              java-version: "17"
+
+          - name: setup-android
+            action: android-actions/setup-android@v3
+
+          - name: install-sdk
+            script:
+              - sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+          - name: build
+            script:
+              - >-
+                ./gradlew --no-daemon --console=plain --stacktrace
+                :app:assembleRelease
+                :app:assembleDebugAndroidTest :feature:reader:assembleDebugAndroidTest
+                :core:files:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest
+                :benchmark:assemble
+            artifacts:
+              paths:
+                - app/build/outputs/apk/release
+
+          - name: unit-tests
+            script:
+              - ./gradlew --no-daemon --console=plain --stacktrace test
+
+          - name: lint
+            script:
+              - ./gradlew --no-daemon --console=plain --stacktrace lintRelease
+            artifacts:
+              paths:
+                - app/build/reports/lint-results-release.html
+                - app/build/reports/lint-results-release.xml
+
+          - name: screenshots
+            script:
+              - >-
+                ./gradlew --no-daemon --console=plain --stacktrace
+                :feature:reader:validateDebugScreenshotTest
+                :feature:library:validateDebugScreenshotTest
