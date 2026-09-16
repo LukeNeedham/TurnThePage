@@ -1,4 +1,4 @@
-# Cloud workers are required for GitHub Actions integration.
+# Install tools on the worker and export their paths through SOURCECRAFT_ENV.
 on:
   push:
     - workflows: [android-quality]
@@ -13,19 +13,16 @@ on:
 
 workflows:
   android-quality:
+    settings:
+      max_cube_duration: 20m
     tasks:
       - name: android-host
         checkout:
           remove_credentials: true
         cubes:
-          - name: setup-java
-            action: actions/setup-java@v4
-            with:
-              distribution: temurin
-              java-version: "17"
-
           - name: setup-android
-            action: android-actions/setup-android@v3
+            script:
+              - bash .sourcecraft/setup-android.sh
 
           - name: install-sdk
             script:
