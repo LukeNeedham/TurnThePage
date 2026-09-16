@@ -198,18 +198,22 @@ fun ListaiApp(
             interactionEnabled = phase == ShelfReaderPhase.SHELF && !busy,
             onBookBoundsChanged = { id, bounds ->
                 if (bounds == null) shelfBounds.remove(id) else shelfBounds[id] = bounds
-            })
+            },
+            versionLabel = "v${BuildConfig.VERSION_NAME}")
         if (busy && books.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
         if (selected != null) {
-            key(selected.opened.book.id.value, selected.session) {
+            // The controller's session counter restarts with the process. It must reset a
+            // live reader without changing the address of its saved Bundle state.
+            key(selected.opened.book.id.value) {
                 ReaderScreen(
                     document = selected.opened.document,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (readerVisible) 1f else 0f }
                         .then(if (readerVisible) Modifier else Modifier.clearAndSetSemantics {}),
                     devicePosture = devicePosture,
                     initialProgress = selected.initialProgress,
+                    readerSession = selected.session,
                     onProgressChanged = { controller.progressChanged(selected.opened.book.id, selected.session, it) },
                     preferences = preferences,
                     onPreferencesChange = controller::setReaderPreferences,
@@ -219,6 +223,7 @@ fun ListaiApp(
                     onDeleteBookmark = controller::deleteBookmark,
                     onReturnToShelf = ::returnToShelf,
                     transitionCoverProgress = if (phase == ShelfReaderPhase.READING) null else coverOpen.value,
+                    closingBook = returning,
                     onBookReady = { readerCoverBounds[selected.opened.book.id] = it },
                     onBookCoverChanged = { readerCoverFaces[selected.opened.book.id] = it },
                     onBookArtworkReady = { artwork ->

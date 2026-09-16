@@ -165,13 +165,12 @@ class PageCurlBandGeometryEngineTest {
 
     @Test
     fun `band uses infinite fold midpoint when clipped fold segment misses page`() {
-        val anchor = Point(50.0, 80.0)
+        val anchor = page.bottomRight
         val geometry = curlEngine.calculate(
             pageBounds = page,
-            pointer = Point(0.0, 320.0),
+            pointer = Point(-100.2, 160.0),
             direction = TurnDirection.FORWARD,
-            origin = CurlOrigin.FREE_POINT,
-            customAnchor = anchor,
+            destinationBounds = Rect(-120.0, 0.0, -20.0, 160.0),
         )
         // PageCurlGeometry represents a non-intersecting clipped segment by its fallback point.
         assertEquals(anchor, geometry.fold.start)

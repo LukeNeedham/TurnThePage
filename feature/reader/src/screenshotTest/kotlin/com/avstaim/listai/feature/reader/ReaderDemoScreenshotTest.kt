@@ -285,6 +285,28 @@ fun EdgeAnchorCurlScreenshot() {
 }
 
 @PreviewTest
+@Preview(name = "Physical spread — upper arc stays bound", widthDp = 1000, heightDp = 1100, locale = "ru")
+@Composable
+fun UpperArcForwardCurlScreenshot() {
+    ListaiTheme(darkTheme = false) {
+        DemoBook(presentation = BookPresentation.SPREAD, initialPageIndex = 5,
+            turn = DemoTurnPreview(TurnDirection.FORWARD, .93f, origin = CurlOrigin.OUTER_EDGE,
+                edgeAnchorFractionY = .04f, verticalArcFractionY = .14f))
+    }
+}
+
+@PreviewTest
+@Preview(name = "Physical spread — reverse upper arc stays bound", widthDp = 1000, heightDp = 1100, locale = "ru")
+@Composable
+fun UpperArcBackwardCurlScreenshot() {
+    ListaiTheme(darkTheme = false) {
+        DemoBook(presentation = BookPresentation.SPREAD, initialPageIndex = 5,
+            turn = DemoTurnPreview(TurnDirection.BACKWARD, .93f, origin = CurlOrigin.OUTER_EDGE,
+                edgeAnchorFractionY = .04f, verticalArcFractionY = .14f))
+    }
+}
+
+@PreviewTest
 @Preview(
     name = "Physical page — late curl",
     widthDp = 412,

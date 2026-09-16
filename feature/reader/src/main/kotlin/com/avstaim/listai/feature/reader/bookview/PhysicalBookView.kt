@@ -1,5 +1,6 @@
 package com.avstaim.listai.feature.reader.bookview
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -59,6 +60,7 @@ import com.avstaim.listai.core.model.BookLocation
 import com.avstaim.listai.core.model.CoverPosition
 import com.avstaim.listai.core.model.ReadingProgress
 import com.avstaim.listai.core.model.Bookmark
+import com.avstaim.listai.core.model.NoteId
 import com.avstaim.listai.feature.reader.ReaderNavigationState
 import com.avstaim.listai.feature.reader.ReaderNavigationSource
 import com.avstaim.listai.core.model.readingLength
@@ -85,6 +87,12 @@ import com.avstaim.listai.feature.reader.ReaderTurnSubject
 import com.avstaim.listai.feature.reader.ReaderTurnSourceText
 import com.avstaim.listai.feature.reader.ReaderCutoutInsets
 import com.avstaim.listai.feature.reader.ReaderTopControlLayout
+import com.avstaim.listai.feature.reader.ReaderNoteLinks
+import com.avstaim.listai.feature.reader.ReaderNoteLinkTargets
+import com.avstaim.listai.feature.reader.ReaderNoteReturns
+import com.avstaim.listai.feature.reader.ReaderNoteReturnTargets
+import com.avstaim.listai.feature.reader.ReaderNotesLocation
+import com.avstaim.listai.feature.reader.ReaderNoteVisit
 import com.avstaim.listai.feature.reader.readerTopControlLayout
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
@@ -155,6 +163,8 @@ internal fun PhysicalBookView(
     onProgressChanged: ((ReadingProgress) -> Unit)? = null,
     initialTocEntryIndex: Int? = null,
     initialTocCharOffset: Int = 0,
+    initialNoteId: NoteId? = null,
+    readerSession: Long = 0L,
     fontSizeSp: Float = 18f,
     darkTheme: Boolean = false,
     includeContents: Boolean = false,
@@ -166,7 +176,9 @@ internal fun PhysicalBookView(
     onNavigationState: ((ReaderNavigationState) -> Unit)? = null,
     navigationRequest: ReaderJumpRequest? = null,
     onNavigationRequestConsumed: ((Long) -> Unit)? = null,
+    noteBackEnabled: Boolean = true,
     transitionCoverProgress: Float? = null,
+    closingBook: Boolean = false,
     onBookReady: ((Rect) -> Unit)? = null,
     onBookCoverChanged: ((CoverPosition) -> Unit)? = null,
     onBookArtworkReady: ((ImageBitmap?) -> Unit)? = null,
@@ -178,7 +190,12 @@ internal fun PhysicalBookView(
 
     var viewportBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
     val readingPosition = document?.let { rememberReaderPosition(it, initialLocation, initialCover,
-        initialTocEntryIndex, initialTocCharOffset) }
+        initialTocEntryIndex, initialTocCharOffset, initialNoteId, readerSession) }
+    LaunchedEffect(closingBook) {
+        // An opening transition also runs after Activity restoration. Only the explicit
+        // shelving intent may discard a restored note visit, even before surfaces are ready.
+        if (closingBook) readingPosition?.clearNotes()
+    }
     val totalCharacters = remember(document) { document?.readingLength() ?: 1L }
     val navigationSource = remember(document) { document?.let(::ReaderNavigationSource) }
     val progressCallback by rememberUpdatedState(onProgressChanged)
@@ -328,7 +345,8 @@ internal fun PhysicalBookView(
             initialPageIndex,
             initialBookState,
         ) {
-            ready?.let { requireNotNull(readingPosition).initialState(it.snapshot, it.contents, it.tocSnapshot) } ?: initialBookState
+            ready?.let { requireNotNull(readingPosition).initialState(it.snapshot, it.contents, it.tocSnapshot,
+                it.notes, it.notesSnapshot) } ?: initialBookState
                 ?.normalized(preparedPages.size)
                 ?: PhysicalBookState.Open(initialPageIndex.coerceIn(0, preparedPages.lastIndex))
         }
@@ -395,8 +413,8 @@ internal fun PhysicalBookView(
         }
         LaunchedEffect(transitionCoverProgress != null) {
             if (transitionCoverProgress != null) {
-                // Shelving owns the book from this point. Cancel any uncommitted leaf rather
-                // than letting its settle mutate the source checkpoint under the closing cover.
+                // The outer cover transition owns the scene, including an opening after
+                // recreation. Keep its confirmed source or notes position intact.
                 cancelUncommittedTurn()
                 settleFraction.snapTo(0f)
             }
@@ -483,11 +501,12 @@ internal fun PhysicalBookView(
                     savedBookPosition = finished.completedState.toSavedPosition(destination?.surfaces?.size ?: preparedPages.size)
                     destination?.let {
                         if (finished.jumpDestination != null) {
-                            readingPosition?.commitJump(requireNotNull(it.jump).request.progress)
+                            readingPosition?.commitJump(requireNotNull(it.jump).request, it.notes)
                             displayedPagination = it
                             jumpPreparing = null
                             pagination?.cancelJump(finished.completedState, presentation)
-                        } else readingPosition?.commit(finished.completedState, it.snapshot, it.contents, it.tocSnapshot)
+                        } else readingPosition?.commit(finished.completedState, it.snapshot, it.contents,
+                            it.tocSnapshot, it.notes, it.notesSnapshot)
                         readingPosition?.let { position -> progressCallback?.invoke(position.progress(totalCharacters)) }
                     }
                     pagination?.request(finished.completedState, presentation, finished.direction)
@@ -515,27 +534,49 @@ internal fun PhysicalBookView(
             return true
         }
 
-        LaunchedEffect(navigationRequest, pagination, layout) {
-            val request = navigationRequest ?: return@LaunchedEffect
-            if (pagination == null || ready == null) return@LaunchedEffect
-            if (externalTransitionActive) {
-                consumedNavigationCallback?.invoke(request.sequence)
-                return@LaunchedEffect
-            }
+        fun beginJump(request: ReaderJumpRequest) {
+            if (pagination == null || ready == null || externalTransitionActive) return
             cancelUncommittedTurn()
-            settleFraction.snapTo(0f)
             val source = ready.visibleOnly(bookState, presentation)
             displayedPagination = source
             jumpPreparing = request
             pagination.requestJump(request, source, bookState, presentation)
+        }
+        var localJumpSequence by remember(document) { androidx.compose.runtime.mutableLongStateOf(-1L) }
+        fun openNote(noteId: NoteId, origin: BookLocation? = null) {
+            val position = readingPosition ?: return
+            val target = ready?.notes?.targets?.get(noteId) ?: return
+            beginJump(ReaderJumpRequest(--localJumpSequence, position.progress(totalCharacters), noteId, origin, target))
+        }
+        fun returnFromNote(noteId: NoteId) {
+            val position = readingPosition ?: return
+            val origin = ready?.notes?.returnOrigin(noteId, position.visit) ?: return
+            val progress = position.progress(totalCharacters).copy(location = origin, cover = CoverPosition.OPEN,
+                tocEntryIndex = null, tocCharOffset = 0)
+            beginJump(ReaderJumpRequest(--localJumpSequence, progress, returningFromNote = true))
+        }
+        val noteBackTarget = readingPosition?.noteId?.takeIf {
+            ready?.notes?.returnOrigin(it, readingPosition.visit) != null
+        }
+        BackHandler(enabled = noteBackEnabled && noteBackTarget != null && !externalTransitionActive) {
+            noteBackTarget?.let(::returnFromNote)
+        }
+        LaunchedEffect(navigationRequest, pagination, layout) {
+            val request = navigationRequest ?: return@LaunchedEffect
+            if (pagination == null || ready == null) return@LaunchedEffect
+            beginJump(request)
             consumedNavigationCallback?.invoke(request.sequence)
         }
         LaunchedEffect(latestPagination?.jump?.request?.sequence, jumpPreparing?.sequence) {
             val destination = latestPagination ?: return@LaunchedEffect
             val jump = destination.jump ?: return@LaunchedEffect
             if (jumpPreparing?.sequence != jump.request.sequence || externalTransitionActive) return@LaunchedEffect
-            val direction = readerJumpDirection(bookState, jump.target,
-                requireNotNull(readingPosition).progress(totalCharacters), jump.request.progress)
+            val direction = when {
+                jump.request.noteId != null -> TurnDirection.FORWARD
+                jump.request.returningFromNote -> TurnDirection.BACKWARD
+                else -> readerJumpDirection(bookState, jump.target,
+                    requireNotNull(readingPosition).progress(totalCharacters), jump.request.progress)
+            }
             val source = layout.sourcePage(direction)
             launchSettle(direction, SettleTarget.COMPLETE,
                 Point(if (direction == TurnDirection.FORWARD) source.right - 1.5 else source.left + 1.5,
@@ -579,6 +620,30 @@ internal fun PhysicalBookView(
             density.density, openPaperBounds)
         val pageNumberBounds = if (ready != null)
             openPaperBounds.map { pageNumberTapBounds(it, ready.snapshot.key) } else emptyList()
+        val noteLinks = remember(ready, bookState, layout, presentation, density.density) {
+            buildList {
+                if (bookState !is PhysicalBookState.Open || ready == null) return@buildList
+                val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
+                visible.forEachIndexed { side, index ->
+                    val leaf = if (visible.size > 1 && side == 0) layout.leftPage ?: layout.rightPage else layout.rightPage
+                    preparedPages[index]?.paginated?.noteLinks?.forEach { link ->
+                        add(noteTapBounds(link.bounds, leaf, ready.snapshot.key, density.density) to link)
+                    }
+                }
+            }
+        }
+        val noteReturns = remember(ready, bookState, layout, presentation, density.density) {
+            buildList {
+                if (bookState !is PhysicalBookState.Open || ready?.notesSnapshot == null) return@buildList
+                val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
+                visible.forEachIndexed { side, index ->
+                    val leaf = if (visible.size > 1 && side == 0) layout.leftPage ?: layout.rightPage else layout.rightPage
+                    preparedPages[index]?.paginated?.noteReturns?.forEach { link ->
+                        add(noteTapBounds(link.bounds, leaf, ready.notesSnapshot.key, density.density, expand = false) to link)
+                    }
+                }
+            }
+        }
         val semanticsModifier = Modifier.semantics {
             contentDescription = bookDescription
             stateDescription = stateText
@@ -587,6 +652,18 @@ internal fun PhysicalBookView(
             this[ReaderJumpInProgress] = jumpPreparing != null
             this[ReaderJumpDirection] = settleSession?.takeIf { it.jumpDestination != null }
                 ?.direction?.name?.lowercase().orEmpty()
+            this[ReaderNoteLinks] = noteLinks.map { it.first }
+            this[ReaderNoteLinkTargets] = noteLinks.map { (_, link) ->
+                "${link.noteId.value}|${link.origin.blockId.value}:${link.origin.charOffset}:${link.origin.fallbackGlobalOffset}|${link.kind.name.lowercase()}"
+            }
+            this[ReaderNoteReturns] = noteReturns.map { it.first }
+            this[ReaderNoteReturnTargets] = noteReturns.map { it.second.noteId.value }
+            this[ReaderNotesLocation] = readingPosition?.noteLocation?.let {
+                "${readingPosition.noteId?.value}|${it.blockId.value}:${it.charOffset}:${it.fallbackGlobalOffset}"
+            }.orEmpty()
+            this[ReaderNoteVisit] = readingPosition?.visit?.let {
+                "${it.noteId.value}|${it.origin.blockId.value}:${it.origin.charOffset}:${it.origin.fallbackGlobalOffset}"
+            }.orEmpty()
             ready?.let {
                 val anchor = readingPosition?.location ?: it.snapshot.pages.first().start
                 this[ReaderSemanticLocation] = "${anchor.blockId.value}:${anchor.charOffset}:${anchor.fallbackGlobalOffset}"
@@ -722,9 +799,16 @@ internal fun PhysicalBookView(
                                 val tocLink = if (pageIndex != null && pageBounds != null && ready?.contents != null)
                                     ready.tocSnapshot?.contentsLinkAt(down.position.x - pageBounds.left,
                                         down.position.y - pageBounds.top, pageIndex, ready.contents) else null
+                                val noteReturn = noteReturns.firstOrNull { it.first.contains(down.position) }?.second
+                                val noteLink = noteLinks.filter { it.first.contains(down.position) }
+                                    .minByOrNull { (it.first.center - down.position).getDistance() }?.second
                                 when {
                                     closedBackground -> shelfCallback?.invoke()
                                     bookState == PhysicalBookState.ClosedBack -> shelfCallback?.invoke()
+                                    noteReturn != null -> returnFromNote(noteReturn.noteId)
+                                    noteLink != null -> openNote(noteLink.noteId, noteLink.origin)
+                                    tocLink != null && ready?.notes?.noteAt(tocLink) != null ->
+                                        openNote(requireNotNull(ready.notes.noteAt(tocLink)))
                                     pageNumberBounds.any { it.contains(down.position) } && pageNumberCallback != null -> pageNumberCallback?.invoke()
                                     tocLink != null -> navigateCallback?.invoke(tocLink)
                                     central && centerCallback != null && bookState is PhysicalBookState.Open -> centerCallback?.invoke()

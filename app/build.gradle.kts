@@ -11,8 +11,8 @@ android {
         applicationId = "com.avstaim.listai"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("listai.versionCode").get().toInt()
+        versionName = providers.gradleProperty("listai.versionName").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -31,6 +31,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {

@@ -4,6 +4,7 @@ import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.BookLocation
 import com.avstaim.listai.core.model.InlineNode
+import com.avstaim.listai.core.model.inlineContent
 import com.avstaim.listai.core.model.plainText
 
 fun BookDocument.readingFlow(): List<FlowBlock> = buildList {
@@ -20,19 +21,7 @@ fun BookDocument.readingFlow(): List<FlowBlock> = buildList {
 }
 
 /** Preserve the model's UTF-16 space, including poem newlines and inline-image alt text. */
-fun BookBlock.textContent(): List<InlineNode> = when (this) {
-    is BookBlock.Paragraph -> content
-    is BookBlock.Heading -> content
-    is BookBlock.Poem -> buildList {
-        val lines = title.map { listOf(InlineNode.Strong(it)) } + stanzas.flatMap { it.lines } +
-            textAuthors.map { listOf(InlineNode.Emphasis(it)) }
-        lines.forEachIndexed { index, line ->
-            if (index > 0) add(InlineNode.Text("\n"))
-            addAll(line)
-        }
-    }
-    else -> listOf(InlineNode.Text(plainText()))
-}
+fun BookBlock.textContent(): List<InlineNode> = inlineContent()
 
 fun List<FlowBlock>.resolveLocation(location: BookLocation?): BookLocation {
     require(isNotEmpty()) { "Cannot paginate an empty reading flow" }

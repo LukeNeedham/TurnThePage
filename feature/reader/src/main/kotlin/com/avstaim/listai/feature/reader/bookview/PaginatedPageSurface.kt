@@ -41,7 +41,10 @@ private const val HOT_SURFACES_BYTES = 48L * 1024 * 1024
 /** Published bitmaps are immutable by ownership. Never recycle a bitmap retained by a scene/GPU. */
 internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val accessibleText: String,
     val darkTheme: Boolean = false, private val key: LayoutKey? = null,
-    private val footer: PreparedPageReadingFooter? = null) {
+    private val footer: PreparedPageReadingFooter? = null,
+    val noteLinks: List<PreparedNoteLink> = emptyList(),
+    val noteReturns: List<PreparedNoteReturn> = emptyList(),
+    private val returnInk: List<PreparedNoteReturnInk> = emptyList()) {
     val byteCount: Long get() = bitmap.allocationByteCount.toLong()
     val footerText: String? get() = footer?.text
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -51,10 +54,11 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         canvas.drawBitmap(bitmap, null, bounds, paint)
         // The footer uses the same native page transform as its text, including the moving back.
         // It is prepared at publication time, never measured from the draw/curl path.
-        if (footer != null && key != null) canvas.withSave {
+        if (key != null && (footer != null || returnInk.isNotEmpty())) canvas.withSave {
             canvas.translate(bounds.left, bounds.top)
             canvas.scale(bounds.width() / key.pageWidthPx, bounds.height() / key.pageHeightPx)
-            footer.drawTo(canvas, paint.alpha)
+            footer?.drawTo(canvas, paint.alpha)
+            returnInk.forEach { it.drawTo(canvas, paint.alpha) }
         }
     }
 
@@ -64,7 +68,15 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         // their own prepared ruler when a newer pagination snapshot supplies another footer.
         if (value == footer?.value) return this
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey,
-            PreparedPageReadingFooter(value, layoutKey, darkTheme))
+            PreparedPageReadingFooter(value, layoutKey, darkTheme), noteLinks, noteReturns, returnInk)
+    }
+
+    fun withNoteReturns(values: List<PreparedNoteReturn>): PaginatedPageSurface {
+        if (values == noteReturns) return this
+        val layoutKey = requireNotNull(key)
+        val published = values.toList()
+        return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey, footer,
+            noteLinks, published, published.map { PreparedNoteReturnInk(it, layoutKey) })
     }
 
     fun asBookSurface(number: Int) = DemoPageSurface(pageId, number, DemoPageKind.TEXT,
@@ -149,6 +161,7 @@ internal class AndroidPageRasterizer(
         try {
             val canvas = Canvas(bitmap)
             canvas.scale(width.toFloat() / key.pageWidthPx, height.toFloat() / key.pageHeightPx)
+            val noteLinks = mutableListOf<PreparedNoteLink>()
             for (fragment in page.blocks) {
                 context.ensureActive()
                 val measured = measurements[fragment.blockId] ?: measurer.measure(
@@ -160,6 +173,11 @@ internal class AndroidPageRasterizer(
                 // Refuse mismatched source/layout fragments rather than drawing an incorrect leaf.
                 check(measured.lines[fragment.firstLine].start == fragment.startCharOffset)
                 check(measured.lines[fragment.endLineExclusive - 1].endExclusive == fragment.endCharOffsetExclusive)
+                if (measured is AndroidTextMeasurement) {
+                    noteLinks += inlineNoteLinks(fragment, measured.layout,
+                        document.noteIndex.referencesIn(fragment.blockId, fragment.startCharOffset,
+                            fragment.endCharOffsetExclusive))
+                }
                 canvas.withTranslation(fragment.x, fragment.y) {
                     canvas.clipRect(0f, 0f, fragment.width, fragment.height)
                     canvas.scale(fragment.scale, fragment.scale)
@@ -176,14 +194,18 @@ internal class AndroidPageRasterizer(
                     }
                 }
             }
+            val footnotes = rasterizeFootnotes(canvas, page.footnotes, key, measurer)
+            noteLinks += footnotes.links
             context.ensureActive()
             bitmap.prepareToDraw()
             renderCount++
-            val text = page.blocks.joinToString("\n") { fragment ->
+            val bodyText = page.blocks.joinToString("\n") { fragment ->
                 requireNotNull(sources[fragment.blockId]).source.plainText()
                     .substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
             }
-            return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key)
+            val text = listOf(bodyText, footnotes.accessibleText).filter(String::isNotEmpty).joinToString("\n")
+            return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key,
+                noteLinks = noteLinks.toList())
         } catch (error: Throwable) {
             // This bitmap has never been published and cannot be referenced by the renderer.
             bitmap.recycle()

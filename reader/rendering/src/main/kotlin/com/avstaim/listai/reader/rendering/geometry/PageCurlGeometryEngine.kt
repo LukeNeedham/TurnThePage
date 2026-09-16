@@ -6,6 +6,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 data class FoldLine(
     val start: Point,
@@ -157,7 +158,7 @@ class PageCurlGeometryEngine(
             )
         }
 
-        val constrainedPointer = constrainPointer(
+        val boundedPointer = constrainPointer(
             bounds = pageBounds,
             pointer = pointer,
             direction = direction,
@@ -165,6 +166,7 @@ class PageCurlGeometryEngine(
             grabPoint = grabPoint,
             completionPointer = completionPointer,
         )
+        val constrainedPointer = constrainToBinding(pageBounds, boundedPointer, grabPoint, completionPointer)
         val delta = grabPoint - constrainedPointer
         val distance = hypot(delta.x, delta.y)
         if (!distance.isFinite() || distance <= scaledEpsilon(pageBounds)) {
@@ -240,10 +242,7 @@ class PageCurlGeometryEngine(
         completionPointer: Point,
     ): Point {
         if (origin == CurlOrigin.FREE_POINT) {
-            // Preserve direct manipulation throughout the source/destination neighbourhood. The
-            // outer safety envelope exists only to keep hostile or corrupt coordinates bounded;
-            // normal pointer coordinates, including a drag into the neighbouring page, pass
-            // through unchanged.
+            // Bound corrupt coordinates before applying the physical binding constraint below.
             val horizontalLow = minOf(bounds.left, completionPointer.x)
             val horizontalHigh = maxOf(bounds.right, completionPointer.x)
             val minX = saturatingSubtract(horizontalLow, bounds.width)
@@ -285,6 +284,22 @@ class PageCurlGeometryEngine(
             x = constrainedX,
             y = pointer.y.clampFinite(minY, maxY, grabPoint.y),
         )
+    }
+
+    private fun constrainToBinding(bounds: Rect, pointer: Point, grab: Point, completion: Point): Point {
+        val x = pointer.x.coerceIn(minOf(grab.x, completion.x), maxOf(grab.x, completion.x))
+        val spineX = midpoint(grab.x, completion.x)
+        val reach = abs(grab.x - spineX)
+        val horizontal = abs(x - spineX).coerceAtMost(reach)
+        // The pointer must remain inside both circles centred at the binding's endpoints,
+        // with radii equal to their distances from the grab point. Otherwise the perpendicular
+        // bisector cuts through the binding and reflects part of the spine away from the book.
+        // Keep horizontal travel direct; restrict only the vertical excursion. The permitted
+        // tilt goes continuously to zero at rest and at completion, including across a hinge.
+        val slack = sqrt(((reach - horizontal) * (reach + horizontal)).coerceAtLeast(0.0))
+        val minY = bounds.bottom - hypot(grab.y - bounds.bottom, slack)
+        val maxY = bounds.top + hypot(grab.y - bounds.top, slack)
+        return Point(x, pointer.y.coerceIn(minOf(minY, grab.y), maxOf(maxY, grab.y)))
     }
 
     private fun clipHalfPlane(

@@ -53,6 +53,7 @@ fun LibraryScreen(
     hiddenBookId: BookId? = null,
     interactionEnabled: Boolean = true,
     onBookBoundsChanged: (BookId, Rect?) -> Unit = { _, _ -> },
+    versionLabel: String? = null,
 ) {
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
     val colors = MaterialTheme.colorScheme
@@ -117,6 +118,15 @@ fun LibraryScreen(
                 Text("+", style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.padding(horizontal = 8.dp))
             }
+        }
+        versionLabel?.takeIf(String::isNotBlank)?.let { version ->
+            Text(
+                text = version,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 30.dp)
+                    .testTag("library_version"),
+                color = colors.onBackground.copy(alpha = .48f),
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
     deleting?.let { book ->

@@ -4,6 +4,8 @@ import com.avstaim.listai.core.model.BlockId
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.core.model.BookLocation
+import com.avstaim.listai.core.model.InlineNode
+import com.avstaim.listai.core.model.NoteId
 import com.avstaim.listai.core.model.PageId
 import kotlinx.coroutines.flow.Flow
 
@@ -35,22 +37,24 @@ data class LayoutKey(
     val pageHeightPx: Int = viewportHeightPx,
     // The book reaches the screen edge; camera/actions reserve paper, not an external toolbar.
     val topContentInsetDp: Float = 0f,
+    val bottomContentInsetDp: Float = 0f,
 ) {
     init {
         require(viewportWidthPx > 0 && viewportHeightPx > 0 && pageWidthPx > 0 && pageHeightPx > 0) {
             "Viewport dimensions must be positive"
         }
         require(listOf(fontSizeSp, lineHeightMultiplier, textScale, density).all { it.isFinite() && it > 0 })
-        require(listOf(paragraphSpacingDp, horizontalMarginsDp, verticalMarginsDp, topContentInsetDp).all { it.isFinite() && it >= 0 })
+        require(listOf(paragraphSpacingDp, horizontalMarginsDp, verticalMarginsDp, topContentInsetDp, bottomContentInsetDp).all { it.isFinite() && it >= 0 })
         require(fontFamilyId.isNotBlank() && densityKey.isNotBlank() && localeTag.isNotBlank())
     }
 
     val marginX: Float get() = (horizontalMarginsDp * density).coerceAtMost(pageWidthPx * .22f)
     val marginY: Float get() = (verticalMarginsDp * density).coerceAtMost(pageHeightPx * .18f)
     val contentTop: Float get() = maxOf(marginY, topContentInsetDp * density)
-        .coerceAtMost((pageHeightPx - marginY - footerHeight - 1f).coerceAtLeast(0f))
+        .coerceAtMost((pageHeightPx - marginY - footerHeight - bottomContentInset - 1f).coerceAtLeast(0f))
     val contentWidth: Int get() = (pageWidthPx - marginX * 2).toInt().coerceAtLeast(1)
-    val contentHeight: Float get() = (pageHeightPx - contentTop - marginY - footerHeight).coerceAtLeast(1f)
+    val contentHeight: Float get() = (pageHeightPx - contentTop - marginY - footerHeight - bottomContentInset).coerceAtLeast(1f)
+    val bottomContentInset: Float get() = (bottomContentInsetDp * density).coerceAtMost(pageHeightPx * .12f)
     val footerHeight: Float get() = (24f * density).coerceAtMost(pageHeightPx * .12f)
     val paragraphGap: Float get() = paragraphSpacingDp * density
 }
@@ -105,6 +109,25 @@ data class PageLayout(
     val blocks: List<PageBlockLayout>,
     val displayNumber: Int,
     val chapterId: BlockId? = null,
+    val footnotes: List<PageFootnoteLayout> = emptyList(),
+)
+
+/** Page-native text bounds. Exact inline hit rectangles are prepared by the surface rasterizer. */
+data class PageFootnoteLayout(
+    val noteId: NoteId,
+    val ordinal: Int,
+    val source: BookLocation,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val content: List<InlineNode>,
+    val startCharOffset: Int,
+    val endCharOffsetExclusive: Int,
+    val truncated: Boolean,
+    val measurement: MeasurementMetrics,
+    val hiddenNoteCount: Int = 0,
+    val scale: Float = 1f,
 )
 
 /** Immutable prefix of complete pages. A provisional tail is not the end of the book. */

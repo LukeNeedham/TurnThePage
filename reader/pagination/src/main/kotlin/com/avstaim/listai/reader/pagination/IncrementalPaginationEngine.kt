@@ -20,7 +20,9 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
         return snapshot.pages[snapshot.anchorPageIndex]
     }
 
-    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> = flow {
+    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =
+        if (document.noteIndex.referencesByBlock.isNotEmpty()) paginateWithFootnotes(document, location, layoutKey, measurer)
+        else flow {
         val flow = document.readingFlow()
         val anchor = flow.resolveLocation(location)
         val pages = mutableListOf<PageLayout>()

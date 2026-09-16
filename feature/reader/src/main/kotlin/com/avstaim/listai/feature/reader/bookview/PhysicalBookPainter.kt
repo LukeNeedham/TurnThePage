@@ -20,6 +20,8 @@ import com.avstaim.listai.reader.rendering.geometry.AffineTransform2D
 import com.avstaim.listai.reader.rendering.geometry.PageCurlBandGeometry
 import com.avstaim.listai.reader.rendering.geometry.PageCurlBandGeometryEngine
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometry
+import com.avstaim.listai.reader.rendering.geometry.PaperCurlLighting
+import com.avstaim.listai.reader.rendering.geometry.pageStackThickness
 import com.avstaim.listai.reader.rendering.geometry.Point
 import com.avstaim.listai.reader.rendering.geometry.Polygon
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
@@ -198,7 +200,7 @@ internal fun DrawScope.drawPhysicalBook(
     }
 
     if (pose == PhysicalBookPose.OPEN && layout.presentation == BookPresentation.SPREAD) {
-        drawSpine(layout)
+        drawSpine(layout, logicalProgress)
     }
     curl?.let { frame ->
         if (frame.source is BookVisualSurface.Cover) {
@@ -239,17 +241,18 @@ private fun DrawScope.drawRigidCoverTurn(frame: CurlFrame) {
 
     if (width > 0.25f) {
         val travel = sin(PI.toFloat() * frame.geometry.progress.toFloat().coerceIn(0f, 1f))
-        drawRect(
-            color = Color.Black.copy(alpha = 0.18f + 0.11f * travel),
-            topLeft = Offset(
-                projection.projectedBounds.left + edgeWidth * 0.7f,
-                projection.projectedBounds.top + density * (3.5f + 2f * travel),
-            ),
-            size = Size(
-                width = projection.projectedBounds.width,
-                height = projection.projectedBounds.height,
-            ),
-        )
+        // A raised board casts a softened shadow; its silhouette stays a single rigid plane.
+        for (layer in 3 downTo 1) {
+            val spread = density * travel * layer * .75f
+            drawRect(
+                color = Color.Black.copy(alpha = .055f + .014f * travel),
+                topLeft = Offset(
+                    projection.projectedBounds.left + edgeWidth * .7f - spread,
+                    projection.projectedBounds.top + density * (2f + 3f * travel) - spread,
+                ),
+                size = Size(width + spread * 2, projection.projectedBounds.height + spread * 2),
+            )
+        }
 
         val transform = AffineTransform2D(
             m00 = projection.horizontalScale.toDouble(),
@@ -460,9 +463,9 @@ private fun DrawScope.drawPageStacks(
 ) {
     if (!hasLeftSurface && !hasRightSurface) return
 
-    val progress = logicalProgress.coerceIn(0f, 1f)
-    val leftThickness = 1f + progress * 7f
-    val rightThickness = 1f + (1f - progress) * 7f
+    val thickness = pageStackThickness(logicalProgress, density.coerceIn(.75f, 2f))
+    val leftThickness = thickness.read
+    val rightThickness = thickness.remaining
     val top = layout.rightPage.top + 4f
     val bottom = layout.rightPage.bottom - 4f
     val leftEdge = layout.leftPage?.left ?: layout.rightPage.left
@@ -495,35 +498,24 @@ private fun DrawScope.drawPageStacks(
             )
         }
 
-        val bottomSegment = when {
-            layout.presentation == BookPresentation.SINGLE && hasRightSurface ->
-                Triple(layout.rightPage.left + 3f, layout.rightPage.right - 3f, rightOffset)
-
-            hasLeftSurface && hasRightSurface ->
-                Triple(leftEdge + 3f, rightEdge - 3f, rightOffset)
-
-            hasLeftSurface -> layout.leftPage?.let { leftPage ->
-                Triple(leftPage.left + 3f, leftPage.right - 3f, leftOffset)
-            }
-
-            hasRightSurface ->
-                Triple(layout.rightPage.left + 3f, layout.rightPage.right - 3f, rightOffset)
-
-            else -> null
-        }
-        bottomSegment?.let { (startX, endX, thickness) ->
+        // Each bottom edge follows its own stack. Joining them with the remaining-side depth
+        // makes the read block change thickness at the spine and bridges a Fold hinge.
+        fun bottomEdge(bounds: Rect, depth: Float) {
             drawLine(
                 color = PageEdgeLine.copy(alpha = alpha * 0.8f),
-                start = Offset(startX, layout.rightPage.bottom + thickness * 0.55f),
-                end = Offset(endX, layout.rightPage.bottom + thickness * 0.55f),
+                start = Offset(bounds.left + 3f + index * .23f, bounds.bottom + depth * .55f),
+                end = Offset(bounds.right - 3f - index * .17f, bounds.bottom + depth * .55f),
                 strokeWidth = 0.8f,
             )
         }
+        if (hasLeftSurface) layout.leftPage?.let { bottomEdge(it, leftOffset) }
+        if (hasRightSurface) bottomEdge(layout.rightPage, rightOffset)
     }
 }
 
-private fun DrawScope.drawSpine(layout: BookCanvasLayout) {
-    val halfWidth = min(density * 10f, layout.pageWidth * 0.06f)
+private fun DrawScope.drawSpine(layout: BookCanvasLayout, logicalProgress: Float) {
+    val halfWidth = min(density * 12f, layout.pageWidth * 0.065f)
+    val progress = logicalProgress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
     val top = layout.rightPage.top
     val bottom = layout.rightPage.bottom
     val physicalSpine = layout.spineBounds
@@ -533,9 +525,9 @@ private fun DrawScope.drawSpine(layout: BookCanvasLayout) {
         brush = Brush.horizontalGradient(
             0f to Color.Transparent,
             0.24f to Color.Black.copy(alpha = 0.018f),
-            0.43f to Color.Black.copy(alpha = 0.065f),
-            0.50f to Color.Black.copy(alpha = 0.14f),
-            0.57f to Color.Black.copy(alpha = 0.060f),
+            0.43f to Color.Black.copy(alpha = .042f + .025f * (1f - progress)),
+            0.50f to Color.Black.copy(alpha = 0.13f),
+            0.57f to Color.Black.copy(alpha = .042f + .025f * progress),
             0.76f to Color.Black.copy(alpha = 0.014f),
             1f to Color.Transparent,
             startX = spineLeft,
@@ -578,10 +570,12 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
     val pageWidth = frame.sourceBounds.width
     val midpoint = foldMidpoint(foldStart, foldEnd)
     val normalOffset = normal.toOffset()
+    val lighting = PaperCurlLighting.calculate(pageWidth.toDouble(), density.toDouble(), geometry.lift)
 
     // The cast shadow falls onto the flat sheet. It is broad, neutral and independent from the
     // contact shadow drawn at the actual paper-to-paper boundary below.
-    val castWidth = max(10f, pageWidth * (0.035f + 0.055f * lift))
+    val castWidth = lighting.castWidth.toFloat()
+    val castOpacity = lighting.castOpacity.toFloat()
     clipRect(
         left = frame.sourceBounds.left,
         top = frame.sourceBounds.top,
@@ -595,9 +589,9 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
             negativeWidth = 0.75f,
             positiveWidth = castWidth,
             brush = Brush.linearGradient(
-                0f to Color.Black.copy(alpha = 0.11f + 0.055f * lift),
-                0.14f to Color.Black.copy(alpha = 0.075f + 0.030f * lift),
-                0.52f to Color.Black.copy(alpha = 0.026f + 0.020f * lift),
+                0f to Color.Black.copy(alpha = castOpacity),
+                0.14f to Color.Black.copy(alpha = castOpacity * .66f),
+                0.52f to Color.Black.copy(alpha = castOpacity * .24f),
                 1f to Color.Transparent,
                 start = midpoint,
                 end = midpoint + normalOffset * castWidth,
@@ -628,11 +622,11 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
     drawPath(
         path = backPath,
         brush = Brush.linearGradient(
-            0f to Color.Black.copy(alpha = 0.085f + 0.035f * lift),
-            0.07f to Color.White.copy(alpha = 0.070f + 0.035f * lift),
+            0f to Color.Black.copy(alpha = lighting.creaseOpacity.toFloat()),
+            0.07f to Color.White.copy(alpha = lighting.ridgeOpacity.toFloat() * .7f),
             0.24f to Color.Transparent,
             0.78f to Color.Transparent,
-            1f to Color.Black.copy(alpha = 0.018f),
+            1f to Color.Black.copy(alpha = .012f * lift),
             start = midpoint,
             end = midpoint - normalOffset * shadedDepth,
         ),
@@ -640,14 +634,15 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
 
     drawPath(
         path = backPath,
-        color = Color.Black.copy(alpha = 0.16f),
+        color = Color.Black.copy(alpha = .12f * lift),
         style = Stroke(width = 0.58f),
     )
 
     // A narrow neutral contact shadow joins the two surfaces; white highlights come from the
     // lighting field above and never tint the paper.
-    val contactNegativeWidth = 1.25f + 2.25f * lift
-    val contactPositiveWidth = 0.9f + 1.6f * lift
+    val contactNegativeWidth = lighting.contactWidth.toFloat()
+    val contactPositiveWidth = contactNegativeWidth * .7f
+    val contactOpacity = lighting.contactOpacity.toFloat()
     clipRect(
         left = frame.sourceBounds.left,
         top = frame.sourceBounds.top,
@@ -662,9 +657,9 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
             positiveWidth = contactPositiveWidth,
             brush = Brush.linearGradient(
                 0f to Color.Transparent,
-                0.34f to Color.Black.copy(alpha = 0.050f + 0.045f * lift),
-                0.62f to Color.Black.copy(alpha = 0.13f + 0.080f * lift),
-                0.82f to Color.Black.copy(alpha = 0.055f + 0.035f * lift),
+                0.34f to Color.Black.copy(alpha = contactOpacity * .43f),
+                0.62f to Color.Black.copy(alpha = contactOpacity),
+                0.82f to Color.Black.copy(alpha = contactOpacity * .41f),
                 1f to Color.Transparent,
                 start = midpoint - normalOffset * contactNegativeWidth,
                 end = midpoint + normalOffset * contactPositiveWidth,
@@ -679,7 +674,7 @@ private fun DrawScope.drawCurl(frame: CurlFrame) {
     }
     drawPath(
         ridge,
-        Color.White.copy(alpha = 0.16f * lift),
+        Color.White.copy(alpha = lighting.ridgeOpacity.toFloat()),
         style = Stroke(width = 0.7f + 0.45f * lift, cap = StrokeCap.Round),
     )
 }
@@ -776,7 +771,9 @@ private fun DrawScope.drawSheetPiece(
                     surface = frame.source,
                     bounds = frame.sourceBounds,
                     side = frame.sourceSide,
-                    contentAlpha = if (frame.source is BookVisualSurface.Page) 0.065f else 1f,
+                    // A sheet without a prepared verso reveals a little fixed show-through.
+                    // This material property never animates the opacity of actual front ink.
+                    contentAlpha = if (frame.source is BookVisualSurface.Page) 0.055f else 1f,
                 )
             }
         }

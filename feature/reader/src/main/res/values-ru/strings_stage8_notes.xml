@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_notes">Примечания</string>
+    <string name="reader_note_number">Примечание %1$d</string>
+    <string name="reader_note_return">к тексту</string>
+</resources>

@@ -1,12 +1,16 @@
 package com.avstaim.listai.feature.reader.bookview
 
 import com.avstaim.listai.core.model.ReadingProgress
+import com.avstaim.listai.core.model.BookLocation
+import com.avstaim.listai.core.model.NoteId
 import com.avstaim.listai.reader.pagination.PaginationSnapshot
 import com.avstaim.listai.reader.pagination.pageIndexContaining
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
 
 /** A one-shot command; its checkpoint is applied only after the physical leaf settles. */
-internal data class ReaderJumpRequest(val sequence: Long, val progress: ReadingProgress)
+internal data class ReaderJumpRequest(val sequence: Long, val progress: ReadingProgress,
+    val noteId: NoteId? = null, val origin: BookLocation? = null, val noteTarget: BookLocation? = null,
+    val returningFromNote: Boolean = false)
 
 internal data class PreparedReaderJump(val request: ReaderJumpRequest, val target: PhysicalBookState.Open)
 
@@ -17,11 +21,17 @@ internal fun resolveReaderJump(
     contents: PhysicalContents?,
     tocSnapshot: PaginationSnapshot?,
     presentation: BookPresentation,
+    notes: PhysicalNotes? = null,
+    notesSnapshot: PaginationSnapshot? = null,
 ): PreparedReaderJump? {
     val progress = request.progress
     val tocCount = tocSnapshot?.pages?.size ?: 0
     val tocEntry = progress.tocEntryIndex
-    val targetIndex = if (tocEntry != null) {
+    val targetIndex = if (request.noteId != null) {
+        if (!snapshot.complete || notes == null || notesSnapshot == null) return null
+        val location = request.noteTarget ?: notes.targets[request.noteId] ?: return null
+        tocCount + snapshot.pages.size + notesSnapshot.pages.pageIndexContaining(location)
+    } else if (tocEntry != null) {
         if (contents == null || tocSnapshot == null) return null
         tocSnapshot.pages.pageIndexContaining(contents.location(tocEntry, progress.tocCharOffset))
     } else {
@@ -31,7 +41,7 @@ internal fun resolveReaderJump(
     }
     val target = PhysicalBookState.Open(targetIndex)
     // A right-hand leaf that has not been indexed yet cannot be substituted by a back cover.
-    val count = tocCount + snapshot.pages.size
+    val count = tocCount + snapshot.pages.size + if (snapshot.complete) (notesSnapshot?.pages?.size ?: 0) else 0
     val anchor = requireNotNull(PhysicalBookNavigator(count).layoutAnchor(target, presentation))
     if (!snapshot.complete && presentation == BookPresentation.SPREAD && anchor > 0 && anchor + 1 >= count) return null
     return PreparedReaderJump(request, target)
@@ -67,5 +77,6 @@ internal fun PreparedPagination.visibleOnly(state: PhysicalBookState, presentati
     val indices = visiblePageIndices(state, presentation, surfaces.size)
     return PreparedPagination(snapshot, BookSurfaceWindow(surfaces.size,
         indices.mapNotNull { index -> surfaces[index]?.let { index to it } }.toMap()),
-        cacheBytes, cachedPages, renderedPages, contents, tocSnapshot, interactionToken)
+        cacheBytes, cachedPages, renderedPages, contents, tocSnapshot, interactionToken,
+        notes = notes, notesSnapshot = notesSnapshot)
 }

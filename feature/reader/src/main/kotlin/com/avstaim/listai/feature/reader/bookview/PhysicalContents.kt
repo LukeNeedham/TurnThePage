@@ -5,9 +5,11 @@ import com.avstaim.listai.reader.pagination.PaginationSnapshot
 import com.avstaim.listai.reader.pagination.PageLayout
 import com.avstaim.listai.reader.pagination.readingFlow
 import com.avstaim.listai.reader.pagination.resolveLocation
+import com.avstaim.listai.reader.pagination.pageIndexContaining
 
 /** Supplemental paper: the parsed book and its SHA/source offsets never change. */
-internal class PhysicalContents(source: BookDocument, title: String, beginText: String) {
+internal class PhysicalContents(source: BookDocument, title: String, beginText: String,
+    val notes: PhysicalNotes? = null) {
     val title = title
     val entries: List<PhysicalContentsEntry>
     val targets: Map<BlockId, BookLocation>
@@ -38,6 +40,13 @@ internal class PhysicalContents(source: BookDocument, title: String, beginText: 
                 rows += PhysicalContentsEntry(1, id, beginText, 0, target)
                 add(BookBlock.Paragraph(id, listOf(InlineNode.Text(beginText))))
             }
+            notes?.let {
+                val id = id(size)
+                val target = it.targets.values.first()
+                links[id] = target
+                rows += PhysicalContentsEntry(size, id, it.title, 0, target)
+                add(BookBlock.Paragraph(id, listOf(InlineNode.Text(it.title))))
+            }
         }
         targets = links
         entries = rows
@@ -50,11 +59,13 @@ internal class PhysicalContents(source: BookDocument, title: String, beginText: 
     fun entryIndex(location: BookLocation): Int = document.blocks.indexOfFirst { it.id == location.blockId }.coerceAtLeast(0)
 
     /** Exact source fragments only: the fallback lookup would mislabel an unfinished prefix. */
-    fun sourcePageNumbers(snapshot: PaginationSnapshot): Map<BlockId, Int?> {
+    fun sourcePageNumbers(snapshot: PaginationSnapshot, notesSnapshot: PaginationSnapshot? = null): Map<BlockId, Int?> {
         val fragments = snapshot.pages.flatMap { page -> page.blocks.map { it.blockId to (page to it) } }
             .groupBy({ it.first }, { it.second })
         return entries.associate { entry ->
             val target = entry.target
+            if (notes?.noteAt(target) != null) return@associate entry.blockId to
+                notesSnapshot?.pages?.pageIndexContaining(target)?.plus(1)
             val candidates = fragments[target.blockId].orEmpty()
             val exact = candidates.firstOrNull { (_, block) ->
                 target.charOffset >= block.startCharOffset &&

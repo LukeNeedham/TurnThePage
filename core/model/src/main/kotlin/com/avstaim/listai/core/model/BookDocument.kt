@@ -48,6 +48,7 @@ data class BookDocument(
     /** Immutable, eagerly-built lookup indexes for hot-path note and image resolution. */
     val notesById: Map<NoteId, BookNote> = notes.associateBy(BookNote::id)
     val imagesById: Map<ImageId, BookImage> = images.associateBy(BookImage::id)
+    val noteIndex: BookNoteIndex = BookNoteIndex(this)
 }
 
 data class BookMetadata(

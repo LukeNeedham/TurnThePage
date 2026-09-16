@@ -13,12 +13,16 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextDirectionHeuristics
 import android.text.style.LeadingMarginSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
+import android.text.style.SuperscriptSpan
 import android.text.style.UnderlineSpan
 import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.InlineNode
+import com.avstaim.listai.core.model.LinkTarget
 import com.avstaim.listai.core.model.ParagraphRole
 import com.avstaim.listai.core.model.plainText
 import com.avstaim.listai.reader.pagination.BlockMeasurement
@@ -72,7 +76,7 @@ internal class AndroidBookMeasurer(
             else -> Typeface.NORMAL
         }
         val paint = textPaint(key, style, if (heading) 1.25f else 1f)
-        val content = source.textContent().toSpannedText()
+        val content = source.textContent().toSpannedText(key.darkTheme)
         val inset = (key.contentWidth * min(.22f, block.quoteDepth * .05f)).roundToInt()
         val width = (key.contentWidth - inset * 2).coerceAtLeast(1)
         if (paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0 && content.isNotEmpty()) {
@@ -134,7 +138,10 @@ internal fun textPaint(key: LayoutKey, style: Int = Typeface.NORMAL, multiplier:
         textLocale = Locale.forLanguageTag(key.localeTag)
     }
 
-internal fun List<InlineNode>.toSpannedText(): SpannableStringBuilder = SpannableStringBuilder().also { result ->
+internal fun noteInkColor(darkTheme: Boolean): Int =
+    if (darkTheme) 0xFFA9BECE.toInt() else 0xFF536E82.toInt()
+
+internal fun List<InlineNode>.toSpannedText(darkTheme: Boolean = false): SpannableStringBuilder = SpannableStringBuilder().also { result ->
     fun append(node: InlineNode) {
         val start = result.length
         val span = when (node) {
@@ -143,7 +150,24 @@ internal fun List<InlineNode>.toSpannedText(): SpannableStringBuilder = Spannabl
             is InlineNode.Emphasis -> { node.children.forEach(::append); StyleSpan(Typeface.ITALIC) }
             is InlineNode.Strong -> { node.children.forEach(::append); StyleSpan(Typeface.BOLD) }
             is InlineNode.Strikethrough -> { node.children.forEach(::append); StrikethroughSpan() }
-            is InlineNode.Link -> { node.children.forEach(::append); UnderlineSpan() }
+            is InlineNode.Link -> {
+                node.children.forEach(::append)
+                if (node.target is LinkTarget.Note && result.length > start) {
+                    val flags = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    result.setSpan(RelativeSizeSpan(.72f), start, result.length, flags)
+                    result.setSpan(SuperscriptSpan(), start, result.length, flags)
+                    result.setSpan(ForegroundColorSpan(noteInkColor(darkTheme)), start, result.length, flags)
+                    // A zero-width ReplacementSpan behaves as an inline object and can orphan
+                    // the marker on the next line. Replace only the display's wrapping bracket
+                    // code units with WORD JOINER: this binds the call to its preceding word and
+                    // following punctuation while preserving every source UTF-16 offset.
+                    if (result.length - start > 2 && result[start] == '[' && result.last() == ']') {
+                        result.replace(start, start + 1, "\u2060")
+                        result.replace(result.length - 1, result.length, "\u2060")
+                    }
+                    null
+                } else UnderlineSpan()
+            }
         }
         if (span != null && result.length > start) result.setSpan(span, start, result.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }

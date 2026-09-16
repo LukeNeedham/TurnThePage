@@ -387,11 +387,9 @@ class PageCurlGeometryEngineTest {
     }
 
     @Test
-    fun `free point reflection follows actual pointer in source destination neighbourhood`() {
+    fun `free point reflection follows physically reachable pointer`() {
         val anchor = Point(72.0, 44.0)
-        // Deliberately leave the source page vertically: normal direct manipulation must still
-        // preserve the real pointer rather than projecting it back to the anchor or page edge.
-        val pointer = Point(31.0, 190.0)
+        val pointer = Point(31.0, 50.0)
         val geometry = engine.calculate(
             pageBounds = page,
             pointer = pointer,
@@ -726,6 +724,63 @@ class PageCurlGeometryEngineTest {
                 assertEquals(legacy, geometry)
                 assertTrue(geometry.isFinite)
             }
+        }
+    }
+
+    @Test
+    fun `arc drags keep both binding endpoints on the flat side in either direction`() {
+        for (direction in TurnDirection.entries) {
+            for (origin in CurlOrigin.entries) {
+                for (anchorY in listOf(0.0, 8.0, 80.0, 152.0, 160.0)) {
+                    for (gap in listOf(0.0, 20.0)) {
+                        val forwardDestination = Rect(-100.0 - gap, 0.0, -gap, 160.0)
+                        val destination = if (direction == TurnDirection.FORWARD) forwardDestination else mirror(forwardDestination)
+                        val forwardAnchor = Point(if (origin == CurlOrigin.FREE_POINT) 72.0 else 100.0, anchorY)
+                        val anchor = if (direction == TurnDirection.FORWARD) forwardAnchor else mirror(forwardAnchor)
+                        fun at(pointer: Point) = engine.calculate(page, pointer, direction, origin,
+                            edgeAnchorY = anchorY, customAnchor = anchor, destinationBounds = destination)
+                        val initial = at(anchor)
+                        val spineX = (initial.grabPoint.x + initial.completionPointer.x) / 2
+                        for (step in 0..100) {
+                            val fraction = step / 100.0
+                            val baseline = lerp(initial.grabPoint, initial.completionPointer, fraction)
+                            for (arc in listOf(-160.0, -14.0, 14.0, 160.0)) {
+                                val pointer = baseline.copy(y = baseline.y + arc * kotlin.math.sin(Math.PI * fraction))
+                                val geometry = at(pointer)
+                                assertTrue(geometry.isFinite)
+                                assertEquals(baseline.x, geometry.constrainedPointer.x, TOLERANCE)
+                                if (step == 0) continue
+                                val midpoint = lerp(geometry.grabPoint, geometry.constrainedPointer, .5)
+                                for (endpoint in listOf(Point(spineX, page.top), Point(spineX, page.bottom))) {
+                                    val relative = endpoint - midpoint
+                                    val signedDistance = relative.x * geometry.fold.normal.x + relative.y * geometry.fold.normal.y
+                                    assertTrue("Binding lifted: $direction $origin y=$anchorY gap=$gap step=$step arc=$arc",
+                                        signedDistance <= TOLERANCE)
+                                }
+                                assertEquals(page.area, geometry.flatFront.area + geometry.liftedFront.area, AREA_TOLERANCE)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `late upper edge drag cannot lift the spine or leave a tilted completed sheet`() {
+        for (direction in TurnDirection.entries) {
+            fun at(pointer: Point) = engine.calculate(page,
+                if (direction == TurnDirection.FORWARD) pointer else mirror(pointer), direction,
+                CurlOrigin.OUTER_EDGE, edgeAnchorY = 8.0)
+            val late = at(Point(-95.0, 22.0))
+            val spineX = if (direction == TurnDirection.FORWARD) page.left else page.right
+            val spine = listOf(Point(spineX, page.top), Point(spineX, page.bottom))
+            assertTrue(spine.all { point -> late.flatFront.points.any {
+                abs(it.x - point.x) <= TOLERANCE && abs(it.y - point.y) <= TOLERANCE
+            } })
+            val completed = at(Point(-100.0, 22.0))
+            assertPointEquals(completed.completionPointer, completed.constrainedPointer)
+            assertPointSetsEqual(completed.finalDestinationBounds.corners(), completed.reflectedBack.points)
         }
     }
 

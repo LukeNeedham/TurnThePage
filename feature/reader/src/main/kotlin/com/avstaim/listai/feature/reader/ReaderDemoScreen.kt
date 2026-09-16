@@ -71,16 +71,18 @@ fun ReaderScreen(
     onDeleteBookmark: (Bookmark) -> Unit = {},
     onReturnToShelf: () -> Unit = {},
     transitionCoverProgress: Float? = null,
+    closingBook: Boolean = false,
     onBookReady: (Rect) -> Unit = {},
     onBookCoverChanged: (CoverPosition) -> Unit = {},
     onBookArtworkReady: (ImageBitmap?) -> Unit = {},
+    readerSession: Long = 0L,
 ) {
-    var insertOpen by rememberSaveable { mutableStateOf(false) }
-    var insertSection by rememberSaveable { mutableStateOf(PaperInsertSection.MENU) }
-    var checkpoint by remember(document) { mutableStateOf(initialProgress) }
-    var navigationSequence by remember(document) { mutableLongStateOf(0L) }
-    var navigationRequest by remember(document) { mutableStateOf<ReaderJumpRequest?>(null) }
-    var navigation by remember(document) { mutableStateOf<ReaderNavigationState?>(null) }
+    var insertOpen by rememberSaveable(readerSession) { mutableStateOf(false) }
+    var insertSection by rememberSaveable(readerSession) { mutableStateOf(PaperInsertSection.MENU) }
+    var checkpoint by remember(document, readerSession) { mutableStateOf(initialProgress) }
+    var navigationSequence by remember(document, readerSession) { mutableLongStateOf(0L) }
+    var navigationRequest by remember(document, readerSession) { mutableStateOf<ReaderJumpRequest?>(null) }
+    var navigation by remember(document, readerSession) { mutableStateOf<ReaderNavigationState?>(null) }
     val progressCallback by rememberUpdatedState(onProgressChanged)
 
     fun navigate(progress: ReadingProgress) {
@@ -127,6 +129,7 @@ fun ReaderScreen(
                     start = with(density) { left.toDp() },
                     end = with(density) { right.toDp() }, bottom = with(density) { bottom.toDp() }),
                 initialLocation = checkpoint.location, initialCover = checkpoint.cover,
+                readerSession = readerSession,
                 initialTocEntryIndex = checkpoint.tocEntryIndex, initialTocCharOffset = checkpoint.tocCharOffset,
                 onProgressChanged = { checkpoint = it; progressCallback?.invoke(it) },
                 devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
@@ -136,10 +139,12 @@ fun ReaderScreen(
                 onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
                 onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
                 navigationRequest = navigationRequest,
+                noteBackEnabled = !insertOpen,
                 onNavigationRequestConsumed = { sequence ->
                     if (navigationRequest?.sequence == sequence) navigationRequest = null
                 },
                 transitionCoverProgress = transitionCoverProgress,
+                closingBook = closingBook,
                 onBookReady = { onBookReady(it.translate(bookOrigin)) },
                 onBookCoverChanged = onBookCoverChanged,
                 onBookArtworkReady = onBookArtworkReady,
@@ -218,6 +223,12 @@ val ReaderTurnDirection = SemanticsPropertyKey<String>("ReaderTurnDirection")
 val ReaderTurnProgress = SemanticsPropertyKey<Float>("ReaderTurnProgress")
 val ReaderTurnSubject = SemanticsPropertyKey<String>("ReaderTurnSubject")
 val ReaderTurnSourceText = SemanticsPropertyKey<String>("ReaderTurnSourceText")
+val ReaderNoteLinks = SemanticsPropertyKey<List<Rect>>("ReaderNoteLinks")
+val ReaderNoteLinkTargets = SemanticsPropertyKey<List<String>>("ReaderNoteLinkTargets")
+val ReaderNoteReturns = SemanticsPropertyKey<List<Rect>>("ReaderNoteReturns")
+val ReaderNoteReturnTargets = SemanticsPropertyKey<List<String>>("ReaderNoteReturnTargets")
+val ReaderNotesLocation = SemanticsPropertyKey<String>("ReaderNotesLocation")
+val ReaderNoteVisit = SemanticsPropertyKey<String>("ReaderNoteVisit")
 
 // Legacy test identifier; no production fullscreen control exists.
 const val READER_FULLSCREEN_BUTTON_TAG = "reader_fullscreen_button"
