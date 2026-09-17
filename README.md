@@ -149,6 +149,11 @@ CPU/кадровые профили, stress/cache/recovery-проверки, с�
 
 Debug APK появится в `app/build/outputs/apk/debug/`.
 
+Выпуск в [SourceCraft](https://sourcecraft.dev/avstaim/listai) выполняется по
+[проектному навыку `listai-release`](.agents/skills/listai-release/SKILL.md):
+проверки, постоянная подпись APK, push, CI и публикация.
+[Изменения версии 0.8.1](docs/releases/0.8.1.md).
+
 Основные проверки проекта:
 
 ```bash

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Выпуск Листай в SourceCraft"
+  short_description: "Сборка, постоянная подпись и релиз Листай"
+  default_prompt: "Используй $listai-release, чтобы выложить текущую версию Листай в SourceCraft."

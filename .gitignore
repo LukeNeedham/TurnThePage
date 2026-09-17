@@ -3,7 +3,10 @@
 .idea/
 .gradle/
 .kotlin/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/listai-release/
 .codex/
 local.properties
 
@@ -22,6 +25,10 @@ benchmark-data/
 # Signing keys and local secrets
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.key
+keystore-password.txt
 keystore.properties
 secrets.properties
 .env
@@ -31,3 +38,7 @@ secrets.properties
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Python helpers
+__pycache__/
+*.pyc
