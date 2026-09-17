@@ -72,6 +72,7 @@ fun PaperReaderInsert(
     onRemoveCurrentBookmark: () -> Unit = {},
     canBookmarkCurrent: Boolean = true,
     initialSection: PaperInsertSection = PaperInsertSection.MENU,
+    onShowHints: (() -> Unit)? = null,
 ) {
     var section by remember(initialSection) { mutableStateOf(initialSection) }
     var navigationDraft by remember { mutableStateOf(PaperNavigationDraft.at(navigation.current)) }
@@ -152,33 +153,7 @@ fun PaperReaderInsert(
                     }
                 }
                 PaperInsertSection.SETTINGS -> {
-                    Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        IconPress(PaperIcon.Minus, stringResource(R.string.insert_font_smaller), "reader_font_smaller", {
-                            onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(12f)))
-                        }, enabled = preferences.fontSizeSp > 12f)
-                        Text(stringResource(R.string.insert_font_value, preferences.fontSizeSp.roundToInt()),
-                            style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif, color = colors.onSurface)
-                        IconPress(PaperIcon.Plus, stringResource(R.string.insert_font_larger), "reader_font_larger", {
-                            onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(32f)))
-                        }, enabled = preferences.fontSizeSp < 32f)
-                    }
-                    Text(stringResource(R.string.insert_type_sample), fontFamily = FontFamily.Serif,
-                        fontSize = preferences.fontSizeSp.sp, lineHeight = (preferences.fontSizeSp * 1.5f).sp,
-                        color = colors.onSurface, modifier = Modifier.fillMaxWidth().background(colors.surfaceContainerLow)
-                            .drawBehind {
-                                val y = size.height - 8.dp.toPx()
-                                drawLine(colors.outlineVariant.copy(alpha = .5f), Offset(14.dp.toPx(), y), Offset(size.width - 14.dp.toPx(), y), 1.dp.toPx())
-                            }.padding(horizontal = 16.dp, vertical = 18.dp))
-                    InkRule()
-                    Text(stringResource(R.string.insert_appearance), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReaderTheme.entries.forEach { theme ->
-                            ThemePaper(theme, preferences.theme == theme, Modifier.weight(1f)) {
-                                onPreferencesChange(preferences.copy(theme = theme))
-                            }
-                        }
-                    }
+                    PaperSettingsContent(preferences, onPreferencesChange, onShowHints)
                     SectionFooter(onDismiss)
                 }
                 PaperInsertSection.BOOKMARKS -> {
@@ -231,6 +206,68 @@ fun PaperReaderInsert(
                 }
             }
         }
+    }
+}
+
+/** The shelf and reading card use the same settings and persistence contract. */
+@Composable
+fun PaperSettingsSheet(
+    preferences: ReaderPreferences,
+    onPreferencesChange: (ReaderPreferences) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    onShowHints: (() -> Unit)? = null,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier.widthIn(max = 420.dp).fillMaxWidth().heightIn(max = 680.dp)
+        .shadow(18.dp, InsertPaperShape).clip(InsertPaperShape).background(colors.surface)
+        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+        .testTag("paper_settings_sheet").verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.insert_settings), Modifier.weight(1f),
+                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
+            IconPress(PaperIcon.Close, stringResource(R.string.rc1_close_settings), "settings_close", onDismiss)
+        }
+        InkRule()
+        PaperSettingsContent(preferences, onPreferencesChange, onShowHints)
+    }
+}
+
+@Composable
+private fun PaperSettingsContent(preferences: ReaderPreferences,
+    onPreferencesChange: (ReaderPreferences) -> Unit, onShowHints: (() -> Unit)?) {
+    val colors = MaterialTheme.colorScheme
+    Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        IconPress(PaperIcon.Minus, stringResource(R.string.insert_font_smaller), "reader_font_smaller", {
+            onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(12f)))
+        }, enabled = preferences.fontSizeSp > 12f)
+        Text(stringResource(R.string.insert_font_value, preferences.fontSizeSp.roundToInt()),
+            style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif, color = colors.onSurface)
+        IconPress(PaperIcon.Plus, stringResource(R.string.insert_font_larger), "reader_font_larger", {
+            onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(32f)))
+        }, enabled = preferences.fontSizeSp < 32f)
+    }
+    Text(stringResource(R.string.insert_type_sample), fontFamily = FontFamily.Serif,
+        fontSize = preferences.fontSizeSp.sp, lineHeight = (preferences.fontSizeSp * 1.5f).sp,
+        color = colors.onSurface, modifier = Modifier.fillMaxWidth().background(colors.surfaceContainerLow)
+            .drawBehind {
+                val y = size.height - 8.dp.toPx()
+                drawLine(colors.outlineVariant.copy(alpha = .5f), Offset(14.dp.toPx(), y), Offset(size.width - 14.dp.toPx(), y), 1.dp.toPx())
+            }.padding(horizontal = 16.dp, vertical = 18.dp))
+    InkRule()
+    Text(stringResource(R.string.insert_appearance), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ReaderTheme.entries.forEach { theme ->
+            ThemePaper(theme, preferences.theme == theme, Modifier.weight(1f)) {
+                onPreferencesChange(preferences.copy(theme = theme))
+            }
+        }
+    }
+    onShowHints?.let {
+        InkRule()
+        InkAction(stringResource(R.string.rc1_show_hints), "reader_show_hints", it, PaperIcon.Contents)
     }
 }
 
@@ -485,7 +522,7 @@ private fun BookmarkRuler(fraction: Float, compact: Boolean = false, onChange: (
 }
 
 /** Engraved line drawings shared by the reading card and the book's paper tabs. */
-enum class PaperIcon { Bookmarks, Appearance, Contents, Shelf, Type, Close, Back, Forward, Plus, Minus, Check, Return, Start, End }
+enum class PaperIcon { Bookmarks, Appearance, Contents, Shelf, Settings, Type, Close, Back, Forward, Plus, Minus, Check, Return, Start, End }
 
 @Composable
 fun PaperInkIcon(icon: PaperIcon, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
@@ -503,6 +540,13 @@ fun PaperInkIcon(icon: PaperIcon, modifier: Modifier = Modifier, color: Color = 
             drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round))
         }
         when (icon) {
+            PaperIcon.Settings -> {
+                listOf(6f, 12f, 18f).forEachIndexed { index, y ->
+                    val x = if (index == 1) 15f else 8f
+                    line(3f, y, x - 2f, y); line(x + 2f, y, 21f, y)
+                    drawCircle(color, 2f * scale, point(x, y), style = Stroke(stroke))
+                }
+            }
             PaperIcon.Bookmarks -> {
                 outline(6f to 3f, 16f to 3f, 16f to 21f, 11f to 17f, 6f to 21f, closed = true)
                 line(19f, 6f, 19f, 18f)

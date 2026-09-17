@@ -55,6 +55,7 @@ internal class Fb2SaxHandler(
     private var author: AuthorContext? = null
     private var annotationDepth: Int? = null
     private val annotationText = StringBuilder()
+    private val annotationBlocks = mutableListOf<RawBlock>()
     private var binary: BinaryContext? = null
     private var expandedCharacterCount = 0L
     private var elementCount = 0L
@@ -101,6 +102,23 @@ internal class Fb2SaxHandler(
 
         val currentBody = body
         if (currentBody == null) {
+            if (annotationDepth != null) {
+                inlineCapture?.let { it.startNested(name, depth, attributes); return }
+                when (name) {
+                    "p", "subtitle", "text-author", "v" -> startInline(name, depth, null,
+                        InlineDestination.Annotation(when (name) {
+                            "subtitle" -> ParagraphRole.SUBTITLE
+                            "text-author" -> ParagraphRole.TEXT_AUTHOR
+                            "v" -> ParagraphRole.VERSE
+                            else -> ParagraphRole.BODY
+                        }))
+                    "empty-line" -> {
+                        annotationBlocks += RawBlock.Spacer(annotationBlockKey(), emptyList())
+                        annotationText.append('\n')
+                    }
+                }
+                return
+            }
             when {
                 name == "body" -> startBody(depth, attributes)
                 name == "binary" -> startBinary(depth, attributes)
@@ -311,6 +329,7 @@ internal class Fb2SaxHandler(
                 language = language.normalizedText(),
                 genres = genres.mapNotNull(String::normalizedText).distinct(),
                 annotation = annotation.normalizedMultilineText(),
+                annotationBlocks = annotationBlocks.map(converter::block),
                 sequence = sequence?.name.normalizedText()?.let { sequenceName ->
                     BookSequence(sequenceName, sequence?.number)
                 },
@@ -327,9 +346,11 @@ internal class Fb2SaxHandler(
 
     private fun startMetadataElement(name: String, depth: Int, attributes: Attributes) {
         when {
-            name == "annotation" && hasAncestor("title-info") -> {
+            name == "annotation" && parentName() == "title-info" &&
+                elements.dropLast(2).lastOrNull() == "description" -> {
                 annotationDepth = depth
                 annotationText.clear()
+                annotationBlocks.clear()
             }
 
             name == "author" && hasAncestor("title-info") -> author = AuthorContext(depth)
@@ -600,6 +621,10 @@ internal class Fb2SaxHandler(
     private fun finishInline(capture: InlineCapture) {
         val content = normalizeInline(capture.finish())
         when (val destination = capture.destination) {
+            is InlineDestination.Annotation -> {
+                annotationBlocks += RawBlock.Paragraph(annotationBlockKey(), emptyList(), content, destination.role)
+                annotationText.append('\n')
+            }
             is InlineDestination.Block -> addBlock(
                 RawBlock.Paragraph(
                     key = blockIds.next(),
@@ -707,6 +732,14 @@ internal class Fb2SaxHandler(
 
     private fun hasAncestor(name: String): Boolean = elements.dropLast(1).contains(name)
 
+    // Annotation parsing must not consume body IDs: existing bookmarks survive this enrichment.
+    private fun annotationBlockKey(): String {
+        if (annotationBlocks.size >= limits.maxBlocks) {
+            throw SAXException(BookParseException.ResourceLimitExceeded("annotation block count", limits.maxBlocks.toLong()))
+        }
+        return "fb2-annotation-${annotationBlocks.size}"
+    }
+
     private fun parentName(): String? = elements.getOrNull(elements.lastIndex - 1)
 
     private fun resetTransientState() {
@@ -773,6 +806,7 @@ private data class RawLine(
 )
 
 private sealed interface InlineDestination {
+    data class Annotation(val role: ParagraphRole) : InlineDestination
     data class Block(val role: ParagraphRole) : InlineDestination
 
     data class Title(val title: TitleContext) : InlineDestination

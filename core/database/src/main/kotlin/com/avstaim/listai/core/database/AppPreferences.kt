@@ -22,6 +22,8 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
     constructor(context: Context) : this(context.applicationContext.appPreferences)
     val lastBook = store.data.map { it[LAST_BOOK] }
     val initialized = store.data.map { it[INITIALIZED] ?: false }
+    /** Completion is installation-wide; replaying the guide never clears this flag. */
+    val readerOnboardingCompleted = store.data.map { it[READER_ONBOARDING_COMPLETED] ?: false }
     val reader = store.data.map { values ->
         val size = values[FONT_SIZE]?.takeIf { it.isFinite() && it in 12f..32f } ?: 18f
         ReaderPreferences(size, ReaderTheme.entries.firstOrNull { it.name == values[THEME] } ?: ReaderTheme.LIGHT)
@@ -30,6 +32,7 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
     suspend fun selectBook(id: String?) { store.edit { if (id == null) it.remove(LAST_BOOK) else it[LAST_BOOK] = id } }
     suspend fun clearBookIfSelected(id: String) { store.edit { if (it[LAST_BOOK] == id) it.remove(LAST_BOOK) } }
     suspend fun markInitialized() { store.edit { it[INITIALIZED] = true } }
+    suspend fun completeReaderOnboarding() { store.edit { it[READER_ONBOARDING_COMPLETED] = true } }
     suspend fun setReaderPreferences(preferences: ReaderPreferences) {
         store.edit { values ->
             values[FONT_SIZE] = preferences.fontSizeSp
@@ -40,6 +43,7 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
     private companion object {
         val LAST_BOOK = stringPreferencesKey("last_book")
         val INITIALIZED = booleanPreferencesKey("initialized")
+        val READER_ONBOARDING_COMPLETED = booleanPreferencesKey("reader_onboarding_completed")
         val FONT_SIZE = floatPreferencesKey("reader_font_size_sp")
         val THEME = stringPreferencesKey("reader_theme")
     }

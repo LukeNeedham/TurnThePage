@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,16 +18,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.delay
 import androidx.core.view.ViewCompat
 import com.avstaim.listai.core.adaptive.DevicePosture
 import com.avstaim.listai.core.model.*
@@ -76,6 +82,9 @@ fun ReaderScreen(
     onBookCoverChanged: (CoverPosition) -> Unit = {},
     onBookArtworkReady: (ImageBitmap?) -> Unit = {},
     readerSession: Long = 0L,
+    onboardingCompleted: Boolean? = true,
+    onOnboardingComplete: () -> Unit = {},
+    onboardingReplayRequest: Long = 0L,
 ) {
     var insertOpen by rememberSaveable(readerSession) { mutableStateOf(false) }
     var insertSection by rememberSaveable(readerSession) { mutableStateOf(PaperInsertSection.MENU) }
@@ -84,6 +93,31 @@ fun ReaderScreen(
     var navigationRequest by remember(document, readerSession) { mutableStateOf<ReaderJumpRequest?>(null) }
     var navigation by remember(document, readerSession) { mutableStateOf<ReaderNavigationState?>(null) }
     val progressCallback by rememberUpdatedState(onProgressChanged)
+    var localReplay by rememberSaveable { mutableLongStateOf(0L) }
+    var handledExternalReplay by rememberSaveable(document.id.value) { mutableLongStateOf(0L) }
+    var dispatchedExternalReplay by remember(document, readerSession) { mutableLongStateOf(0L) }
+    var hintsOpening by remember(document, readerSession) { mutableStateOf(false) }
+    var turnActive by remember { mutableStateOf(false) }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var rawBookBounds by remember { mutableStateOf<Rect?>(null) }
+    val closed = checkpoint.cover == CoverPosition.FRONT || checkpoint.cover == CoverPosition.BACK
+    var bookAtReadingScale by remember { mutableStateOf(!closed) }
+    val atReadingPage = checkpoint.cover == CoverPosition.OPEN &&
+        checkpoint.annotationLocation == null && checkpoint.tocEntryIndex == null
+    val externalOpeningPending = onboardingReplayRequest > 0L &&
+        handledExternalReplay != onboardingReplayRequest && !atReadingPage
+    val onboarding = rememberReaderOnboardingState(onboardingCompleted,
+        readerReady = transitionCoverProgress == null && !closingBook && !insertOpen &&
+            !externalOpeningPending && !hintsOpening && checkpoint.cover == CoverPosition.OPEN &&
+            bookAtReadingScale && navigation != null,
+        replayRequest = onboardingReplayRequest + localReplay, onComplete = onOnboardingComplete)
+    // Let the central tap visibly reveal the real card before continuing the gesture guide.
+    LaunchedEffect(insertOpen, onboarding.step) {
+        if (insertOpen && onboarding.step == ReaderOnboardingStep.DRAG_FORWARD) {
+            delay(1100)
+            insertOpen = false
+        }
+    }
 
     fun navigate(progress: ReadingProgress) {
         navigationRequest = ReaderJumpRequest(++navigationSequence, progress)
@@ -95,9 +129,30 @@ fun ReaderScreen(
             if (location.fallbackGlobalOffset >= length - 1) 1f else
                 (location.fallbackGlobalOffset.toDouble() / length).toFloat().coerceIn(0f, 1f)))
     }
+    fun openReadingPageForHints() {
+        val current = navigation?.current ?: return
+        if (!atReadingPage) {
+            hintsOpening = true
+            navigate(checkpoint.copy(location = checkpoint.location ?: current.location,
+                cover = CoverPosition.OPEN, annotationLocation = null, tocEntryIndex = null, tocCharOffset = 0))
+        }
+    }
+    // A replay requested on the shelf may restore either cover or the inside-cover annotation.
+    // Wait for the shelf flight, then use the normal one-shot jump to the retained source anchor.
+    // Save the receipt only after the source commit, so recreation retries an interrupted
+    // opening but never reopens the book a second time after the reader starts interacting.
+    LaunchedEffect(onboardingReplayRequest, transitionCoverProgress, closingBook, navigation, onboarding.step) {
+        if (onboardingReplayRequest > 0L && handledExternalReplay != onboardingReplayRequest &&
+            dispatchedExternalReplay != onboardingReplayRequest &&
+            transitionCoverProgress == null && !closingBook && navigation != null && onboarding.step != null) {
+            dispatchedExternalReplay = onboardingReplayRequest
+            openReadingPageForHints()
+            if (atReadingPage) handledExternalReplay = onboardingReplayRequest
+        }
+    }
 
     BackHandler(enabled = insertOpen) { insertOpen = false }
-    BackHandler(enabled = !insertOpen) { onReturnToShelf() }
+    BackHandler(enabled = !insertOpen && !onboarding.visible) { onReturnToShelf() }
 
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
@@ -105,7 +160,28 @@ fun ReaderScreen(
     val configuration = LocalConfiguration.current
     val cutout = WindowInsets.displayCutout
     var windowOrigin by remember { mutableStateOf(Offset.Zero) }
+    // Only a resting closed book moves back on the desk. The renderer's page geometry stays
+    // unchanged, and opening gestures finish at their original scale before expanding.
+    var restingClosed by remember { mutableStateOf(closed) }
+    LaunchedEffect(closed, turnActive, transitionCoverProgress) {
+        if (!turnActive && transitionCoverProgress == null) restingClosed = closed
+    }
+    val closedScale = (1f - 92f * density.density / (canvasSize.height.coerceAtLeast(1) * .65f)).coerceIn(.60f, .88f)
+    val bookScale by animateFloatAsState(if (restingClosed) closedScale else 1f,
+        tween(240), label = "closed book rests on desk")
+    SideEffect { bookAtReadingScale = kotlin.math.abs(bookScale - 1f) < .002f }
+    val showClosedControls = closed && !turnActive && transitionCoverProgress == null && !closingBook &&
+        kotlin.math.abs(bookScale - closedScale) < .002f
+    fun openMenu() { insertSection = PaperInsertSection.MENU; insertOpen = true }
+    fun openContents() { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = 0,
+        tocCharOffset = 0, annotationLocation = null)) }
+    fun replayHints() {
+        insertOpen = false
+        openReadingPageForHints()
+        localReplay++
+    }
     Box(modifier.fillMaxSize().drawBehind { drawReaderBackdrop(darkTheme) }
+        .onSizeChanged { canvasSize = it }.readerOnboardingGestures(onboarding)
         .onGloballyPositioned { windowOrigin = it.boundsInWindow().topLeft }) {
         val left = cutout.getLeft(density, direction).toFloat()
         val top = cutout.getTop(density).toFloat()
@@ -118,6 +194,12 @@ fun ReaderScreen(
             }
         }
         val bookOrigin = Offset(left, 0f)
+        val pivot = Offset(canvasSize.width * .5f, canvasSize.height * .35f)
+        val visualBookBounds = rawBookBounds?.let { raw ->
+            Rect(pivot + (raw.topLeft - pivot) * bookScale, pivot + (raw.bottomRight - pivot) * bookScale)
+        }
+        LaunchedEffect(visualBookBounds) { visualBookBounds?.let(onBookReady) }
+        if (showClosedControls) Box(Modifier.fillMaxSize().clickable(onClick = onReturnToShelf))
         val paperInsets = ReaderCutoutInsets(top = top,
             cutouts = nativeCutouts.map { it.translate(-bookOrigin) })
         key(document.id) {
@@ -125,17 +207,29 @@ fun ReaderScreen(
                 pages = emptyList(), document = document,
                 bookTitle = document.metadata.title,
                 bookAuthor = document.metadata.authors.joinToString().ifBlank { null },
-                modifier = Modifier.fillMaxSize().padding(
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    scaleX = bookScale; scaleY = bookScale; transformOrigin = TransformOrigin(.5f, .35f)
+                }.padding(
                     start = with(density) { left.toDp() },
                     end = with(density) { right.toDp() }, bottom = with(density) { bottom.toDp() }),
                 initialLocation = checkpoint.location, initialCover = checkpoint.cover,
                 readerSession = readerSession,
                 initialTocEntryIndex = checkpoint.tocEntryIndex, initialTocCharOffset = checkpoint.tocCharOffset,
-                onProgressChanged = { checkpoint = it; progressCallback?.invoke(it) },
+                initialAnnotationLocation = checkpoint.annotationLocation,
+                onProgressChanged = {
+                    checkpoint = it
+                    if (it.cover == CoverPosition.OPEN && it.annotationLocation == null && it.tocEntryIndex == null) {
+                        if (hintsOpening && dispatchedExternalReplay == onboardingReplayRequest) {
+                            handledExternalReplay = onboardingReplayRequest
+                        }
+                        hintsOpening = false
+                    }
+                    progressCallback?.invoke(it)
+                },
                 devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
                 outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
                 darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
-                onCenterTap = { insertSection = PaperInsertSection.MENU; insertOpen = true }, onReturnToShelf = onReturnToShelf,
+                onCenterTap = ::openMenu, onReturnToShelf = onReturnToShelf,
                 onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
                 onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
                 navigationRequest = navigationRequest,
@@ -145,7 +239,8 @@ fun ReaderScreen(
                 },
                 transitionCoverProgress = transitionCoverProgress,
                 closingBook = closingBook,
-                onBookReady = { onBookReady(it.translate(bookOrigin)) },
+                onBookReady = { rawBookBounds = it.translate(bookOrigin) },
+                onTurnActiveChange = { turnActive = it },
                 onBookCoverChanged = onBookCoverChanged,
                 onBookArtworkReady = onBookArtworkReady,
                 drawBackdrop = false,
@@ -155,10 +250,17 @@ fun ReaderScreen(
                         onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
                         onToggleTheme = { onPreferencesChange(preferences.copy(theme =
                             if (darkTheme) ReaderTheme.LIGHT else ReaderTheme.DARK)) },
-                        onContents = { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = 0, tocCharOffset = 0)) },
-                        onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize())
+                        onContents = ::openContents,
+                        onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize(), onMenu = ::openMenu)
                 },
             )
+        }
+        if (showClosedControls && !insertOpen) {
+            ClosedBookControls(onReturnToShelf,
+                onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                onContents = ::openContents,
+                onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
+                modifier = Modifier.align(Alignment.BottomCenter).displayCutoutPadding().padding(bottom = 12.dp))
         }
         AnimatedVisibility(insertOpen && navigation != null, modifier = Modifier.fillMaxSize(),
             enter = fadeIn(tween(140)) + slideInVertically(tween(230)) { it / 12 } + scaleIn(tween(230), initialScale = .96f),
@@ -177,16 +279,16 @@ fun ReaderScreen(
                     onDeleteBookmark = onDeleteBookmark,
                     onBookmarkSelected = { goTo(it.location) },
                     onReturnToShelf = { insertOpen = false; onReturnToShelf() }, onDismiss = { insertOpen = false },
-                    onGoToToc = { navigate(checkpoint.copy(cover = CoverPosition.OPEN,
-                        tocEntryIndex = 0, tocCharOffset = 0)) },
+                    onGoToToc = ::openContents,
                     onReturnFromToc = if (checkpoint.tocEntryIndex != null) {
-                        { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = null, tocCharOffset = 0)) }
+                        { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = null, tocCharOffset = 0, annotationLocation = null)) }
                     } else null,
                     navigation = state, onConfirmNavigation = ::goTo,
                     isBookmarked = currentBookmark != null,
-                    canBookmarkCurrent = checkpoint.tocEntryIndex == null && checkpoint.cover == CoverPosition.OPEN,
+                    canBookmarkCurrent = checkpoint.tocEntryIndex == null && checkpoint.annotationLocation == null && checkpoint.cover == CoverPosition.OPEN,
                     onRemoveCurrentBookmark = { currentBookmark?.let(onDeleteBookmark) },
                     initialSection = insertSection,
+                    onShowHints = ::replayHints,
                     modifier = Modifier.align(Alignment.Center).padding(
                         start = with(density) { left.toDp() } + 18.dp,
                         top = with(density) { top.toDp() } + 12.dp,
@@ -196,6 +298,7 @@ fun ReaderScreen(
                 }
             }
         }
+        ReaderOnboardingOverlay(onboarding, darkTheme)
     }
 }
 

@@ -80,7 +80,7 @@ private fun LibraryPreview(russian: Boolean = false, dark: Boolean = false) {
     )
     ListaiTheme(darkTheme = dark) {
         Surface {
-            LibraryScreen(books, false, {}, {}, {}, {}, versionLabel = "v0.8", coverContent = { book ->
+            LibraryScreen(books, false, {}, {}, {}, {}, versionLabel = "v1.0.0-rc1", coverContent = { book ->
                 LibraryCover(book, previewImage = cover.takeIf { book.id.value == "atlas" })
             })
         }

@@ -185,12 +185,14 @@ internal fun PhysicalBookView(
     drawBackdrop: Boolean = true,
     pageControlInsets: ReaderCutoutInsets = ReaderCutoutInsets(),
     pageControls: (@Composable (ReaderTopControlLayout) -> Unit)? = null,
+    initialAnnotationLocation: BookLocation? = null,
+    onTurnActiveChange: ((Boolean) -> Unit)? = null,
 ) {
     require(pages.isNotEmpty() || document != null) { "BookView requires pages or a document" }
 
     var viewportBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
     val readingPosition = document?.let { rememberReaderPosition(it, initialLocation, initialCover,
-        initialTocEntryIndex, initialTocCharOffset, initialNoteId, readerSession) }
+        initialTocEntryIndex, initialTocCharOffset, initialNoteId, readerSession, initialAnnotationLocation) }
     LaunchedEffect(closingBook) {
         // An opening transition also runs after Activity restoration. Only the explicit
         // shelving intent may discard a restored note visit, even before surfaces are ready.
@@ -215,6 +217,11 @@ internal fun PhysicalBookView(
     var dragSession by remember { mutableStateOf<DragSession?>(null) }
     var settleSession by remember { mutableStateOf<SettleSession?>(null) }
     var gestureActive by remember { mutableStateOf(false) }
+    val turnActiveCallback by rememberUpdatedState(onTurnActiveChange)
+    val physicalTurnActive = gestureActive || dragSession != null || settleSession != null || transitionCoverProgress != null
+    LaunchedEffect(physicalTurnActive) {
+        turnActiveCallback?.invoke(physicalTurnActive)
+    }
     BoxWithConstraints(
         modifier = modifier.onGloballyPositioned { coordinates ->
             viewportBoundsInWindow = coordinates.boundsInWindow()
@@ -337,8 +344,9 @@ internal fun PhysicalBookView(
             if (!gestureActive && dragSession == null && settleSession == null) displayedCoverSurface = latestCoverSurface
         }
         val coverSurface = displayedCoverSurface
-        val navigator = remember(preparedPages.size) {
-            PhysicalBookNavigator(pageCount = preparedPages.size)
+        val insideFront = ready?.insideFront
+        val navigator = remember(preparedPages.size, insideFront != null) {
+            PhysicalBookNavigator(pageCount = preparedPages.size, hasFrontAnnotation = insideFront != null)
         }
         val resolvedInitialState = remember(
             pagination ?: preparedPages.size,
@@ -346,7 +354,7 @@ internal fun PhysicalBookView(
             initialBookState,
         ) {
             ready?.let { requireNotNull(readingPosition).initialState(it.snapshot, it.contents, it.tocSnapshot,
-                it.notes, it.notesSnapshot) } ?: initialBookState
+                it.notes, it.notesSnapshot, it.annotationSnapshot) } ?: initialBookState
                 ?.normalized(preparedPages.size)
                 ?: PhysicalBookState.Open(initialPageIndex.coerceIn(0, preparedPages.lastIndex))
         }
@@ -361,6 +369,8 @@ internal fun PhysicalBookView(
         }
         var savedBookPosition by savedPositionState
         val bookState = savedBookPosition.toPhysicalBookState(preparedPages.size)
+        val atInsideFront = bookState == PhysicalBookState.FrontBoundary ||
+            presentation == BookPresentation.SPREAD && navigator.layoutAnchor(bookState, presentation) == 0
         LaunchedEffect(layout, ready != null, coverSurface.isReady, bookState) {
             if ((document == null || ready != null) && coverSurface.isReady) {
                 artworkCallback?.invoke(coverSurface.image)
@@ -506,7 +516,7 @@ internal fun PhysicalBookView(
                             jumpPreparing = null
                             pagination?.cancelJump(finished.completedState, presentation)
                         } else readingPosition?.commit(finished.completedState, it.snapshot, it.contents,
-                            it.tocSnapshot, it.notes, it.notesSnapshot)
+                            it.tocSnapshot, it.notes, it.notesSnapshot, it.annotationSnapshot)
                         readingPosition?.let { position -> progressCallback?.invoke(position.progress(totalCharacters)) }
                     }
                     pagination?.request(finished.completedState, presentation, finished.direction)
@@ -589,8 +599,10 @@ internal fun PhysicalBookView(
             }
         }
 
+        val annotationState = stringResource(R.string.reader_annotation_state)
         val openPageState = (bookState as? PhysicalBookState.Open)?.let { state ->
-            preparedPages.getOrNull(state.semanticPageIndex)?.paginated?.footerText ?: stringResource(
+            if (state.semanticPageIndex < (ready?.annotationPageCount ?: 0)) annotationState else
+                preparedPages.getOrNull(state.semanticPageIndex)?.paginated?.footerText ?: stringResource(
                 if (ready != null && !ready.snapshot.complete) R.string.reader_page_progress_pending else R.string.reader_page_progress,
                 state.semanticPageIndex.coerceIn(0, preparedPages.lastIndex) + 1,
                 preparedPages.size,
@@ -601,6 +613,7 @@ internal fun PhysicalBookView(
         val backBoundaryState = stringResource(R.string.reader_back_boundary_state)
         val stateText = when (bookState) {
             PhysicalBookState.ClosedFront -> frontCoverState
+            PhysicalBookState.FrontBoundary -> annotationState
             PhysicalBookState.BackBoundary -> backBoundaryState
             PhysicalBookState.ClosedBack -> backCoverState
             is PhysicalBookState.Open -> requireNotNull(openPageState)
@@ -611,15 +624,22 @@ internal fun PhysicalBookView(
         val idleSurfaces = visibleBookSurfaces(
             pages = preparedPages, coverSurface = coverSurface, state = bookState,
             presentation = presentation, navigator = navigator,
+            insideFront = insideFront,
         )
         val openPaperBounds = if (bookState.isClosedCover()) emptyList() else buildList {
-            if (idleSurfaces.left is BookVisualSurface.Page) layout.leftPage?.let(::add)
-            if (idleSurfaces.right is BookVisualSurface.Page) add(layout.rightPage)
+            if (idleSurfaces.left is BookVisualSurface.Page || (idleSurfaces.left as? BookVisualSurface.Cover)?.insideContent != null)
+                layout.leftPage?.let(::add)
+            if (idleSurfaces.right is BookVisualSurface.Page || (idleSurfaces.right as? BookVisualSurface.Cover)?.insideContent != null)
+                add(layout.rightPage)
         }
         val pageControlsLayout = readerTopControlLayout(canvasSize.width, pageControlInsets,
             density.density, openPaperBounds)
-        val pageNumberBounds = if (ready != null)
-            openPaperBounds.map { pageNumberTapBounds(it, ready.snapshot.key) } else emptyList()
+        val pageNumberBounds = if (ready != null) buildList {
+            if ((idleSurfaces.left as? BookVisualSurface.Page)?.surface?.paginated?.footerText != null)
+                layout.leftPage?.let { add(pageNumberTapBounds(it, ready.snapshot.key)) }
+            if ((idleSurfaces.right as? BookVisualSurface.Page)?.surface?.paginated?.footerText != null)
+                add(pageNumberTapBounds(layout.rightPage, ready.snapshot.key))
+        } else emptyList()
         val noteLinks = remember(ready, bookState, layout, presentation, density.density) {
             buildList {
                 if (bookState !is PhysicalBookState.Open || ready == null) return@buildList
@@ -681,7 +701,7 @@ internal fun PhysicalBookView(
                     val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
                     visible.forEachIndexed { side, index ->
                         val bounds = if (visible.size > 1 && side == 0) layout.leftPage ?: layout.rightPage else layout.rightPage
-                        it.tocSnapshot?.pages?.getOrNull(index)?.blocks?.forEach { row ->
+                        it.tocSnapshot?.pages?.getOrNull(index - it.annotationPageCount)?.blocks?.forEach { row ->
                             it.contents?.targets?.get(row.blockId)?.let { target ->
                                 add(Rect(row.x, row.y, row.x + row.width, row.y + row.height)
                                     .translate(bounds.topLeft) to target)
@@ -693,9 +713,12 @@ internal fun PhysicalBookView(
                 this[ReaderContentsTargets] = contentsRows.map { row ->
                     "${row.second.blockId.value}:${row.second.charOffset}:${row.second.fallbackGlobalOffset}"
                 }
-                text = AnnotatedString(visiblePageIndices(bookState, presentation, preparedPages.size).mapNotNull { index ->
+                val insideText = insideFront?.paginated?.accessibleText?.takeIf {
+                    atInsideFront
+                }
+                text = AnnotatedString((listOfNotNull(insideText) + visiblePageIndices(bookState, presentation, preparedPages.size).mapNotNull { index ->
                     preparedPages[index]?.paginated?.accessibleText
-                }.joinToString("\n\n"))
+                }).joinToString("\n\n"))
             }
             // A backward cover swipe reopens it; its tap returns the book to the shelf.
             if (bookState != PhysicalBookState.ClosedBack && canTurn(TurnDirection.FORWARD)) {
@@ -798,7 +821,7 @@ internal fun PhysicalBookView(
                                 }
                                 val tocLink = if (pageIndex != null && pageBounds != null && ready?.contents != null)
                                     ready.tocSnapshot?.contentsLinkAt(down.position.x - pageBounds.left,
-                                        down.position.y - pageBounds.top, pageIndex, ready.contents) else null
+                                        down.position.y - pageBounds.top, pageIndex - ready.annotationPageCount, ready.contents) else null
                                 val noteReturn = noteReturns.firstOrNull { it.first.contains(down.position) }?.second
                                 val noteLink = noteLinks.filter { it.first.contains(down.position) }
                                     .minByOrNull { (it.first.center - down.position).getDistance() }?.second
@@ -811,7 +834,8 @@ internal fun PhysicalBookView(
                                         openNote(requireNotNull(ready.notes.noteAt(tocLink)))
                                     pageNumberBounds.any { it.contains(down.position) } && pageNumberCallback != null -> pageNumberCallback?.invoke()
                                     tocLink != null -> navigateCallback?.invoke(tocLink)
-                                    central && centerCallback != null && bookState is PhysicalBookState.Open -> centerCallback?.invoke()
+                                    central && centerCallback != null &&
+                                        (bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary) -> centerCallback?.invoke()
                                     else -> layout.tapDirection(
                                     position = down.position,
                                     canForward = canTurn(TurnDirection.FORWARD),
@@ -946,10 +970,11 @@ internal fun PhysicalBookView(
                 layout = layout,
                 geometryEngine = geometryEngine,
                 navigator = navigator,
+                insideFront = insideFront,
             )
         }
         val logicalProgress = when (bookState) {
-            PhysicalBookState.ClosedFront -> 0f
+            PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> 0f
             PhysicalBookState.BackBoundary -> 1f
             PhysicalBookState.ClosedBack -> 1f
             is PhysicalBookState.Open -> {
@@ -967,11 +992,14 @@ internal fun PhysicalBookView(
                     this[ReaderTurnProgress] = frame?.geometry?.progress?.toFloat() ?: 0f
                     this[ReaderTurnSubject] = when (val source = frame?.source) {
                         is BookVisualSurface.Page -> "page"
-                        is BookVisualSurface.Cover -> if (source.face == ExternalBookCoverFace.FRONT) "front_cover" else "back_cover"
+                        is BookVisualSurface.Cover -> if (source.face == ExternalBookCoverFace.FRONT || source.isInside) "front_cover" else "back_cover"
                         else -> ""
                     }
-                    this[ReaderTurnSourceText] = (frame?.source as? BookVisualSurface.Page)
-                        ?.surface?.paginated?.accessibleText.orEmpty()
+                    this[ReaderTurnSourceText] = when (val source = frame?.source) {
+                        is BookVisualSurface.Page -> source.surface.paginated?.accessibleText.orEmpty()
+                        is BookVisualSurface.Cover -> source.insideContent?.paginated?.accessibleText.orEmpty()
+                        else -> ""
+                    }
                 }
                 .then(gestureModifier)
                 .testTag("book_view_demo"),
@@ -995,7 +1023,8 @@ internal fun PhysicalBookView(
                     CurlFrame(TurnDirection.FORWARD, geometry,
                         BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.FRONT),
                         source, PageSide.RIGHT,
-                        idleSurfaces.left ?: BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK),
+                        idleSurfaces.left ?: BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK,
+                            insideFront.takeIf { atInsideFront }, isInside = true),
                         layout.leftPage ?: geometry.finalDestinationBounds.toComposeRect())
                 }
                 drawPhysicalBook(
@@ -1010,7 +1039,7 @@ internal fun PhysicalBookView(
             if (activeTurn == null && bookState is PhysicalBookState.Open && ready != null) {
                 val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
                 visible.forEachIndexed { sideIndex, physicalIndex ->
-                    val sourceIndex = physicalIndex - (ready.tocSnapshot?.pages?.size ?: 0)
+                    val sourceIndex = physicalIndex - ready.sourcePageOffset
                     val page = ready.snapshot.pages.getOrNull(sourceIndex)
                     if (page != null && bookmarks.any { mark -> mark.location.fallbackGlobalOffset >= page.start.fallbackGlobalOffset &&
                             (mark.location.fallbackGlobalOffset < page.endExclusive.fallbackGlobalOffset ||
@@ -1054,6 +1083,7 @@ private fun resolveTurn(
     layout: BookCanvasLayout,
     geometryEngine: PageCurlGeometryEngine,
     navigator: PhysicalBookNavigator,
+    insideFront: DemoPageSurface? = null,
 ): ResolvedTurn? {
     val completedTransition = transition ?: return null
     val current = visibleBookSurfaces(
@@ -1062,6 +1092,7 @@ private fun resolveTurn(
         state = state,
         presentation = presentation,
         navigator = navigator,
+        insideFront = insideFront,
     )
     val target = visibleBookSurfaces(
         pages = targetPages,
@@ -1069,6 +1100,7 @@ private fun resolveTurn(
         state = completedTransition.to,
         presentation = presentation,
         navigator = if (targetPages.size == pages.size) navigator else PhysicalBookNavigator(targetPages.size),
+        insideFront = insideFront,
     )
     val sourceBounds = layout.sourcePage(direction)
 
@@ -1085,8 +1117,8 @@ private fun resolveTurn(
                 destinationBounds = layout.destinationPage(direction)?.toCurlRect(),
             )
             if (
-                (state is PhysicalBookState.Open || state == PhysicalBookState.BackBoundary) &&
-                completedTransition.to.isClosedCover()
+                (state is PhysicalBookState.Open || state == PhysicalBookState.BackBoundary || state == PhysicalBookState.FrontBoundary) &&
+                (completedTransition.to.isClosedCover() || completedTransition.to == PhysicalBookState.FrontBoundary)
             ) {
                 val incomingCover = target.right ?: return null
                 val incomingDirection = direction.opposite()
@@ -1127,7 +1159,10 @@ private fun resolveTurn(
                         },
                         back = BookVisualSurface.Cover(
                             coverSurface,
-                            ExternalBookCoverFace.BACK,
+                            if (completedTransition.to == PhysicalBookState.FrontBoundary) ExternalBookCoverFace.FRONT
+                            else ExternalBookCoverFace.BACK,
+                            insideFront.takeIf { completedTransition.to == PhysicalBookState.ClosedFront },
+                            isInside = completedTransition.to == PhysicalBookState.ClosedFront,
                         ),
                         backDestinationBounds = incomingGeometry.finalDestinationBounds.toComposeRect(),
                     ),
@@ -1152,6 +1187,7 @@ private fun resolveTurn(
                         transition = completedTransition,
                         target = target,
                         coverSurface = coverSurface,
+                        insideFront = insideFront,
                     ),
                     backDestinationBounds = outgoingGeometry.finalDestinationBounds.toComposeRect(),
                 ),
@@ -1216,11 +1252,14 @@ private fun visibleBookSurfaces(
     state: PhysicalBookState,
     presentation: BookPresentation,
     navigator: PhysicalBookNavigator,
+    insideFront: DemoPageSurface? = null,
 ): VisibleBookSurfaces {
     val frontCover = BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.FRONT)
     val blankCover = BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK)
+    val insideFrontCover = BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK, insideFront, isInside = true)
     return when (state) {
         PhysicalBookState.ClosedFront -> VisibleBookSurfaces(left = null, right = frontCover)
+        PhysicalBookState.FrontBoundary -> VisibleBookSurfaces(left = null, right = insideFrontCover)
         PhysicalBookState.BackBoundary -> if (presentation == BookPresentation.SPREAD) {
             VisibleBookSurfaces(
                 left = if (coverSurface.darkTheme) BookVisualSurface.DarkPlainPaper else BookVisualSurface.PlainPaper,
@@ -1250,7 +1289,7 @@ private fun visibleBookSurfaces(
                 // The first printed page sits opposite the inside of the front cover. It is a
                 // physical boundary, not an invented blank sheet.
                 VisibleBookSurfaces(
-                    left = blankCover,
+                    left = insideFrontCover,
                     right = pages.firstOrNull()?.let(BookVisualSurface::Page),
                 )
             } else {
@@ -1268,9 +1307,14 @@ private fun singleBackSurface(
     transition: PhysicalBookTransition,
     target: VisibleBookSurfaces,
     coverSurface: ExternalBookCoverSurface,
+    insideFront: DemoPageSurface? = null,
 ): BookVisualSurface? = when {
+    transition.from == PhysicalBookState.FrontBoundary -> {
+        BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.FRONT)
+    }
+
     transition.from == PhysicalBookState.ClosedFront -> {
-        BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK)
+        BookVisualSurface.Cover(coverSurface, ExternalBookCoverFace.BACK, insideFront, isInside = true)
     }
 
     transition.from == PhysicalBookState.ClosedBack -> {
@@ -1290,6 +1334,7 @@ private fun TurnDirection.opposite(): TurnDirection = when (this) {
 
 private fun PhysicalBookState.normalized(pageCount: Int): PhysicalBookState = when (this) {
     PhysicalBookState.ClosedFront -> this
+    PhysicalBookState.FrontBoundary -> this
     PhysicalBookState.BackBoundary -> this
     PhysicalBookState.ClosedBack -> this
     is PhysicalBookState.Open -> copy(semanticPageIndex = semanticPageIndex.coerceIn(0, pageCount - 1))
@@ -1297,6 +1342,7 @@ private fun PhysicalBookState.normalized(pageCount: Int): PhysicalBookState = wh
 
 private fun PhysicalBookState.toSavedPosition(pageCount: Int): Int = when (this) {
     PhysicalBookState.ClosedFront -> -1
+    PhysicalBookState.FrontBoundary -> -4
     PhysicalBookState.BackBoundary -> -2
     PhysicalBookState.ClosedBack -> -3
     is PhysicalBookState.Open -> semanticPageIndex.coerceIn(0, pageCount - 1)
@@ -1306,11 +1352,13 @@ private fun Int.toPhysicalBookState(pageCount: Int): PhysicalBookState = when {
     this == -1 -> PhysicalBookState.ClosedFront
     this == -2 -> PhysicalBookState.BackBoundary
     this == -3 -> PhysicalBookState.ClosedBack
+    this == -4 -> PhysicalBookState.FrontBoundary
     else -> PhysicalBookState.Open(semanticPageIndex = coerceIn(0, pageCount - 1))
 }
 
 private fun PhysicalBookState.toPhysicalBookPose(): PhysicalBookPose = when (this) {
     PhysicalBookState.ClosedFront -> PhysicalBookPose.CLOSED_FRONT
+    PhysicalBookState.FrontBoundary -> PhysicalBookPose.OPEN
     PhysicalBookState.BackBoundary -> PhysicalBookPose.OPEN
     PhysicalBookState.ClosedBack -> PhysicalBookPose.CLOSED_BACK
     is PhysicalBookState.Open -> PhysicalBookPose.OPEN

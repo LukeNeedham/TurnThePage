@@ -31,6 +31,8 @@ class LibraryController(
     private val _selection = MutableStateFlow<ReaderSelection?>(null)
     val selection = _selection.asStateFlow()
     val readerPreferences = preferences.reader.stateIn(scope, SharingStarted.Eagerly, ReaderPreferences())
+    val readerOnboardingCompleted = preferences.readerOnboardingCompleted
+        .map<Boolean, Boolean?> { it }.stateIn(scope, SharingStarted.Eagerly, null)
     val books = repository.books.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _busy = MutableStateFlow(true)
     val busy = _busy.asStateFlow()
@@ -68,6 +70,7 @@ class LibraryController(
 
     fun dismissError() { _error.value = null }
     fun setReaderPreferences(value: ReaderPreferences) = enqueue { preferences.setReaderPreferences(value) }
+    fun completeReaderOnboarding() = enqueue { preferences.completeReaderOnboarding() }
 
     fun returnToShelf() {
         // A back press during parsing invalidates its eventual selection as well.
@@ -158,7 +161,8 @@ class LibraryController(
 
     fun addBookmark() {
         val current = _selection.value ?: return
-        if (checkpoint?.tocEntryIndex != null || checkpoint?.cover != CoverPosition.OPEN) return
+        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null ||
+            checkpoint?.cover != CoverPosition.OPEN) return
         val location = checkpoint?.location ?: return
         enqueue {
             val snippet = withContext(Dispatchers.Default) { current.opened.document.bookmarkSnippet(location) }

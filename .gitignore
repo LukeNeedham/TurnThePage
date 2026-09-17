@@ -7,6 +7,10 @@
 !.agents/skills/
 .agents/skills/*
 !.agents/skills/listai-release/
+!.agents/skills/listai-reader-ui/
+!.agents/skills/listai-reader-ui/**
+!.agents/skills/listai-books/
+!.agents/skills/listai-books/**
 .codex/
 local.properties
 

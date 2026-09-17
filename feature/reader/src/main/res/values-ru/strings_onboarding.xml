@@ -1,0 +1,18 @@
+<resources>
+    <string name="reader_onboarding_menu_title">Меню книги</string>
+    <string name="reader_onboarding_menu_detail">Коснитесь середины книги, чтобы открыть меню.</string>
+    <string name="reader_onboarding_forward_title">Перелистните страницу</string>
+    <string name="reader_onboarding_forward_detail">Потяните страницу влево, чтобы читать дальше.</string>
+    <string name="reader_onboarding_backward_title">Вернитесь назад</string>
+    <string name="reader_onboarding_backward_detail">Потяните страницу вправо, чтобы вернуться назад.</string>
+    <string name="reader_onboarding_left_title">Можно и касанием</string>
+    <string name="reader_onboarding_left_detail">Коснитесь левого края книги, чтобы вернуться назад.</string>
+    <string name="reader_onboarding_right_title">Ещё один способ листать</string>
+    <string name="reader_onboarding_right_detail">Коснитесь правого края книги, чтобы читать дальше.</string>
+    <string name="reader_onboarding_counter">%1$d из %2$d</string>
+    <string name="reader_onboarding_skip">Пропустить</string>
+    <string name="reader_onboarding_next">Далее</string>
+    <string name="reader_onboarding_done">Читать</string>
+    <string name="reader_onboarding_replay">Как листать книгу</string>
+    <string name="reader_onboarding_replay_detail">Показать подсказки ещё раз</string>
+</resources>

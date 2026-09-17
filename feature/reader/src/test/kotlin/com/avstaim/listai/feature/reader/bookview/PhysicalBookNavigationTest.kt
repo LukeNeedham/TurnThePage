@@ -9,6 +9,22 @@ import org.junit.Test
 
 class PhysicalBookNavigationTest {
     @Test
+    fun `single front annotation is readable between closed front and first paper in both directions`() {
+        val navigator = PhysicalBookNavigator(3, hasFrontAnnotation = true)
+        val forward = collectStates(navigator, PhysicalBookState.ClosedFront,
+            TurnDirection.FORWARD, BookPresentation.SINGLE)
+        assertEquals(listOf(PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary,
+            PhysicalBookState.Open(0), PhysicalBookState.Open(1), PhysicalBookState.Open(2),
+            PhysicalBookState.ClosedBack), forward)
+        assertEquals(forward.reversed(), collectStates(navigator, PhysicalBookState.ClosedBack,
+            TurnDirection.BACKWARD, BookPresentation.SINGLE))
+        assertEquals(PhysicalTurnSubject.FRONT_COVER, navigator.transition(PhysicalBookState.Open(0),
+            TurnDirection.BACKWARD, BookPresentation.SINGLE)?.subject)
+        assertEquals(PhysicalBookState.Open(0), navigator.stateAfter(PhysicalBookState.ClosedFront,
+            TurnDirection.FORWARD, BookPresentation.SPREAD))
+    }
+
+    @Test
     fun `front cover opens forward and cannot move farther backward`() {
         val navigator = PhysicalBookNavigator(pageCount = 5)
 

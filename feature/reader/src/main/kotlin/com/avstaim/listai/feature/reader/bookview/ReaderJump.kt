@@ -23,9 +23,10 @@ internal fun resolveReaderJump(
     presentation: BookPresentation,
     notes: PhysicalNotes? = null,
     notesSnapshot: PaginationSnapshot? = null,
+    annotationPageCount: Int = 0,
 ): PreparedReaderJump? {
     val progress = request.progress
-    val tocCount = tocSnapshot?.pages?.size ?: 0
+    val tocCount = annotationPageCount + (tocSnapshot?.pages?.size ?: 0)
     val tocEntry = progress.tocEntryIndex
     val targetIndex = if (request.noteId != null) {
         if (!snapshot.complete || notes == null || notesSnapshot == null) return null
@@ -33,7 +34,7 @@ internal fun resolveReaderJump(
         tocCount + snapshot.pages.size + notesSnapshot.pages.pageIndexContaining(location)
     } else if (tocEntry != null) {
         if (contents == null || tocSnapshot == null) return null
-        tocSnapshot.pages.pageIndexContaining(contents.location(tocEntry, progress.tocCharOffset))
+        annotationPageCount + tocSnapshot.pages.pageIndexContaining(contents.location(tocEntry, progress.tocCharOffset))
     } else {
         val location = progress.location ?: return null
         if (!snapshot.complete && location.fallbackGlobalOffset >= snapshot.pages.last().endExclusive.fallbackGlobalOffset) return null
@@ -54,7 +55,7 @@ internal fun readerJumpDirection(
     current: ReadingProgress,
     requested: ReadingProgress,
 ): TurnDirection = when (source) {
-    PhysicalBookState.ClosedFront -> TurnDirection.FORWARD
+    PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> TurnDirection.FORWARD
     PhysicalBookState.ClosedBack, PhysicalBookState.BackBoundary -> TurnDirection.BACKWARD
     is PhysicalBookState.Open -> when {
         target.semanticPageIndex < source.semanticPageIndex -> TurnDirection.BACKWARD
@@ -78,5 +79,6 @@ internal fun PreparedPagination.visibleOnly(state: PhysicalBookState, presentati
     return PreparedPagination(snapshot, BookSurfaceWindow(surfaces.size,
         indices.mapNotNull { index -> surfaces[index]?.let { index to it } }.toMap()),
         cacheBytes, cachedPages, renderedPages, contents, tocSnapshot, interactionToken,
-        notes = notes, notesSnapshot = notesSnapshot)
+        notes = notes, notesSnapshot = notesSnapshot,
+        annotationSnapshot = annotationSnapshot, insideFront = insideFront)
 }

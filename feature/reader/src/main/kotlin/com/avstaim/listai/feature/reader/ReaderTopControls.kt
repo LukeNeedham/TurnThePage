@@ -29,17 +29,18 @@ internal data class ReaderCutoutInsets(val left: Float = 0f, val top: Float = 0f
 
 internal data class ReaderTopControlLayout(val contentTop: Float, val buttons: List<Rect>)
 
-/** Two quiet pairs of ink marks on the paper's outer margins, not a row above the book. */
+/** Two/three ink marks at the paper edges with the camera and fold kept clear. */
 internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, density: Float,
     paperBounds: List<Rect> = listOf(Rect(0f, 0f, width, 10000f)),
 ): ReaderTopControlLayout {
     if (paperBounds.isEmpty()) return ReaderTopControlLayout(0f, emptyList())
     val gap = 4f * density
-    val touch = 32f * density
+    val narrowestPaper = paperBounds.minOf { it.width }
+    val touch = minOf(32f * density, ((narrowestPaper - gap * 6) / 5f)).coerceAtLeast(22f * density)
     val initialTop = paperBounds.maxOf { it.top } + gap
     fun candidates(top: Float): List<Rect> {
         var intervals = paperBounds.sortedBy { it.left }.mapNotNull { paper ->
-            val sideMargin = minOf(12f * density, ((paper.width - touch * 4 - gap * 3) / 2)
+            val sideMargin = minOf(12f * density, ((paper.width - touch * 5 - gap * 4) / 2)
                 .coerceAtLeast(gap))
             val left = maxOf(paper.left + sideMargin, insets.left + gap)
             val right = minOf(paper.right - sideMargin, width - insets.right - gap)
@@ -64,13 +65,13 @@ internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, de
     }
     var top = initialTop
     var slots = candidates(top)
-    if (slots.size < 4) {
+    if (slots.size < 5) {
         // An exceptionally wide notch may leave too little paper beside it.
         top = maxOf(top, insets.top, insets.cutouts.filter { it.bottom > top && it.top < top + touch }
             .maxOfOrNull { it.bottom + gap } ?: top)
         slots = candidates(top)
     }
-    val buttons = if (slots.size >= 4) slots.take(2) + slots.takeLast(2) else emptyList()
+    val buttons = if (slots.size >= 5) slots.take(2) + slots.takeLast(3) else emptyList()
     return ReaderTopControlLayout(maxOf(top + touch, insets.top) + 14f * density, buttons)
 }
 
@@ -84,19 +85,21 @@ internal fun ReaderTopControls(
     onCloseBook: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    onMenu: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val labels = listOf(stringResource(R.string.reader_top_close), stringResource(R.string.reader_top_contents),
+        stringResource(R.string.rc1_reader_menu),
         stringResource(if (darkTheme) R.string.reader_top_light else R.string.reader_top_dark),
         stringResource(R.string.reader_top_bookmarks))
-    val icons = listOf(PaperIcon.Shelf, PaperIcon.Contents, PaperIcon.Appearance, PaperIcon.Bookmarks)
-    val tags = listOf("reader_top_close", "reader_top_contents", "reader_top_theme", "reader_top_bookmarks")
-    val actions = listOf(onCloseBook, onContents, onToggleTheme, onBookmarks)
+    val icons = listOf(PaperIcon.Shelf, PaperIcon.Contents, PaperIcon.Settings, PaperIcon.Appearance, PaperIcon.Bookmarks)
+    val tags = listOf("reader_top_close", "reader_top_contents", "reader_top_settings", "reader_top_theme", "reader_top_bookmarks")
+    val actions = listOf(onCloseBook, onContents, onMenu, onToggleTheme, onBookmarks)
     val platformConfiguration = LocalViewConfiguration.current
     val exactTargets = remember(platformConfiguration) {
         object : ViewConfiguration by platformConfiguration {
             // Expanding a compact target through a camera notch would violate the layout's
-            // cutout exclusions. Only these four controls use their exact allocated rectangles.
+            // cutout exclusions. These controls use their exact allocated rectangles.
             override val minimumTouchTargetSize = DpSize.Zero
         }
     }

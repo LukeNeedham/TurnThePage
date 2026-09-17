@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_annotation_state">Аннотация</string>
+    <string name="rc1_close_settings">Закрыть настройки</string>
+    <string name="rc1_show_hints">Показать подсказки жестов</string>
+    <string name="rc1_reader_menu">Меню чтения</string>
+    <string name="rc1_closed_shelf">На полку</string>
+    <string name="rc1_closed_settings">Настройки</string>
+    <string name="rc1_closed_contents">Оглавление</string>
+    <string name="rc1_closed_bookmarks">Закладки</string>
+</resources>

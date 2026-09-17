@@ -8,6 +8,8 @@ data class ReadingProgress(
     /** Semantic item in the supplemental contents, independent of the source text anchor. */
     val tocEntryIndex: Int? = null,
     val tocCharOffset: Int = 0,
+    /** Independent front-cover/frontmatter anchor; never substitutes the main source location. */
+    val annotationLocation: BookLocation? = null,
 ) {
     init {
         require(fraction.isFinite() && fraction in 0f..1f)

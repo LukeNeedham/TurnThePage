@@ -1,0 +1,4 @@
+interface:
+  display_name: "Листай: Reader UI"
+  short_description: "Физический ридер, curl и бумажные контроли"
+  default_prompt: "Используй $listai-reader-ui, чтобы изменить или проверить физический Reader UI Листай."

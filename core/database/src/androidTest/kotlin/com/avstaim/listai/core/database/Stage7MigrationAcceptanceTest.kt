@@ -48,10 +48,14 @@ class Stage7MigrationAcceptanceTest {
 
             val original = requireNotNull(restored.single { it.id == CoverPosition.OPEN.name }.progress.toModel().location)
             val inContents = ReadingProgress(original, CoverPosition.OPEN, .25f,
-                tocEntryIndex = 37, tocCharOffset = 23)
+                tocEntryIndex = 37, tocCharOffset = 23,
+                annotationLocation = BookLocation(BlockId("frontmatter-😀"), 11, 777L))
             database.library().saveProgress(CoverPosition.OPEN.name, original.blockId.value,
                 original.charOffset, original.fallbackGlobalOffset, inContents.cover.name,
-                inContents.fraction, inContents.tocEntryIndex, inContents.tocCharOffset)
+                inContents.fraction, inContents.tocEntryIndex, inContents.tocCharOffset,
+                inContents.annotationLocation?.blockId?.value,
+                inContents.annotationLocation?.charOffset ?: 0,
+                inContents.annotationLocation?.fallbackGlobalOffset ?: 0)
             database.close()
             database = LibraryDatabase.open(context, name)
             assertEquals(inContents, database.library().book(CoverPosition.OPEN.name)!!.progress.toModel())

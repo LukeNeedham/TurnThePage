@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,11 +25,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.avstaim.listai.core.model.BookId
 import com.avstaim.listai.core.model.LibraryBook
@@ -54,6 +60,7 @@ fun LibraryScreen(
     interactionEnabled: Boolean = true,
     onBookBoundsChanged: (BookId, Rect?) -> Unit = { _, _ -> },
     versionLabel: String? = null,
+    onSettings: () -> Unit = {},
 ) {
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
     val colors = MaterialTheme.colorScheme
@@ -66,67 +73,88 @@ fun LibraryScreen(
     val byId = books.associateBy { it.id }
     val ordered = orderedIds.mapNotNull(byId::get)
     BoxWithConstraints(modifier.fillMaxSize().background(colors.background).testTag("library_screen")) {
-        val columns = (maxWidth.value / 164f).toInt().coerceIn(1, 6)
-        val bookWidth = ((maxWidth - 40.dp - 24.dp * (columns - 1)) / columns).coerceAtMost(154.dp)
+        val density = LocalDensity.current
+        val direction = LocalLayoutDirection.current
+        val cutout = WindowInsets.displayCutout
+        val safeWidth = with(density) {
+            maxWidth - cutout.getLeft(this, direction).toDp() - cutout.getRight(this, direction).toDp()
+        }.coerceAtLeast(40.dp)
+        val columns = (safeWidth.value / 164f).toInt().coerceIn(1, 6)
+        val bookWidth = ((safeWidth - 40.dp - 24.dp * (columns - 1)) / columns).coerceAtMost(154.dp)
         val bookHeight = bookWidth * 1.48f
         val rows = ordered.chunked(columns)
-        LazyColumn(Modifier.fillMaxSize().displayCutoutPadding(),
-            userScrollEnabled = interactionEnabled,
-            contentPadding = PaddingValues(top = 32.dp, bottom = 88.dp)) {
-            items(maxOf(3, rows.size)) { rowIndex ->
-                Column(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().height(bookHeight + 22.dp).padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
-                        rows.getOrNull(rowIndex).orEmpty().forEach { book ->
-                            DisposableEffect(book.id) {
-                                onDispose { onBookBoundsChanged(book.id, null) }
-                            }
-                            Box(Modifier.width(bookWidth).height(bookHeight)
-                                .testTag("library_book_${book.id.value}")
-                                .onGloballyPositioned { onBookBoundsChanged(book.id, it.boundsInRoot()) }
-                                .graphicsLayer { alpha = if (book.id == hiddenBookId) 0f else 1f }
-                                .shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D))
-                                .combinedClickable(enabled = interactionEnabled,
-                                    onClick = { onOpen(book.id) }, onLongClick = { deleting = book })) {
-                                coverContent(book)
-                            }
-                        }
-                    }
-                    ShelfEdge()
-                    if (ordered.isEmpty() && rowIndex == 0) {
-                        Text(stringResource(R.string.library_empty), Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 24.dp),
-                            color = colors.onBackground.copy(alpha = .75f), style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center)
-                    }
-                    Spacer(Modifier.height(28.dp))
+        val shelfRows = calculateLibraryLayout(
+            viewportHeightDp = maxHeight.value,
+            rowCount = rows.size,
+            bookHeightDp = bookHeight.value,
+            hasEmptyMessage = ordered.isEmpty(),
+            topInsetDp = with(density) { cutout.getTop(this).toDp().value },
+            bottomInsetDp = with(density) { cutout.getBottom(this).toDp().value },
+        )
+        val shelfModifier = Modifier.fillMaxSize().displayCutoutPadding()
+        if (shelfRows.scrollable) {
+            LazyColumn(shelfModifier,
+                userScrollEnabled = interactionEnabled,
+                contentPadding = PaddingValues(top = 32.dp, bottom = 88.dp)) {
+                items(shelfRows.rowCount) { rowIndex ->
+                    LibraryShelfRow(rowIndex, rows, bookWidth, bookHeight, ordered.isEmpty(), interactionEnabled,
+                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
+                }
+            }
+        } else {
+            Column(shelfModifier.padding(top = 32.dp, bottom = 88.dp)) {
+                repeat(shelfRows.rowCount) { rowIndex ->
+                    LibraryShelfRow(rowIndex, rows, bookWidth, bookHeight, ordered.isEmpty(), interactionEnabled,
+                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
+                }
+                repeat(shelfRows.decorativeRowCount) { decorativeIndex ->
+                    LibraryShelfRow(shelfRows.rowCount + decorativeIndex, rows, bookWidth, bookHeight, false, interactionEnabled,
+                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
                 }
             }
         }
-        if (importing) {
-            Row(Modifier.align(Alignment.BottomCenter).padding(20.dp)
-                .shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
-                .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (importing) {
+                Row(Modifier.fillMaxWidth()
+                    .shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
+                    .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(stringResource(R.string.library_importing), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onCancelImport, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text(stringResource(R.string.library_importing), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onCancelImport, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
+                Box(Modifier.weight(1f)) {
+                    versionLabel?.takeIf(String::isNotBlank)?.let { version ->
+                        Text(version, Modifier.testTag("library_version"),
+                            color = colors.onBackground.copy(alpha = .48f),
+                            style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                val description = stringResource(R.string.library_settings)
+                Box(Modifier.size(48.dp)
+                    .shadow(2.dp, RoundedCornerShape(8.dp))
+                    .background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
+                    .clickable(enabled = interactionEnabled, role = Role.Button, onClick = onSettings)
+                    .testTag("library_settings")
+                    .semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
+                    PaperSettingsIcon()
+                }
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    if (!importing) {
+                        SmallFloatingActionButton(onClick = { if (interactionEnabled) onImport() },
+                            modifier = Modifier.fillMaxSize().testTag("library_import"),
+                            containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
+                            Text("+", style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                    }
+                }
             }
-        } else {
-            SmallFloatingActionButton(onClick = { if (interactionEnabled) onImport() },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp).testTag("library_import"),
-                containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
-                Text("+", style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp))
-            }
-        }
-        versionLabel?.takeIf(String::isNotBlank)?.let { version ->
-            Text(
-                text = version,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 30.dp)
-                    .testTag("library_version"),
-                color = colors.onBackground.copy(alpha = .48f),
-                style = MaterialTheme.typography.labelSmall,
-            )
         }
     }
     deleting?.let { book ->
@@ -139,13 +167,74 @@ fun LibraryScreen(
 }
 
 @Composable
+private fun LibraryShelfRow(
+    rowIndex: Int,
+    rows: List<List<LibraryBook>>,
+    bookWidth: Dp,
+    bookHeight: Dp,
+    empty: Boolean,
+    interactionEnabled: Boolean,
+    hiddenBookId: BookId?,
+    onOpen: (BookId) -> Unit,
+    onBookBoundsChanged: (BookId, Rect?) -> Unit,
+    coverContent: @Composable (LibraryBook) -> Unit,
+    onDeleteRequest: (LibraryBook) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(bookHeight + 22.dp).padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
+            rows.getOrNull(rowIndex).orEmpty().forEach { book ->
+                DisposableEffect(book.id) {
+                    onDispose { onBookBoundsChanged(book.id, null) }
+                }
+                Box(Modifier.width(bookWidth).height(bookHeight)
+                    .testTag("library_book_${book.id.value}")
+                    .onGloballyPositioned { onBookBoundsChanged(book.id, it.boundsInRoot()) }
+                    .graphicsLayer { alpha = if (book.id == hiddenBookId) 0f else 1f }
+                    .shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D))
+                    .combinedClickable(enabled = interactionEnabled,
+                        onClick = { onOpen(book.id) }, onLongClick = { onDeleteRequest(book) })) {
+                    coverContent(book)
+                }
+            }
+        }
+        ShelfEdge()
+        if (empty && rowIndex == 0) {
+            val colors = MaterialTheme.colorScheme
+            Text(stringResource(R.string.library_empty), Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 24.dp),
+                color = colors.onBackground.copy(alpha = .75f), style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center)
+        }
+        Spacer(Modifier.height(20.dp))
+    }
+}
+
+@Composable
 private fun ShelfEdge() {
     val colors = MaterialTheme.colorScheme
-    Canvas(Modifier.fillMaxWidth().height(16.dp)) {
-        drawRect(colors.onBackground.copy(alpha = .09f), size = Size(size.width, 3.dp.toPx()))
-        drawRect(colors.surfaceVariant, topLeft = Offset(0f, 3.dp.toPx()), size = Size(size.width, 8.dp.toPx()))
-        drawRect(colors.onBackground.copy(alpha = .16f), topLeft = Offset(0f, 11.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
-        drawRect(Color(0xFF15324B).copy(alpha = .07f), topLeft = Offset(0f, 12.dp.toPx()), size = Size(size.width, 4.dp.toPx()))
+    Box(Modifier.fillMaxWidth().height(8.dp)) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(colors.onBackground.copy(alpha = .09f), size = Size(size.width, 1.dp.toPx()))
+            drawRect(colors.surfaceVariant, topLeft = Offset(0f, 1.dp.toPx()), size = Size(size.width, 5.dp.toPx()))
+            drawRect(colors.onBackground.copy(alpha = .16f), topLeft = Offset(0f, 6.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
+            drawRect(Color(0xFF15324B).copy(alpha = .07f), topLeft = Offset(0f, 7.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun PaperSettingsIcon() {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.size(18.dp)) {
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.35.dp.toPx())
+        val width = size.width
+        val height = size.height
+        drawRoundRect(color, topLeft = Offset(2.dp.toPx(), 1.dp.toPx()),
+            size = Size(width - 4.dp.toPx(), height - 2.dp.toPx()), cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()), style = stroke)
+        drawLine(color, Offset(width - 6.dp.toPx(), 1.dp.toPx()), Offset(width - 6.dp.toPx(), 5.dp.toPx()), strokeWidth = stroke.width)
+        drawLine(color, Offset(width - 6.dp.toPx(), 5.dp.toPx()), Offset(width - 2.dp.toPx(), 5.dp.toPx()), strokeWidth = stroke.width)
+        drawLine(color, Offset(5.dp.toPx(), 9.dp.toPx()), Offset(width - 5.dp.toPx(), 9.dp.toPx()), strokeWidth = stroke.width)
+        drawLine(color, Offset(5.dp.toPx(), 13.dp.toPx()), Offset(width - 7.dp.toPx(), 13.dp.toPx()), strokeWidth = stroke.width)
     }
 }
 

@@ -22,7 +22,7 @@ internal fun bookSurfacePlan(
     require(pageCount > 0)
     val center = when (state) {
         is PhysicalBookState.Open -> state.semanticPageIndex.coerceAtMost(pageCount - 1)
-        PhysicalBookState.ClosedFront -> 0
+        PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> 0
         else -> pageCount - 1
     }
     val navigator = PhysicalBookNavigator(pageCount)

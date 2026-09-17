@@ -14,4 +14,5 @@
     <string name="library_delete">Delete</string>
     <string name="library_delete_title">Delete book?</string>
     <string name="library_delete_message">“%1$s”, its reading progress and bookmarks will be removed from this app. Your original file will be kept.</string>
+    <string name="library_settings">Reading settings</string>
 </resources>

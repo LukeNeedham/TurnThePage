@@ -9,7 +9,7 @@ class ReaderTopControlsTest {
         paper: List<Rect> = listOf(Rect(4f * density, 4f * density, width - 4f * density, 850f * density)),
     ): ReaderTopControlLayout {
         val layout = readerTopControlLayout(width, insets, density, paper)
-        assertEquals(4, layout.buttons.size)
+        assertEquals(5, layout.buttons.size)
         layout.buttons.forEach { button ->
             assertTrue("Control $button is outside paper $paper", paper.any {
                 button.left >= it.left && button.right <= it.right && button.top >= it.top && button.bottom <= it.bottom
@@ -21,11 +21,11 @@ class ReaderTopControlsTest {
         return layout
     }
 
-    @Test fun `centred camera leaves four ink marks on the paper beside it`() {
+    @Test fun `centred camera leaves five ink marks on the paper beside it`() {
         val result = verify(412f, ReaderCutoutInsets(top = 32f, cutouts = listOf(Rect(192f, 0f, 220f, 32f))))
         assertEquals(8f, result.buttons.first().top, 0f)
         assertTrue(result.buttons[1].right < 130f)
-        assertTrue(result.buttons[2].left > 280f)
+        assertTrue(result.buttons[2].left > 220f)
     }
 
     @Test fun `off centre notch uses actual bounding rectangle`() {
@@ -44,7 +44,7 @@ class ReaderTopControlsTest {
 
     @Test fun `no cutout groups actions and leaves middle of page empty`() {
         val result = verify(412f, ReaderCutoutInsets())
-        assertTrue(result.buttons[2].left - result.buttons[1].right > 180f)
+        assertTrue(result.buttons[2].left - result.buttons[1].right > 140f)
         assertEquals(54f, result.contentTop, 0f)
     }
 

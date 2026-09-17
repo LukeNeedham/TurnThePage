@@ -123,7 +123,9 @@ class LibraryRepository(
         // This single UPDATE cannot recreate deleted/tombstoned books and does not touch files.
         dao.saveProgress(id.value, value.location?.blockId?.value, value.location?.charOffset ?: 0,
             value.location?.fallbackGlobalOffset ?: 0, value.cover.name, value.fraction,
-            value.tocEntryIndex, value.tocCharOffset)
+            value.tocEntryIndex, value.tocCharOffset,
+            value.annotationLocation?.blockId?.value, value.annotationLocation?.charOffset ?: 0,
+            value.annotationLocation?.fallbackGlobalOffset ?: 0)
     }
 
     suspend fun delete(id: BookId) = withContext(Dispatchers.IO) { operations.withLock {

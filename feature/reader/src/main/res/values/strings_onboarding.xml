@@ -1,0 +1,18 @@
+<resources>
+    <string name="reader_onboarding_menu_title">Your reading menu</string>
+    <string name="reader_onboarding_menu_detail">Tap the centre of the book to open the menu.</string>
+    <string name="reader_onboarding_forward_title">Turn a page</string>
+    <string name="reader_onboarding_forward_detail">Drag the page to the left to keep reading.</string>
+    <string name="reader_onboarding_backward_title">Go back</string>
+    <string name="reader_onboarding_backward_detail">Drag the page to the right to turn back.</string>
+    <string name="reader_onboarding_left_title">A tap works too</string>
+    <string name="reader_onboarding_left_detail">Tap the outer left edge to turn back.</string>
+    <string name="reader_onboarding_right_title">One more way forward</string>
+    <string name="reader_onboarding_right_detail">Tap the outer right edge for the next page.</string>
+    <string name="reader_onboarding_counter">%1$d of %2$d</string>
+    <string name="reader_onboarding_skip">Skip</string>
+    <string name="reader_onboarding_next">Next</string>
+    <string name="reader_onboarding_done">Start reading</string>
+    <string name="reader_onboarding_replay">Reading gestures</string>
+    <string name="reader_onboarding_replay_detail">Show the short guide again</string>
+</resources>

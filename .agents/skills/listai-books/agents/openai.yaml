@@ -1,0 +1,4 @@
+interface:
+  display_name: "Листай: books and persistence"
+  short_description: "FB2, хранилище, anchors и Room persistence"
+  default_prompt: "Используй $listai-books, чтобы изменить или проверить книги, импорт, anchors или persistence Листай."

@@ -14,4 +14,5 @@
     <string name="library_delete">Удалить</string>
     <string name="library_delete_title">Удалить книгу?</string>
     <string name="library_delete_message">«%1$s», прогресс чтения и закладки будут удалены из приложения. Исходный файл сохранится.</string>
+    <string name="library_settings">Настройки чтения</string>
 </resources>

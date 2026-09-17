@@ -60,6 +60,8 @@ data class BookMetadata(
     val sequence: BookSequence? = null,
     val coverImageId: ImageId? = null,
     val documentId: String? = null,
+    /** Supplemental description, outside the main reading flow and its stable offsets. */
+    val annotationBlocks: List<BookBlock> = emptyList(),
 ) {
     init {
         require(title.isNotBlank()) { "Book title must not be blank" }

@@ -31,6 +31,30 @@ class Fb2BookParserTest {
     private val parser = Fb2BookParser()
 
     @Test
+    fun `annotation preserves rich paragraphs and blank lines without moving body anchors`() = runBlocking {
+        val description = """<annotation><p>First <emphasis>italic <strong>bold</strong></emphasis>.</p>
+            <empty-line/><p>Second paragraph.</p></annotation>""".trimIndent()
+        fun xml(annotation: String) = """<FictionBook><description><title-info>
+            <book-title>Book</book-title>$annotation</title-info>
+            <src-title-info><annotation><p>Wrong annotation</p></annotation></src-title-info>
+            </description><body><section id="chapter"><title><p>Chapter</p></title>
+            <p id="text">Main text</p></section></body></FictionBook>""".trimIndent()
+        val book = parser.parse(xml(description).byteInputStream())
+        val baseline = parser.parse(xml("").byteInputStream())
+        val blocks = book.metadata.annotationBlocks
+        assertEquals(3, blocks.size)
+        assertEquals("First italic bold.", blocks[0].plainText())
+        assertTrue(blocks[1] is BookBlock.Spacer)
+        assertEquals("Second paragraph.", blocks[2].plainText())
+        val emphasis = (blocks[0] as BookBlock.Paragraph).content.filterIsInstance<InlineNode.Emphasis>().single()
+        assertEquals(listOf(InlineNode.Text("bold")), emphasis.children.filterIsInstance<InlineNode.Strong>().single().children)
+        assertEquals(baseline.blocks, book.blocks)
+        assertEquals(baseline.locationsBySourceId, book.locationsBySourceId)
+        assertEquals(baseline.tableOfContents, book.tableOfContents)
+        assertFalse(book.metadata.annotation.orEmpty().contains("Wrong"))
+    }
+
+    @Test
     fun `inline normalization trims whitespace and merges text around empty nested nodes`() = runBlocking {
         val xml = """<?xml version="1.0" encoding="UTF-8"?>
             <FictionBook><description><title-info><book-title>List compatibility</book-title></title-info></description>

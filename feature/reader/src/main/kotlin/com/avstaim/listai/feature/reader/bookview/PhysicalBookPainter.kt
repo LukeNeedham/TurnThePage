@@ -47,6 +47,9 @@ internal sealed interface BookVisualSurface {
     data class Cover(
         val surface: ExternalBookCoverSurface,
         val face: ExternalBookCoverFace,
+        /** Ink is attached to this rigid board and shares every perspective transform. */
+        val insideContent: DemoPageSurface? = null,
+        val isInside: Boolean = insideContent != null,
     ) : BookVisualSurface
 }
 
@@ -392,13 +395,20 @@ private fun DrawScope.drawBookVisualSurface(
             drawPaper = drawSubstrate,
         )
 
-        is BookVisualSurface.Cover -> drawExternalBookCover(
+        is BookVisualSurface.Cover -> {
+            if (surface.isInside) {
+                drawWhitePaper(bounds, side, paperColor = if (surface.surface.darkTheme) DarkPaper else Color.White)
+            } else drawExternalBookCover(
             surface = surface.surface,
             bounds = bounds,
             face = surface.face,
             side = side,
             contentAlpha = contentAlpha,
-        )
+            )
+            surface.insideContent?.let {
+                drawDemoPageSurface(it, bounds, side, contentAlpha = contentAlpha, drawPaper = false)
+            }
+        }
     }
 }
 

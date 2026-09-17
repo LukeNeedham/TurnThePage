@@ -5,8 +5,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -32,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -39,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
@@ -50,6 +55,7 @@ import com.avstaim.listai.feature.library.LibraryScreen
 import com.avstaim.listai.feature.library.ShelfBookFlight
 import com.avstaim.listai.feature.library.shelfBookSourceRect
 import com.avstaim.listai.feature.reader.ReaderScreen
+import com.avstaim.listai.feature.reader.PaperSettingsSheet
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -70,6 +76,9 @@ fun ListaiApp(
     val books by controller.books.collectAsState()
     val selection by controller.selection.collectAsState()
     val preferences by controller.readerPreferences.collectAsState()
+    val onboardingCompleted by controller.readerOnboardingCompleted.collectAsState()
+    var shelfSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var hintsRequest by rememberSaveable { mutableStateOf(0L) }
     val busy by controller.busy.collectAsState()
     val importing by controller.importing.collectAsState()
     val error by controller.error.collectAsState()
@@ -169,6 +178,7 @@ fun ListaiApp(
     }
     SideEffect { onReaderVisibleChange(selection != null && !busy) }
     BackHandler(enabled = selection != null || phase != ShelfReaderPhase.SHELF) { returnToShelf() }
+    BackHandler(enabled = shelfSettingsOpen && phase == ShelfReaderPhase.SHELF) { shelfSettingsOpen = false }
 
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
         .onGloballyPositioned { viewport = it.boundsInRoot() }
@@ -199,7 +209,8 @@ fun ListaiApp(
             onBookBoundsChanged = { id, bounds ->
                 if (bounds == null) shelfBounds.remove(id) else shelfBounds[id] = bounds
             },
-            versionLabel = "v${BuildConfig.VERSION_NAME}")
+            versionLabel = "v${BuildConfig.VERSION_NAME}",
+            onSettings = { shelfSettingsOpen = true })
         if (busy && books.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
@@ -207,6 +218,13 @@ fun ListaiApp(
             // The controller's session counter restarts with the process. It must reset a
             // live reader without changing the address of its saved Bundle state.
             key(selected.opened.book.id.value) {
+                // A shelf request belongs to this reader instance. Keep its input stable
+                // through replay/settings and recreation, but consume the pending request
+                // before a later book can accidentally inherit it.
+                val readerHintsRequest = rememberSaveable { hintsRequest }
+                LaunchedEffect(readerHintsRequest) {
+                    if (hintsRequest == readerHintsRequest) hintsRequest = 0L
+                }
                 ReaderScreen(
                     document = selected.opened.document,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (readerVisible) 1f else 0f }
@@ -230,6 +248,9 @@ fun ListaiApp(
                         if (artwork == null) readerArtwork.remove(selected.opened.book.id)
                         else readerArtwork[selected.opened.book.id] = artwork
                     },
+                    onboardingCompleted = onboardingCompleted,
+                    onOnboardingComplete = controller::completeReaderOnboarding,
+                    onboardingReplayRequest = readerHintsRequest,
                 )
             }
         }
@@ -253,6 +274,18 @@ fun ListaiApp(
             if (phase == ShelfReaderPhase.PREPARING) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
+        }
+        if (shelfSettingsOpen && phase == ShelfReaderPhase.SHELF) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .18f))
+                .clickable { shelfSettingsOpen = false })
+            PaperSettingsSheet(preferences, controller::setReaderPreferences,
+                onDismiss = { shelfSettingsOpen = false },
+                modifier = Modifier.align(Alignment.Center).displayCutoutPadding().padding(18.dp),
+                onShowHints = if (books.isNotEmpty()) {{
+                    shelfSettingsOpen = false
+                    hintsRequest++
+                    controller.open(books.first().id)
+                }} else null)
         }
     }
     error?.let { message ->

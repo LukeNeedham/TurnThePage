@@ -26,15 +26,21 @@ data class StoredProgress(
     val fraction: Float = 0f,
     val tocEntryIndex: Int? = null,
     @androidx.room.ColumnInfo(defaultValue = "0") val tocCharOffset: Int = 0,
+    val annotationBlockId: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val annotationCharOffset: Int = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val annotationGlobalOffset: Long = 0,
 ) {
     fun toModel() = ReadingProgress(blockId?.let { BookLocation(BlockId(it), charOffset, globalOffset) },
         CoverPosition.entries.firstOrNull { it.name == cover } ?: CoverPosition.OPEN, fraction,
-        tocEntryIndex, tocCharOffset)
+        tocEntryIndex, tocCharOffset,
+        annotationBlockId?.let { BookLocation(BlockId(it), annotationCharOffset, annotationGlobalOffset) })
 
     companion object {
         fun from(value: ReadingProgress) = StoredProgress(value.location?.blockId?.value,
             value.location?.charOffset ?: 0, value.location?.fallbackGlobalOffset ?: 0,
-            value.cover.name, value.fraction, value.tocEntryIndex, value.tocCharOffset)
+            value.cover.name, value.fraction, value.tocEntryIndex, value.tocCharOffset,
+            value.annotationLocation?.blockId?.value, value.annotationLocation?.charOffset ?: 0,
+            value.annotationLocation?.fallbackGlobalOffset ?: 0)
     }
 }
 
@@ -81,9 +87,10 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(book: BookEntity): Long
 
-    @Query("UPDATE books SET blockId = :blockId, charOffset = :charOffset, globalOffset = :globalOffset, cover = :cover, fraction = :fraction, tocEntryIndex = :tocEntryIndex, tocCharOffset = :tocCharOffset WHERE id = :id AND deleting = 0")
+    @Query("UPDATE books SET blockId = :blockId, charOffset = :charOffset, globalOffset = :globalOffset, cover = :cover, fraction = :fraction, tocEntryIndex = :tocEntryIndex, tocCharOffset = :tocCharOffset, annotationBlockId = :annotationBlockId, annotationCharOffset = :annotationCharOffset, annotationGlobalOffset = :annotationGlobalOffset WHERE id = :id AND deleting = 0")
     suspend fun saveProgress(id: String, blockId: String?, charOffset: Int, globalOffset: Long, cover: String, fraction: Float,
-        tocEntryIndex: Int? = null, tocCharOffset: Int = 0)
+        tocEntryIndex: Int? = null, tocCharOffset: Int = 0,
+        annotationBlockId: String? = null, annotationCharOffset: Int = 0, annotationGlobalOffset: Long = 0)
 
     @Query("UPDATE books SET lastOpenedAt = :time WHERE id = :id AND deleting = 0")
     suspend fun markOpened(id: String, time: Long)
@@ -104,7 +111,7 @@ interface LibraryDao {
     suspend fun deleteBookmark(bookId: String, id: String)
 }
 
-@Database(entities = [BookEntity::class, BookmarkEntity::class], version = 2, exportSchema = true)
+@Database(entities = [BookEntity::class, BookmarkEntity::class], version = 3, exportSchema = true)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
 
@@ -116,8 +123,16 @@ abstract class LibraryDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN annotationBlockId TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN annotationCharOffset INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE books ADD COLUMN annotationGlobalOffset INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun open(context: Context, name: String = "library.db"): LibraryDatabase =
             Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }
