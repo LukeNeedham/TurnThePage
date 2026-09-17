@@ -35,5 +35,8 @@ internal fun LayoutKey.forAnnotation() = copy(
     verticalMarginsDp = maxOf(verticalMarginsDp, 40f),
 )
 
+/** The description printed on dark cover stock uses light ink; overflow stays on themed paper. */
+internal fun LayoutKey.forInsideCoverAnnotation() = forAnnotation().copy(darkTheme = true)
+
 internal val PaginationSnapshot?.annotationPaperCount: Int
     get() = ((this?.pages?.size ?: 0) - 1).coerceAtLeast(0)

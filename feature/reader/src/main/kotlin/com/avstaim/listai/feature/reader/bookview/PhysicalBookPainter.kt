@@ -396,14 +396,14 @@ private fun DrawScope.drawBookVisualSurface(
         )
 
         is BookVisualSurface.Cover -> {
-            if (surface.isInside) {
+            if (surface.isInside && surface.insideContent == null) {
                 drawWhitePaper(bounds, side, paperColor = if (surface.surface.darkTheme) DarkPaper else Color.White)
             } else drawExternalBookCover(
-            surface = surface.surface,
-            bounds = bounds,
-            face = surface.face,
-            side = side,
-            contentAlpha = contentAlpha,
+                surface = surface.surface,
+                bounds = bounds,
+                face = surface.face,
+                side = side,
+                contentAlpha = contentAlpha,
             )
             surface.insideContent?.let {
                 drawDemoPageSurface(it, bounds, side, contentAlpha = contentAlpha, drawPaper = false)

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Adaptive icons require opaque backing: transparent becomes black on API 26 launchers. -->
-    <color name="launcher_backing">#E7EFF5</color>
+    <color name="launcher_backing">#355F84</color>
 </resources>

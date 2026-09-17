@@ -14,8 +14,8 @@ API 26–36; RU и EN. Пользовательский язык — холод�
 - `core/files` — частная копия книги/импорт, `core/database` — Room и DataStore;
   `app/LibraryController` связывает их с жизненным циклом и UI.
 - `feature/library` — полка и полёт обложки. Общая обложка — `core/designsystem`.
-- `docs/architecture.md` — подробные контракты. `docs/rc1-plan.md` — объём RC;
-  `docs/rc1-task.md` — результаты приёмки. Старые stage-отчёты исторические.
+- `docs/architecture.md` — подробные контракты. `docs/rc1-plan.md` — исходный объём RC;
+  `docs/rc2-task.md` — текущая приёмка, `docs/rc1-task.md` — историческая.
 
 ## Инварианты и проверка
 

@@ -18,8 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
@@ -98,9 +96,11 @@ fun ReaderScreen(
     var dispatchedExternalReplay by remember(document, readerSession) { mutableLongStateOf(0L) }
     var hintsOpening by remember(document, readerSession) { mutableStateOf(false) }
     var turnActive by remember { mutableStateOf(false) }
+    var coverTurnActive by remember { mutableStateOf(false) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var rawBookBounds by remember { mutableStateOf<Rect?>(null) }
     val closed = checkpoint.cover == CoverPosition.FRONT || checkpoint.cover == CoverPosition.BACK
+    var initialClosedScalePending by remember(document, readerSession) { mutableStateOf(closed) }
     var bookAtReadingScale by remember { mutableStateOf(!closed) }
     val atReadingPage = checkpoint.cover == CoverPosition.OPEN &&
         checkpoint.annotationLocation == null && checkpoint.tocEntryIndex == null
@@ -163,15 +163,40 @@ fun ReaderScreen(
     // Only a resting closed book moves back on the desk. The renderer's page geometry stays
     // unchanged, and opening gestures finish at their original scale before expanding.
     var restingClosed by remember { mutableStateOf(closed) }
-    LaunchedEffect(closed, turnActive, transitionCoverProgress) {
-        if (!turnActive && transitionCoverProgress == null) restingClosed = closed
+    LaunchedEffect(closed, turnActive, coverTurnActive, transitionCoverProgress) {
+        if (coverTurnActive) restingClosed = true
+        else if (!turnActive && transitionCoverProgress == null) restingClosed = closed
     }
-    val closedScale = (1f - 92f * density.density / (canvasSize.height.coerceAtLeast(1) * .65f)).coerceIn(.60f, .88f)
-    val bookScale by animateFloatAsState(if (restingClosed) closedScale else 1f,
-        tween(240), label = "closed book rests on desk")
-    SideEffect { bookAtReadingScale = kotlin.math.abs(bookScale - 1f) < .002f }
-    val showClosedControls = closed && !turnActive && transitionCoverProgress == null && !closingBook &&
-        kotlin.math.abs(bookScale - closedScale) < .002f
+    val restingScale = restingClosedBookScale(canvasSize.width.toFloat(), canvasSize.height.toFloat(),
+        density.density, rawBookBounds)
+    val animatedBookScaleX by animateFloatAsState(if (restingClosed) restingScale.horizontal else 1f,
+        tween(240), label = "closed book horizontal rest")
+    val animatedBookScaleY by animateFloatAsState(if (restingClosed) restingScale.vertical else 1f,
+        tween(240), label = "closed book vertical rest")
+    // The first raw layout arrives immediately after composition. Present it at its final closed
+    // aspect while the animator catches up invisibly, so no full-width cover flashes for a frame.
+    val bookScaleX = if (initialClosedScalePending && rawBookBounds != null && restingClosed)
+        restingScale.horizontal else animatedBookScaleX
+    val bookScaleY = if (initialClosedScalePending && rawBookBounds != null && restingClosed)
+        restingScale.vertical else animatedBookScaleY
+    LaunchedEffect(initialClosedScalePending, rawBookBounds, animatedBookScaleX, animatedBookScaleY,
+        restingScale, restingClosed) {
+        if (initialClosedScalePending && rawBookBounds != null && restingClosed &&
+            kotlin.math.abs(animatedBookScaleX - restingScale.horizontal) < .002f &&
+            kotlin.math.abs(animatedBookScaleY - restingScale.vertical) < .002f) {
+            initialClosedScalePending = false
+        }
+    }
+    SideEffect {
+        bookAtReadingScale = kotlin.math.abs(bookScaleX - 1f) < .002f &&
+            kotlin.math.abs(bookScaleY - 1f) < .002f
+    }
+    val showClosedControls = rawBookBounds != null && closed && !turnActive &&
+        transitionCoverProgress == null && !closingBook &&
+        kotlin.math.abs(bookScaleX - restingScale.horizontal) < .002f &&
+        kotlin.math.abs(bookScaleY - restingScale.vertical) < .002f
+    val restingScaleSettled = kotlin.math.abs(bookScaleX - restingScale.horizontal) < .002f &&
+        kotlin.math.abs(bookScaleY - restingScale.vertical) < .002f
     fun openMenu() { insertSection = PaperInsertSection.MENU; insertOpen = true }
     fun openContents() { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = 0,
         tocCharOffset = 0, annotationLocation = null)) }
@@ -194,11 +219,6 @@ fun ReaderScreen(
             }
         }
         val bookOrigin = Offset(left, 0f)
-        val pivot = Offset(canvasSize.width * .5f, canvasSize.height * .35f)
-        val visualBookBounds = rawBookBounds?.let { raw ->
-            Rect(pivot + (raw.topLeft - pivot) * bookScale, pivot + (raw.bottomRight - pivot) * bookScale)
-        }
-        LaunchedEffect(visualBookBounds) { visualBookBounds?.let(onBookReady) }
         if (showClosedControls) Box(Modifier.fillMaxSize().clickable(onClick = onReturnToShelf))
         val paperInsets = ReaderCutoutInsets(top = top,
             cutouts = nativeCutouts.map { it.translate(-bookOrigin) })
@@ -207,9 +227,7 @@ fun ReaderScreen(
                 pages = emptyList(), document = document,
                 bookTitle = document.metadata.title,
                 bookAuthor = document.metadata.authors.joinToString().ifBlank { null },
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = bookScale; scaleY = bookScale; transformOrigin = TransformOrigin(.5f, .35f)
-                }.padding(
+                modifier = Modifier.fillMaxSize().padding(
                     start = with(density) { left.toDp() },
                     end = with(density) { right.toDp() }, bottom = with(density) { bottom.toDp() }),
                 initialLocation = checkpoint.location, initialCover = checkpoint.cover,
@@ -228,6 +246,9 @@ fun ReaderScreen(
                 },
                 devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
                 outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
+                closedCoverAspectRatio = RESTING_CLOSED_BOOK_ASPECT_RATIO,
+                visualScaleX = bookScaleX, visualScaleY = bookScaleY,
+                visualTransformOriginX = .5f, visualTransformOriginY = .35f,
                 darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
                 onCenterTap = ::openMenu, onReturnToShelf = onReturnToShelf,
                 onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
@@ -239,8 +260,14 @@ fun ReaderScreen(
                 },
                 transitionCoverProgress = transitionCoverProgress,
                 closingBook = closingBook,
-                onBookReady = { rawBookBounds = it.translate(bookOrigin) },
+                onBookReady = {
+                    if (!restingClosed || rawBookBounds != null && restingScaleSettled) {
+                        onBookReady(it.translate(bookOrigin))
+                    }
+                },
+                onRawBookReady = { rawBookBounds = it },
                 onTurnActiveChange = { turnActive = it },
+                onCoverTurnActiveChange = { coverTurnActive = it },
                 onBookCoverChanged = onBookCoverChanged,
                 onBookArtworkReady = onBookArtworkReady,
                 drawBackdrop = false,

@@ -27,7 +27,11 @@ import kotlin.math.roundToInt
 internal data class ReaderCutoutInsets(val left: Float = 0f, val top: Float = 0f,
     val right: Float = 0f, val bottom: Float = 0f, val cutouts: List<Rect> = emptyList())
 
-internal data class ReaderTopControlLayout(val contentTop: Float, val buttons: List<Rect>)
+internal data class ReaderTopControlLayout(
+    val contentTop: Float,
+    val buttons: List<Rect>,
+    val onCoverMaterial: Boolean = false,
+)
 
 /** Two/three ink marks at the paper edges with the camera and fold kept clear. */
 internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, density: Float,
@@ -114,7 +118,7 @@ internal fun ReaderTopControls(
                 .testTag(tags[index]), contentAlignment = Alignment.Center) {
                 PaperInkIcon(icons[index], Modifier.size(with(density) {
                     minOf(19.dp.toPx(), bounds.height * .72f, bounds.width * .72f).toDp()
-                }), color = if (darkTheme) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
+                }), color = if (darkTheme || layout.onCoverMaterial) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
                     else androidx.compose.ui.graphics.Color(0xFF63717B))
             }
         }

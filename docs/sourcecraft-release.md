@@ -5,16 +5,18 @@
 push, CI, тег и публикацию APK. Секреты и новый ключ в репозитории не хранятся.
 
 Репозиторий: [avstaim/listai](https://sourcecraft.dev/avstaim/listai), remote
-`origin`, основная ветка `main`. Версия берётся из `gradle.properties`; RC1 —
-`1.0.0-rc1`, `versionCode = 11`, тег `v1.0.0-rc1`.
+`origin`, основная ветка `main`. Версия берётся из `gradle.properties`; RC2 —
+`1.0.0-rc2`, `versionCode = 12`, тег `v1.0.0-rc2`.
 
 ## Ссылки, закреплённые на тегах
 
-- [README RC1](https://sourcecraft.dev/avstaim/listai/browse/README.md?rev=tag%3Av1.0.0-rc1)
-- [Release notes 1.0.0-rc1](https://sourcecraft.dev/avstaim/listai/browse/docs/releases/1.0.0-rc1.md?rev=tag%3Av1.0.0-rc1)
+- [README RC2](https://sourcecraft.dev/avstaim/listai/browse/README.md?rev=tag%3Av1.0.0-rc2)
+- [Release notes 1.0.0-rc2](https://sourcecraft.dev/avstaim/listai/browse/docs/releases/1.0.0-rc2.md?rev=tag%3Av1.0.0-rc2)
+- [Приёмка RC2](https://sourcecraft.dev/avstaim/listai/browse/docs/rc2-task.md?rev=tag%3Av1.0.0-rc2)
+- [Исторический RC1](https://sourcecraft.dev/avstaim/listai/releases/v1.0.0-rc1)
 - [Исторические notes 0.9](https://sourcecraft.dev/avstaim/listai/browse/docs/releases/0.9.md?rev=tag%3Av0.9)
 
-Ссылка на APK и фактический результат приёмки добавляются после публикации
-соответствующего ресурса. Ожидаемая страница ресурсов RC1 —
-[SourceCraft releases/v1.0.0-rc1](https://sourcecraft.dev/avstaim/listai/releases/v1.0.0-rc1);
-до публикации RC1 не следует считать опубликованным релизом.
+APK и контрольная сумма публикуются на странице
+[SourceCraft releases/v1.0.0-rc2](https://sourcecraft.dev/avstaim/listai/releases/v1.0.0-rc2).
+Фактические локальные проверки и SHA подписанного файла фиксируются в
+[`rc2-task.md`](rc2-task.md). Физические устройства в область RC2 не входят.

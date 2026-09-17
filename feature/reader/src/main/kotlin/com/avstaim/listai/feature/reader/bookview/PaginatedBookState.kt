@@ -260,6 +260,9 @@ internal class PaginationSession(
     private val rasterizer = AndroidPageRasterizer(document, key, missingImage, MEASUREMENT_CACHE_BYTES)
     private val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key) }
     private val annotationRasterizer = annotation?.let { AndroidPageRasterizer(it.document, key.forAnnotation(), missingImage, MEASUREMENT_CACHE_BYTES) }
+    private val insideCoverAnnotationRasterizer = annotation?.let {
+        AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage, MEASUREMENT_CACHE_BYTES)
+    }
     private val notesRasterizer = notes?.let { AndroidPageRasterizer(it.document, key.forNotes(), missingImage, MEASUREMENT_CACHE_BYTES) }
     private val notesCount: Int get() = if (index?.complete == true) notesIndex?.pages?.size ?: 0 else 0
     private val annotationCount: Int get() = annotationIndex.annotationPaperCount
@@ -269,7 +272,8 @@ internal class PaginationSession(
     ) { request ->
         val pageIndex = request.pageIndex - annotationCount
         val tocCount = tocIndex?.pages?.size ?: 0
-        if (request.pageIndex == -1) requireNotNull(annotationRasterizer).render(requireNotNull(annotationIndex).pages.first())
+        if (request.pageIndex == -1) requireNotNull(insideCoverAnnotationRasterizer)
+            .render(requireNotNull(annotationIndex).pages.first())
         else if (request.pageIndex < annotationCount) requireNotNull(annotationRasterizer).render(requireNotNull(annotationIndex).pages[request.pageIndex + 1])
         else if (pageIndex < tocCount) requireNotNull(tocRasterizer).render(requireNotNull(tocIndex).pages[pageIndex],
             requireNotNull(request.contentsNumbers))
@@ -376,7 +380,12 @@ internal class PaginationSession(
     fun trimMemory() {
         trimmed = true
         store.trimMemory()
-        scope.launch(SurfaceRenderDispatcher) { rasterizer.clearMeasurements(); notesRasterizer?.clearMeasurements(); annotationRasterizer?.clearMeasurements() }
+        scope.launch(SurfaceRenderDispatcher) {
+            rasterizer.clearMeasurements()
+            notesRasterizer?.clearMeasurements()
+            annotationRasterizer?.clearMeasurements()
+            insideCoverAnnotationRasterizer?.clearMeasurements()
+        }
     }
 
     fun close() { closed = true; jump = null; store.close(); ready = null }
@@ -452,6 +461,9 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                         .paginate(it.document, position.annotationLocation, key.forAnnotation()).last()
                 }
                 val annotationRasterizer = annotation?.let { AndroidPageRasterizer(it.document, key.forAnnotation(), missingImage) }
+                val insideCoverAnnotationRasterizer = annotation?.let {
+                    AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage)
+                }
                 val annotationCount = annotationSnapshot.annotationPaperCount
                 val tocSnapshot = contents?.let {
                     paginatePhysicalContents(it, key, AndroidContentsMeasurer())
@@ -471,7 +483,8 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                     val paper = index - annotationCount
                     val labels = tocSnapshot?.pages?.getOrNull(paper)?.let { ContentsPageNumbers.forPage(it, numbers) }
                     ReaderSurfaceKey(index, labels) to if (index == -1)
-                        requireNotNull(annotationRasterizer).render(requireNotNull(annotationSnapshot).pages.first())
+                        requireNotNull(insideCoverAnnotationRasterizer)
+                            .render(requireNotNull(annotationSnapshot).pages.first())
                     else if (index < annotationCount)
                         requireNotNull(annotationRasterizer).render(requireNotNull(annotationSnapshot).pages[index + 1])
                     else if (paper < tocCount)

@@ -19,6 +19,7 @@ import com.avstaim.listai.reader.rendering.geometry.Point
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
+import kotlin.math.roundToInt
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,11 +33,14 @@ class PhysicalAnnotationTest {
         val annotation = requireNotNull(PhysicalAnnotation.create(source()))
         val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(annotation.document, "Missing"))
             .paginate(annotation.document, null, key).last()
-        val ink = AndroidPageRasterizer(annotation.document, key, "Missing").render(snapshot.pages.first()).asBookSurface(0)
+        val inkSurface = AndroidPageRasterizer(annotation.document, key.forInsideCoverAnnotation(), "Missing")
+            .render(snapshot.pages.first())
+        assertTrue(inkSurface.darkTheme)
+        val ink = inkSurface.asBookSurface(0)
         val stock = BookCoverSurface(null, null, IntSize(key.pageWidthPx, key.pageHeightPx))
         val outside = BookVisualSurface.Cover(stock, ExternalBookCoverFace.FRONT)
-        val blank = BookVisualSurface.Cover(stock, ExternalBookCoverFace.BACK, isInside = true)
-        val printed = blank.copy(insideContent = ink)
+        val blank = BookVisualSurface.Cover(stock, ExternalBookCoverFace.BACK)
+        val printed = BookVisualSurface.Cover(stock, ExternalBookCoverFace.BACK, insideContent = ink, isInside = true)
         for (direction in TurnDirection.entries) {
             val sourceBounds = layout.sourcePage(direction)
             val destinationBounds = requireNotNull(layout.destinationPage(direction))
@@ -74,6 +78,13 @@ class PhysicalAnnotationTest {
                     }
                 }
                 assertTrue("Annotation must remain visible on the inside board at $direction/$fraction", inkPixels > 20)
+                val cleanNativeX = projection.nativeBounds.left + 8f
+                val cleanX = (projection.projectedHingeX +
+                    (cleanNativeX - projection.nativeHingeX) * projection.horizontalScale)
+                    .roundToInt().coerceIn(0, annotated.width - 1)
+                val cleanY = (projection.nativeBounds.top + 8f).roundToInt().coerceIn(0, annotated.height - 1)
+                assertEquals("Description must retain BACK cover stock at $direction/$fraction",
+                    unprinted.getPixel(cleanX, cleanY), annotated.getPixel(cleanX, cleanY))
                 unprinted.recycle()
                 annotated.recycle()
             }
@@ -95,6 +106,11 @@ class PhysicalAnnotationTest {
             assertEquals(annotationSnapshot.pages.size - 1, annotationSnapshot.annotationPaperCount)
             val flow = annotation.document.readingFlow().associateBy { it.source.id }
             val rasterizer = AndroidPageRasterizer(annotation.document, annotationKey, "Missing")
+            val insideSurface = AndroidPageRasterizer(annotation.document,
+                key.forInsideCoverAnnotation(), "Missing").render(annotationSnapshot.pages.first())
+            assertTrue("Inside-cover description always needs light ink", insideSurface.darkTheme)
+            val overflowSurface = rasterizer.render(annotationSnapshot.pages[1])
+            assertEquals("Overflow remains on the selected paper theme", dark, overflowSurface.darkTheme)
             val renderedText = StringBuilder()
             annotationSnapshot.pages.forEach { page ->
                 val surface = rasterizer.render(page)

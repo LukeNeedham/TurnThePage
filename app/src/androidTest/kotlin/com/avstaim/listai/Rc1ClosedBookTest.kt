@@ -4,16 +4,24 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.view.Choreographer
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.avstaim.listai.core.designsystem.ListaiTheme
+import com.avstaim.listai.core.adaptive.DevicePosture
+import com.avstaim.listai.core.adaptive.FoldBounds
+import com.avstaim.listai.core.adaptive.FoldOrientation
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.feature.reader.*
 import java.io.File
@@ -21,6 +29,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -34,6 +44,7 @@ class Rc1ClosedBookTest {
     @Test fun bothClosedFacesKeepTheirActionsOutsideTheBoardAndEmptyDeskReturnsToShelf() {
         for (mode in modes) for (face in faces) {
             val fixture = showReader(mode, face)
+            assertPortraitRestingCover(fixture)
             assertControlsOutsideCover(fixture)
             capture("${mode.name}-${face.name}-closed")
             val before = fixture.progress.get()
@@ -98,10 +109,46 @@ class Rc1ClosedBookTest {
                 advanceUntil { controlsPresent() }
             } finally { compose.mainClock.autoAdvance = true }
             compose.waitForIdle()
+            assertPortraitRestingCover(fixture)
             assertControlsOutsideCover(fixture)
             assertEquals(0, fixture.shelfRequests.get())
             capture("${mode.name}-${face.name}-settled")
         }
+    }
+
+    @Test fun centeredFoldKeepsAutomaticSpreadWhileTheClosedBookUsesItsVisualRestingScale() {
+        val fixture = Fixture(ReaderPresentationMode.AUTOMATIC, CoverPosition.FRONT)
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    Box(Modifier.fillMaxSize()) {
+                        ListaiTheme(darkTheme = false) {
+                            ReaderScreen(
+                                fixture.document,
+                                Modifier.requiredSize(680.dp, 760.dp).testTag(HOST),
+                                devicePosture = DevicePosture.Flat(
+                                    foldBounds = FoldBounds(339, 0, 341, 760),
+                                    orientation = FoldOrientation.VERTICAL,
+                                    separating = true,
+                                    occluding = true,
+                                ),
+                                presentationMode = ReaderPresentationMode.AUTOMATIC,
+                                initialProgress = fixture.progress.get(),
+                                onProgressChanged = { fixture.progress.set(it) },
+                                onboardingCompleted = true,
+                                onBookReady = { fixture.bounds.set(it) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitUntil(30_000) {
+            bookNode()?.config?.getOrElse(ReaderPaginationComplete) { false } == true &&
+                fixture.bounds.get() != null && controlsPresent()
+        }
+        assertTrue(bookConfig()[ReaderLayoutIdentity].contains("pageMode=SPREAD"))
+        assertPortraitRestingCover(fixture)
     }
 
     private fun dragAndHold(from: Offset, to: Offset) {
@@ -124,6 +171,15 @@ class Rc1ClosedBookTest {
             assertFalse("$tag overlaps the real ${fixture.face}/${fixture.mode} cover: button=$bounds cover=$cover",
                 bounds.overlaps(cover))
         }
+    }
+
+    private fun assertPortraitRestingCover(fixture: Fixture) {
+        val cover = requireNotNull(fixture.bounds.get())
+        val host = compose.onNodeWithTag(HOST).fetchSemanticsNode().boundsInRoot
+        assertTrue("Closed ${fixture.face}/${fixture.mode} cover must stay portrait: $cover",
+            cover.width / cover.height <= .70f)
+        assertTrue("Closed ${fixture.face}/${fixture.mode} cover must leave visible desk margins: cover=$cover host=$host",
+            cover.width < host.width * .92f && cover.height < host.height * .94f)
     }
 
     private fun assertClosedControlsAbsent() = controlTags.forEach {
@@ -212,7 +268,8 @@ class Rc1ClosedBookTest {
         const val HOST = "rc1_closed_reader_host"
         val ids = AtomicInteger()
         val captures = AtomicInteger()
-        val modes = listOf(ReaderPresentationMode.SINGLE, ReaderPresentationMode.SPREAD)
+        val modes = listOf(ReaderPresentationMode.AUTOMATIC, ReaderPresentationMode.SINGLE,
+            ReaderPresentationMode.SPREAD)
         val faces = listOf(CoverPosition.FRONT, CoverPosition.BACK)
         val controlTags = listOf("closed_book_shelf", "closed_book_settings", "closed_book_contents", "closed_book_bookmarks")
     }
