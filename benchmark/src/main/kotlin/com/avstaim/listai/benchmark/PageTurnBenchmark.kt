@@ -5,6 +5,10 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
+import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,53 +19,25 @@ class PageTurnBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
-    @Test
-    fun repeatedPageTurns() = benchmarkRule.measureRepeated(
-        packageName = PACKAGE_NAME,
+    @After fun restoreOrientation() = UiDevice.getInstance(
+        InstrumentationRegistry.getInstrumentation()).unfreezeRotation()
+
+    @Test fun repeatedSinglePageTurns() = repeatedPageTurns(spread = false)
+
+    @Test fun repeatedSpreadPageTurns() = repeatedPageTurns(spread = true)
+
+    private fun repeatedPageTurns(spread: Boolean) = benchmarkRule.measureRepeated(
+        packageName = ReaderBenchmarkFixture.PACKAGE_NAME,
         metrics = listOf(FrameTimingMetric()),
-        compilationMode = CompilationMode.Partial(),
+        // Repeatable AOT rendering without relying on an absent bundled baseline profile.
+        compilationMode = CompilationMode.Full(),
         iterations = 5,
-        setupBlock = {
-            pressHome()
-            startActivityAndWait()
-            device.waitForIdle()
-        },
+        setupBlock = { ReaderBenchmarkFixture.importBook(this, spread) },
     ) {
-        val displayWidth = device.displayWidth
-        val displayHeight = device.displayHeight
-        val outerRight = (displayWidth * 0.90f).toInt()
-        val outerLeft = (displayWidth * 0.10f).toInt()
-        val innerRight = (displayWidth * 0.72f).toInt()
-        val innerLeft = (displayWidth * 0.28f).toInt()
-        val grabY = (displayHeight * 0.70f).toInt()
-        val releaseY = (displayHeight * 0.62f).toInt()
-
-        repeat(TURNS_PER_DIRECTION) {
-            device.swipe(
-                outerRight,
-                grabY,
-                innerLeft,
-                releaseY,
-                SWIPE_STEPS,
-            )
-            device.waitForIdle()
-        }
-
-        repeat(TURNS_PER_DIRECTION) {
-            device.swipe(
-                outerLeft,
-                grabY,
-                innerRight,
-                releaseY,
-                SWIPE_STEPS,
-            )
-            device.waitForIdle()
-        }
-    }
-
-    private companion object {
-        const val PACKAGE_NAME = "com.avstaim.listai"
-        const val TURNS_PER_DIRECTION = 6
-        const val SWIPE_STEPS = 40
+        val source = ReaderBenchmarkFixture.awaitPage(device)
+        repeat(6) { ReaderBenchmarkFixture.turn(device, forward = true, spread = spread) }
+        repeat(6) { ReaderBenchmarkFixture.turn(device, forward = false, spread = spread) }
+        assertEquals("The measured walk must return to the same leaf", source.number,
+            ReaderBenchmarkFixture.awaitPage(device).number)
     }
 }

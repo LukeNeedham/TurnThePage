@@ -3,5 +3,14 @@
     <queries>
         <package android:name="com.avstaim.listai" />
     </queries>
+    <application>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fixtures"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/fixture_paths" />
+        </provider>
+    </application>
 </manifest>
-

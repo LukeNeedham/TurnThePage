@@ -40,7 +40,7 @@ jobs:
       - name: Run host quality gate
         run: >-
           ./gradlew --stacktrace --continue
-          assembleDebug assembleRelease test lintRelease
+          assembleDebug assembleRelease bundleRelease assembleBenchmark test lintRelease
           :feature:reader:validateDebugScreenshotTest
           :feature:library:validateDebugScreenshotTest
           :app:assembleDebugAndroidTest :feature:reader:assembleDebugAndroidTest
@@ -55,15 +55,24 @@ jobs:
           if-no-files-found: ignore
           path: |
             **/build/outputs/apk/**
+            **/build/outputs/bundle/**
             **/build/reports/**
             **/build/test-results/**
 
   instrumented:
-    name: API 36 instrumentation
+    name: API ${{ matrix.api-level }} instrumentation
     needs: host
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api-level: 26
+            profile: pixel_2
+          - api-level: 36
+            profile: pixel_7
 
     steps:
       - name: Check out repository
@@ -88,24 +97,27 @@ jobs:
       - name: Run Compose instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_7
-          disable-animations: true
+          profile: ${{ matrix.profile }}
+          # The action disables animations by default; curl tests need the clock.
+          disable-animations: false
           emulator-options: >-
-            -no-window -gpu swangle -noaudio -no-boot-anim
+            -no-window -gpu swangle -noaudio
             -camera-back none
           script: |
             adb shell settings put secure immersive_mode_confirmations confirmed
             ./gradlew --stacktrace connectedDebugAndroidTest
+            bash scripts/stage9-process-restart.sh "$(adb get-serialno)" build/stage9-process-restart
 
       - name: Upload instrumentation reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-device-results
+          name: android-device-results-api-${{ matrix.api-level }}
           if-no-files-found: ignore
           path: |
             **/build/reports/androidTests/**
             **/build/outputs/androidTest-results/**
+            build/stage9-process-restart/**

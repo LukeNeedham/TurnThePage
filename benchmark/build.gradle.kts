@@ -6,11 +6,22 @@ android {
     namespace = "com.avstaim.listai.benchmark"
     compileSdk = 36
     targetProjectPath = ":app"
+    // Macrobenchmark must survive killing/recompiling the app under measurement.
+    experimentalProperties["android.experimental.self-instrumenting"] = true
 
     defaultConfig {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Measure the non-debuggable application, while allowing test instrumentation.
+    buildTypes {
+        create("benchmark") {
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
 
     compileOptions {
@@ -19,9 +30,15 @@ android {
     }
 }
 
+androidComponents {
+    beforeVariants(selector().all()) { variant ->
+        variant.enable = variant.buildType == "benchmark"
+    }
+}
+
 dependencies {
     implementation(libs.androidx.benchmark.macro.junit4)
     implementation(libs.androidx.test.ext.junit)
     implementation(libs.androidx.test.runner)
+    implementation(libs.androidx.core.ktx)
 }
-

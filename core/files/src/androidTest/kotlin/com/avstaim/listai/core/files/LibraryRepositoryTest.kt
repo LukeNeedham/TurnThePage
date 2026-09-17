@@ -14,6 +14,8 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.*
@@ -146,6 +148,120 @@ class LibraryRepositoryTest {
         assertTrue(database.library().allBooks().isEmpty())
         assertNull(preferences.lastBook.first())
         assertTrue(storage.directory.listFiles()!!.isEmpty())
+    }
+
+    @Test fun interruptedDeletionAndMissingCopyRecoverAcrossRepeatedReopensWithoutLosingSurvivorState() = runBlocking {
+        val survivor = repository.import("keep.fb2") { fb2("Keep through recovery").inputStream() }
+        val survivorDocument = repository.open(survivor).document
+        val blocks = survivorDocument.readingBlocks()
+        val location = BookLocation(blocks.last().id, 7,
+            blocks.dropLast(1).sumOf { it.plainText().length + 1L } + 7)
+        val progress = ReadingProgress(location, CoverPosition.OPEN, .375f, tocEntryIndex = 0, tocCharOffset = 9)
+        repository.saveProgress(survivor, progress)
+        repository.addBookmark(survivor, location, "Keep this bookmark")
+        val bookmark = repository.bookmarks(survivor).first().single()
+        val readerSettings = preferences.reader.first()
+
+        val interrupted = repository.import("delete.fb2") { fb2("Interrupted deletion").inputStream() }
+        repository.addBookmark(interrupted, location, "Delete this bookmark")
+        val failingDao = object : LibraryDao by database.library() {
+            override suspend fun delete(id: String) = throw IOException("Deletion interrupted before row removal")
+        }
+        try {
+            repo(dao = failingDao).delete(interrupted)
+            fail("Injected deletion failure was ignored")
+        } catch (_: IOException) { }
+        val tombstone = requireNotNull(database.library().book(interrupted.value))
+        assertTrue(tombstone.deleting)
+        assertFalse(storage.file(tombstone.fileName).exists())
+        // Late callbacks must not mutate a tombstone while startup recovery is pending.
+        repository.saveProgress(interrupted, progress)
+        repository.addBookmark(interrupted, location.copy(charOffset = 8), "Late callback")
+        assertEquals(ReadingProgress(), database.library().book(interrupted.value)!!.progress.toModel())
+        assertEquals(1, repository.bookmarks(interrupted).first().size)
+
+        val missing = repository.import("missing.fb2") { fb2("Missing private copy").inputStream() }
+        repository.addBookmark(missing, location, "Remove with missing copy")
+        storage.remove(requireNotNull(database.library().book(missing.value)).fileName)
+        storage.file("interrupted-copy.part").writeText("Unfinished source")
+        storage.file("unpublished.cover.jpg").writeText("Unpublished cover")
+
+        repeat(4) {
+            database.close()
+            database = LibraryDatabase.open(context, name)
+            repository = repo()
+            repository.initialize()
+            assertEquals(listOf(survivor), repository.books.first().map { it.id })
+            assertEquals(survivor.value, preferences.lastBook.first())
+            assertEquals(progress, repository.open(survivor).book.progress)
+            assertEquals(listOf(bookmark), repository.bookmarks(survivor).first())
+            assertTrue(repository.bookmarks(interrupted).first().isEmpty())
+            assertTrue(repository.bookmarks(missing).first().isEmpty())
+            assertEquals(readerSettings, preferences.reader.first())
+            assertEquals(listOf(repository.books.first().single().fileName),
+                storage.directory.listFiles()!!.map { it.name })
+        }
+    }
+
+    @Test fun cancellationWhileCopyingClosesSourceAndAllowsTheNextImport() = runBlocking {
+        val copying = CompletableDeferred<Unit>()
+        val closed = AtomicBoolean(false)
+        val source = object : InputStream() {
+            private var firstRead = true
+            override fun read(): Int = error("Bulk reads expected")
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (firstRead) {
+                    firstRead = false
+                    buffer[offset] = '<'.code.toByte()
+                    return 1
+                }
+                copying.complete(Unit)
+                CountDownLatch(1).await() // runInterruptible must interrupt a blocked provider read.
+                return -1
+            }
+            override fun close() { closed.set(true) }
+        }
+        val importing = launch { repository.import("blocked.fb2") { source } }
+        try {
+            withTimeout(5_000) { copying.await() }
+            withTimeout(5_000) { importing.cancelAndJoin() }
+            assertTrue(closed.get())
+            assertTrue(repository.books.first().isEmpty())
+            assertTrue(storage.directory.listFiles()!!.isEmpty())
+            val next = withTimeout(5_000) {
+                repository.import("next.fb2") { fb2("After cancellation").inputStream() }
+            }
+            assertEquals("After cancellation", repository.open(next).book.title)
+        } finally { importing.cancelAndJoin() }
+    }
+
+    @Test fun cancellationDuringPublicationFinishesTheAtomicBookCommit() = runBlocking {
+        val publishing = CompletableDeferred<Unit>()
+        val finishPublication = CompletableDeferred<Unit>()
+        val pausedDao = object : LibraryDao by database.library() {
+            override suspend fun insert(book: BookEntity): Long {
+                publishing.complete(Unit)
+                finishPublication.await()
+                return database.library().insert(book)
+            }
+        }
+        val importing = launch { repo(dao = pausedDao).import("commit.fb2") { fb2("Committed despite cancellation").inputStream() } }
+        try {
+            withTimeout(5_000) { publishing.await() }
+            importing.cancel()
+            finishPublication.complete(Unit)
+            withTimeout(5_000) { importing.join() }
+            database.close()
+            database = LibraryDatabase.open(context, name)
+            repository = repo()
+            repository.initialize()
+            val book = repository.books.first().single()
+            assertEquals("Committed despite cancellation", repository.open(book.id).book.title)
+            assertEquals(listOf(book.fileName), storage.directory.listFiles()!!.map { it.name })
+        } finally {
+            finishPublication.complete(Unit)
+            importing.cancelAndJoin()
+        }
     }
 
     @Test fun concurrentDuplicateImportsPublishExactlyOneCompleteBook() = runBlocking {

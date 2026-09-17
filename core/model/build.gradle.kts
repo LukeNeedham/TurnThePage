@@ -7,6 +7,7 @@ plugins {
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_17
+        freeCompilerArgs.add("-Xjdk-release=17")
     }
 }
 

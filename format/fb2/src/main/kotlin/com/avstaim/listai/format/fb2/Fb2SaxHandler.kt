@@ -199,7 +199,7 @@ internal class Fb2SaxHandler(
 
         binary?.let { currentBinary ->
             if (depth == currentBinary.depth && name == "binary") finishBinary(currentBinary)
-            elements.removeLast()
+            elements.removeAt(elements.lastIndex)
             return
         }
 
@@ -210,19 +210,19 @@ internal class Fb2SaxHandler(
             } else {
                 capture.endNested(name, depth)
             }
-            elements.removeLast()
+            elements.removeAt(elements.lastIndex)
             return
         }
 
         if (body == null) {
             finishMetadataElement(name, depth)
-            elements.removeLast()
+            elements.removeAt(elements.lastIndex)
             return
         }
 
         poem?.let { currentPoem ->
             if (finishPoemElement(currentPoem, name, depth)) {
-                elements.removeLast()
+                elements.removeAt(elements.lastIndex)
                 return
             }
         }
@@ -242,7 +242,7 @@ internal class Fb2SaxHandler(
             name == "body" && body?.depth == depth -> finishBody(requireNotNull(body))
         }
 
-        elements.removeLast()
+        elements.removeAt(elements.lastIndex)
     }
 
     override fun endDocument() {
@@ -1214,7 +1214,7 @@ private fun normalizeInline(
         while (normalized.firstOrNull() is RawInline.Text) {
             val first = normalized.first() as RawInline.Text
             val trimmed = first.value.trimStart()
-            if (trimmed.isEmpty()) normalized.removeFirst()
+            if (trimmed.isEmpty()) normalized.removeAt(0)
             else {
                 normalized[0] = RawInline.Text(trimmed)
                 break
@@ -1224,7 +1224,7 @@ private fun normalizeInline(
             val lastIndex = normalized.lastIndex
             val last = normalized[lastIndex] as RawInline.Text
             val trimmed = last.value.trimEnd()
-            if (trimmed.isEmpty()) normalized.removeLast()
+            if (trimmed.isEmpty()) normalized.removeAt(lastIndex)
             else {
                 normalized[lastIndex] = RawInline.Text(trimmed)
                 break
@@ -1235,7 +1235,7 @@ private fun normalizeInline(
     val merged = mutableListOf<RawInline>()
     normalized.forEach { node ->
         if (node is RawInline.Text && merged.lastOrNull() is RawInline.Text) {
-            val previous = merged.removeLast() as RawInline.Text
+            val previous = merged.removeAt(merged.lastIndex) as RawInline.Text
             merged += RawInline.Text(previous.value + node.value)
         } else {
             merged += node

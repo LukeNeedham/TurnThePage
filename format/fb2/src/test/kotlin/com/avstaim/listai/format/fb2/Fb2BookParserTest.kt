@@ -31,6 +31,23 @@ class Fb2BookParserTest {
     private val parser = Fb2BookParser()
 
     @Test
+    fun `inline normalization trims whitespace and merges text around empty nested nodes`() = runBlocking {
+        val xml = """<?xml version="1.0" encoding="UTF-8"?>
+            <FictionBook><description><title-info><book-title>List compatibility</book-title></title-info></description>
+            <body><section>
+            <p>   <emphasis>Italic <strong>bold</strong></emphasis>   </p>
+            <p>alpha<emphasis></emphasis>beta<strong></strong>gamma</p>
+            </section></body></FictionBook>""".trimIndent()
+        val document = parser.parse(xml.byteInputStream())
+        val paragraphs = document.blocks.filterIsInstance<BookBlock.Paragraph>()
+
+        assertEquals(2, paragraphs.size)
+        assertEquals(listOf(InlineNode.Emphasis(listOf(InlineNode.Text("Italic "),
+            InlineNode.Strong(listOf(InlineNode.Text("bold")))))), paragraphs.first().content)
+        assertEquals(listOf(InlineNode.Text("alphabetagamma")), paragraphs.last().content)
+    }
+
+    @Test
     fun `rich fixture maps metadata structure toc notes links and lazy images`() = runBlocking {
         val document = javaClass.getResourceAsStream("/fixtures/rich-book.fb2").use { input ->
             assertNotNull(input)

@@ -7,6 +7,7 @@ import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import org.junit.Rule
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -16,15 +17,22 @@ class StartupBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
+    @After fun restoreOrientation() = androidx.test.uiautomator.UiDevice.getInstance(
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()).unfreezeRotation()
+
     @Test
-    fun coldStartup() = benchmarkRule.measureRepeated(
-        packageName = "com.avstaim.listai",
+    fun coldStartupIntoImportedBook() = benchmarkRule.measureRepeated(
+        packageName = ReaderBenchmarkFixture.PACKAGE_NAME,
         metrics = listOf(StartupTimingMetric()),
         compilationMode = CompilationMode.None(),
         startupMode = StartupMode.COLD,
         iterations = 5,
-        setupBlock = { pressHome() },
+        setupBlock = {
+            ReaderBenchmarkFixture.importBook(this, spread = false)
+            pressHome()
+        },
     ) {
         startActivityAndWait()
+        ReaderBenchmarkFixture.awaitPage(device)
     }
 }

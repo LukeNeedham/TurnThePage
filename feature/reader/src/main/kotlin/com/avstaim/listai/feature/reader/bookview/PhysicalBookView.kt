@@ -671,7 +671,7 @@ internal fun PhysicalBookView(
                 this[ReaderLayoutIdentity] = it.snapshot.key.toString()
                 this[ReaderCacheBytes] = liveCache?.bytes ?: it.cacheBytes
                 this[ReaderCachedPages] = liveCache?.values?.size ?: it.cachedPages
-                this[ReaderSurfaceRenders] = it.renderedPages
+                this[ReaderSurfaceRenders] = liveCache?.rendered ?: it.renderedPages
                 this[ReaderContentsLocation] = readingPosition?.tocEntryIndex?.let { entry ->
                     "$entry:${readingPosition.tocCharOffset}"
                 }.orEmpty()
