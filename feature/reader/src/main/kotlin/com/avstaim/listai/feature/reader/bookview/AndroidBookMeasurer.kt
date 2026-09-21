@@ -19,6 +19,7 @@ import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.SuperscriptSpan
 import android.text.style.UnderlineSpan
+import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.InlineNode
@@ -59,6 +60,7 @@ internal class AndroidBookMeasurer(
     private val document: BookDocument,
     private val missingImageLabel: String,
     private val decodeImages: Boolean = false,
+    internal val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
 ) : BlockMeasurer {
     // API 36's IntDefs name LineBreaker constants; these inline to the identical Layout values
     // supported since APIs 23 (break strategy) and 26 (justification). No API 29 object is used.
@@ -75,8 +77,8 @@ internal class AndroidBookMeasurer(
             italic -> Typeface.ITALIC
             else -> Typeface.NORMAL
         }
-        val paint = textPaint(key, style, if (heading) 1.25f else 1f)
-        val content = source.textContent().toSpannedText(key.darkTheme)
+        val paint = textPaint(key, style, if (heading) 1.25f else 1f, typefaces)
+        val content = source.textContent().toSpannedText(key.darkTheme, typefaces)
         val inset = (key.contentWidth * min(.22f, block.quoteDepth * .05f)).roundToInt()
         val width = (key.contentWidth - inset * 2).coerceAtLeast(1)
         if (paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0 && content.isNotEmpty()) {
@@ -123,32 +125,54 @@ internal class AndroidBookMeasurer(
         }.getOrNull() else null
         val placeholder = if (decodeImages && bitmap == null) {
             val text = source.alternativeText?.takeIf { it.isNotBlank() } ?: missingImageLabel
-            StaticLayout.Builder.obtain(text, 0, text.length, textPaint(key, Typeface.ITALIC, .85f), key.contentWidth)
+            StaticLayout.Builder.obtain(text, 0, text.length,
+                textPaint(key, Typeface.ITALIC, .85f, typefaces), key.contentWidth)
                 .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(3).build()
         } else null
         return AndroidImageMeasurement(bitmap, targetWidth, targetHeight, source.plainText().length, placeholder)
     }
 }
 
-internal fun textPaint(key: LayoutKey, style: Int = Typeface.NORMAL, multiplier: Float = 1f) =
+internal fun textPaint(
+    key: LayoutKey,
+    style: Int = Typeface.NORMAL,
+    multiplier: Float = 1f,
+    typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) =
     TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
         color = if (key.darkTheme) 0xFFE3EAF0.toInt() else 0xFF242A30.toInt()
         textSize = key.fontSizeSp * key.density * key.textScale * multiplier
-        typeface = Typeface.create(key.fontFamilyId, style)
+        typeface = typefaces.resolve(style)
         textLocale = Locale.forLanguageTag(key.localeTag)
     }
 
 internal fun noteInkColor(darkTheme: Boolean): Int =
     if (darkTheme) 0xFFA9BECE.toInt() else 0xFF536E82.toInt()
 
-internal fun List<InlineNode>.toSpannedText(darkTheme: Boolean = false): SpannableStringBuilder = SpannableStringBuilder().also { result ->
+private class PlyosStyleSpan(
+    style: Int,
+    private val typefaces: PlyosTypefaceFamily,
+) : StyleSpan(style) {
+    private fun apply(paint: TextPaint) {
+        val inherited = paint.typeface?.style ?: Typeface.NORMAL
+        paint.typeface = typefaces.resolve(inherited or style)
+    }
+
+    override fun updateDrawState(textPaint: TextPaint) = apply(textPaint)
+    override fun updateMeasureState(textPaint: TextPaint) = apply(textPaint)
+}
+
+internal fun List<InlineNode>.toSpannedText(
+    darkTheme: Boolean = false,
+    typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+): SpannableStringBuilder = SpannableStringBuilder().also { result ->
     fun append(node: InlineNode) {
         val start = result.length
         val span = when (node) {
             is InlineNode.Text -> { result.append(node.value); null }
             is InlineNode.Image -> { result.append(node.alternativeText.orEmpty()); null }
-            is InlineNode.Emphasis -> { node.children.forEach(::append); StyleSpan(Typeface.ITALIC) }
-            is InlineNode.Strong -> { node.children.forEach(::append); StyleSpan(Typeface.BOLD) }
+            is InlineNode.Emphasis -> { node.children.forEach(::append); PlyosStyleSpan(Typeface.ITALIC, typefaces) }
+            is InlineNode.Strong -> { node.children.forEach(::append); PlyosStyleSpan(Typeface.BOLD, typefaces) }
             is InlineNode.Strikethrough -> { node.children.forEach(::append); StrikethroughSpan() }
             is InlineNode.Link -> {
                 node.children.forEach(::append)

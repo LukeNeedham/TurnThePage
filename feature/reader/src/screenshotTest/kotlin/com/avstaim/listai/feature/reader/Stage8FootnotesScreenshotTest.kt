@@ -12,6 +12,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.android.tools.screenshot.PreviewTest
 import com.avstaim.listai.core.designsystem.ListaiTheme
+import com.avstaim.listai.core.designsystem.rememberPlyosTypefaceFamily
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.feature.reader.bookview.*
 import com.avstaim.listai.reader.pagination.*
@@ -88,9 +89,11 @@ fun Stage8RussianDarkNotesContinuationScreenshot() {
                 density = density.density, densityKey = density.density.toString(), textScale = density.fontScale,
                 darkTheme = true, localeTag = "ru", pageWidthPx = layout.pageWidth.roundToInt(),
                 pageHeightPx = layout.pageHeight.roundToInt()).forNotes()
+            val typefaces = rememberPlyosTypefaceFamily()
             // Select real consecutive continuation leaves without adding a production navigation override.
-            val surfaces = remember(notes, key) { runBlocking {
-                val pages = IncrementalPaginationEngine(AndroidBookMeasurer(notes.document, "Нет изображения"))
+            val surfaces = remember(notes, key, typefaces) { runBlocking {
+                val pages = IncrementalPaginationEngine(AndroidBookMeasurer(notes.document,
+                    "Нет изображения", typefaces = typefaces))
                     .paginate(notes.document, null, key).last().pages
                 fun PageLayout.isContinuation() = blocks.firstOrNull()?.let {
                     it.blockId == BlockId("long-body") && it.startCharOffset > 0
@@ -98,7 +101,8 @@ fun Stage8RussianDarkNotesContinuationScreenshot() {
                 val leftIndex = pages.indices.first { index ->
                     pages[index].isContinuation() && pages.getOrNull(index + 1)?.isContinuation() == true
                 }
-                val rasterizer = AndroidPageRasterizer(notes.document, key, "Нет изображения")
+                val rasterizer = AndroidPageRasterizer(notes.document, key, "Нет изображения",
+                    typefaces = typefaces)
                 suspend fun surface(index: Int): BookVisualSurface.Page {
                     val page = pages[index]
                     val returns = notes.returns(page, key, visit = null)

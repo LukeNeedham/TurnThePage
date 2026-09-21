@@ -75,7 +75,13 @@ class LibraryController(
     fun returnToShelf() {
         // A back press during parsing invalidates its eventual selection as well.
         openRequest++
-        saveOnBackground()
+        val selectedId = _selection.value?.opened?.book?.id
+        val shelfProgress = checkpoint?.resetRearCoverForShelf()
+        if (selectedId != null && shelfProgress != null) {
+            // A finished physical book returns to its default pose instead of reopening on the
+            // notes tail or the inner back cover.
+            enqueue { repository.saveProgress(selectedId, shelfProgress) }
+        }
         _selection.value = null
         checkpoint = null
         // Explicitly shelving a book is durable; a process restart restores the shelf.
@@ -160,10 +166,16 @@ class LibraryController(
     }
 
     fun addBookmark() {
-        val current = _selection.value ?: return
         if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null ||
             checkpoint?.cover != CoverPosition.OPEN) return
         val location = checkpoint?.location ?: return
+        addBookmarkAt(location)
+    }
+
+    fun addBookmarkAt(location: BookLocation) {
+        val current = _selection.value ?: return
+        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null ||
+            checkpoint?.cover != CoverPosition.OPEN) return
         enqueue {
             val snippet = withContext(Dispatchers.Default) { current.opened.document.bookmarkSnippet(location) }
             repository.addBookmark(current.opened.book.id, location, snippet)
@@ -183,6 +195,11 @@ class LibraryController(
     fun deleteBookmark(bookmark: Bookmark) = enqueue { repository.deleteBookmark(bookmark.bookId, bookmark.id) }
 
     private fun enqueue(command: suspend () -> Unit) { check(commands.trySend(command).isSuccess) }
+}
+
+internal fun ReadingProgress.resetRearCoverForShelf(): ReadingProgress = when (cover) {
+    CoverPosition.BACK, CoverPosition.BOUNDARY -> copy(cover = CoverPosition.FRONT)
+    CoverPosition.OPEN, CoverPosition.FRONT -> this
 }
 
 private fun Exception.userMessage(): Int = when (this) {

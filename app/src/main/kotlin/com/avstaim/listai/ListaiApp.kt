@@ -33,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import com.avstaim.listai.core.adaptive.DevicePosture
+import com.avstaim.listai.core.designsystem.drawListaiBackdrop
 import com.avstaim.listai.core.model.BookId
 import com.avstaim.listai.core.model.LibraryBook
 import com.avstaim.listai.core.model.CoverPosition
@@ -180,7 +182,7 @@ fun ListaiApp(
     BackHandler(enabled = selection != null || phase != ShelfReaderPhase.SHELF) { returnToShelf() }
     BackHandler(enabled = shelfSettingsOpen && phase == ShelfReaderPhase.SHELF) { shelfSettingsOpen = false }
 
-    Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+    Box(modifier.fillMaxSize().drawBehind { drawListaiBackdrop(darkTheme) }
         .onGloballyPositioned { viewport = it.boundsInRoot() }
         .testTag("shelf_reader_transition").semantics {
             this[ShelfTransitionPhase] = phase.name
@@ -210,7 +212,8 @@ fun ListaiApp(
                 if (bounds == null) shelfBounds.remove(id) else shelfBounds[id] = bounds
             },
             versionLabel = "v${BuildConfig.VERSION_NAME}",
-            onSettings = { shelfSettingsOpen = true })
+            onSettings = { shelfSettingsOpen = true },
+            darkTheme = darkTheme)
         if (busy && books.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
@@ -238,6 +241,7 @@ fun ListaiApp(
                     darkTheme = darkTheme,
                     bookmarks = bookmarks,
                     onAddBookmark = controller::addBookmark,
+                    onAddBookmarkAt = controller::addBookmarkAt,
                     onDeleteBookmark = controller::deleteBookmark,
                     onReturnToShelf = ::returnToShelf,
                     transitionCoverProgress = if (phase == ShelfReaderPhase.READING) null else coverOpen.value,

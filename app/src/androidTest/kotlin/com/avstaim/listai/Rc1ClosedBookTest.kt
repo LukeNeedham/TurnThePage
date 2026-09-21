@@ -12,8 +12,10 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -36,25 +38,22 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The real ReaderScreen supplies desk controls outside the scaled physical cover. */
+/** The real ReaderScreen keeps a closed hardback at one native leaf and adapts its paper controls. */
 @RunWith(AndroidJUnit4::class)
 class Rc1ClosedBookTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    @Test fun bothClosedFacesKeepTheirActionsOutsideTheBoardAndEmptyDeskReturnsToShelf() {
+    @Test fun nativeClosedFacesUseFreeSideForVerticalActionsAndEmptyDeskReturnsToShelf() {
         for (mode in modes) for (face in faces) {
             val fixture = showReader(mode, face)
-            assertPortraitRestingCover(fixture)
-            assertControlsOutsideCover(fixture)
+            assertNativeLeafSize(fixture)
+            assertClosedControlPolicy(fixture)
             capture("${mode.name}-${face.name}-closed")
             val before = fixture.progress.get()
-            val host = compose.onNodeWithTag(HOST).fetchSemanticsNode().boundsInRoot
-            val cover = requireNotNull(fixture.bounds.get())
-            val freePoint = Offset(if (cover.left > host.width - cover.right) cover.left / 2f
-                else (cover.right + host.width) / 2f, cover.center.y)
-            assertFalse(cover.contains(freePoint))
-            compose.onNodeWithTag(HOST).performTouchInput { click(freePoint) }
-            compose.waitUntil(5_000) { fixture.shelfRequests.get() == 1 }
+            freeDeskPoint(fixture)?.let { freePoint ->
+                compose.onNodeWithTag(HOST).performTouchInput { click(freePoint) }
+                compose.waitUntil(5_000) { fixture.shelfRequests.get() == 1 }
+            }
             assertEquals(before, fixture.progress.get())
             compose.onNodeWithTag("reader_paper_insert").assertDoesNotExist()
         }
@@ -63,6 +62,11 @@ class Rc1ClosedBookTest {
     @Test fun controlsDisappearDuringCoverDragAndReturnOnlyAfterTheClosedBookSettles() {
         for (mode in modes) for (face in faces) {
             val fixture = showReader(mode, face)
+            // System-level screenshots are diagnostics, not assertions. One representative
+            // sequence is enough; capturing all 18 frames exhausts the headless emulator's
+            // graphics transport before the actual geometry checks can finish.
+            val captureSequence = mode == ReaderPresentationMode.AUTOMATIC &&
+                face == CoverPosition.FRONT
             val openingForward = face == CoverPosition.FRONT
             val closedBounds = requireNotNull(fixture.bounds.get())
             compose.mainClock.autoAdvance = false
@@ -74,22 +78,28 @@ class Rc1ClosedBookTest {
                 awaitMovingCover()
                 assertClosedControlsAbsent()
                 assertEquals(face, fixture.progress.get().cover)
-                capture("${mode.name}-${face.name}-opening")
+                if (captureSequence) capture("${mode.name}-${face.name}-opening")
                 compose.onNodeWithTag(HOST).performTouchInput { up() }
                 advanceUntil { fixture.progress.get().cover !in faces && resting() }
             } finally { compose.mainClock.autoAdvance = true }
             compose.waitForIdle()
             assertClosedControlsAbsent()
+            assertSameLeafSize(closedBounds, requireNotNull(fixture.bounds.get()), mode, face)
             if (face == CoverPosition.FRONT) {
-                // Single opens onto its annotated rigid inside; spread shows the same board
-                // opposite contents. Both are readable paper and retain the five margin actions.
+                // The front boundary remains readable paper and retains the five in-page actions.
                 listOf("close", "contents", "settings", "theme", "bookmarks").forEach {
                     compose.onNodeWithTag("reader_top_$it").assertIsDisplayed()
                 }
-                if (mode == ReaderPresentationMode.SINGLE) {
+                if (pageMode() == "SINGLE") {
+                    // Narrow mode prints the FB2 annotation on a separate white paper leaf.
                     assertNotNull(fixture.progress.get().annotationLocation)
                     assertEquals("", bookConfig()[ReaderVisibleFooters])
                     assertTrue(bookConfig()[ReaderPageNumberBounds].isEmpty())
+                    assertTrue("The single front annotation leaf must expose the FB2 description",
+                        bookConfig()[SemanticsProperties.Text].any {
+                            it.text.contains("A quiet story about letters left between the pages")
+                        })
+                    assertSingleAnnotationForwardCurlUsesPaper(fixture)
                 }
             }
 
@@ -102,21 +112,21 @@ class Rc1ClosedBookTest {
                 dragAndHold(from, to)
                 awaitMovingCover()
                 assertClosedControlsAbsent()
-                capture("${mode.name}-${face.name}-closing")
+                if (captureSequence) capture("${mode.name}-${face.name}-closing")
                 compose.onNodeWithTag(HOST).performTouchInput { up() }
                 advanceUntil { fixture.progress.get().cover == face && resting() }
-                // The geometry first settles, then the closed book moves back on the desk.
-                advanceUntil { controlsPresent() }
+                advanceUntil { fixture.bounds.get() != null && resting() }
             } finally { compose.mainClock.autoAdvance = true }
             compose.waitForIdle()
-            assertPortraitRestingCover(fixture)
-            assertControlsOutsideCover(fixture)
+            assertSameLeafSize(closedBounds, requireNotNull(fixture.bounds.get()), mode, face)
+            assertNativeLeafSize(fixture)
+            assertClosedControlPolicy(fixture)
             assertEquals(0, fixture.shelfRequests.get())
-            capture("${mode.name}-${face.name}-settled")
+            if (captureSequence) capture("${mode.name}-${face.name}-settled")
         }
     }
 
-    @Test fun centeredFoldKeepsAutomaticSpreadWhileTheClosedBookUsesItsVisualRestingScale() {
+    @Test fun centeredFoldKeepsAutomaticSpreadAndTheClosedCoverAtNativeLeafSize() {
         val fixture = Fixture(ReaderPresentationMode.AUTOMATIC, CoverPosition.FRONT)
         compose.runOnUiThread {
             compose.activity.setContent {
@@ -145,10 +155,11 @@ class Rc1ClosedBookTest {
         }
         compose.waitUntil(30_000) {
             bookNode()?.config?.getOrElse(ReaderPaginationComplete) { false } == true &&
-                fixture.bounds.get() != null && controlsPresent()
+                fixture.bounds.get() != null && resting()
         }
         assertTrue(bookConfig()[ReaderLayoutIdentity].contains("pageMode=SPREAD"))
-        assertPortraitRestingCover(fixture)
+        assertNativeLeafSize(fixture)
+        assertClosedControlPolicy(fixture)
     }
 
     private fun dragAndHold(from: Offset, to: Offset) {
@@ -163,26 +174,140 @@ class Rc1ClosedBookTest {
         config[ReaderTurnProgress] in .05f.. .98f && config[ReaderTurnSubject].endsWith("cover") && !controlsPresent()
     }
 
-    private fun assertControlsOutsideCover(fixture: Fixture) {
+    private fun assertSingleAnnotationForwardCurlUsesPaper(fixture: Fixture) {
+        val paper = bookConfig()[ReaderPaperBounds].single()
+        val firstAnchor = requireNotNull(fixture.progress.get().annotationLocation)
+        compose.mainClock.autoAdvance = false
+        try {
+            val from = Offset(paper.right - paper.width * .08f, paper.top + paper.height * .58f)
+            val to = from - Offset(paper.width * .30f, 0f)
+            dragAndHold(from, to)
+            advanceUntil {
+                val config = bookNode()?.config ?: return@advanceUntil false
+                config[ReaderTurnDirection] == "forward" &&
+                    config[ReaderTurnProgress] in .05f.. .80f
+            }
+            val frame = bookConfig()
+            assertEquals("The description must turn as a flexible paper leaf", "page",
+                frame[ReaderTurnSubject])
+            assertTrue("The turning source must be the FB2 description, not the front cover",
+                frame[ReaderTurnSourceText].contains("A quiet story about letters left between the pages"))
+
+            val pixels = compose.onNodeWithTag(HOST).captureToImage().toPixelMap()
+            var coverBlue = 0
+            var sampled = 0
+            val left = paper.left.toInt().coerceIn(0, pixels.width - 1)
+            val right = paper.right.toInt().coerceIn(left + 1, pixels.width)
+            val top = (paper.top + paper.height * .16f).toInt().coerceIn(0, pixels.height - 1)
+            val bottom = (paper.bottom - paper.height * .08f).toInt().coerceIn(top + 1, pixels.height)
+            for (y in top until bottom step 4) for (x in left until right step 4) {
+                val color = pixels.buffer[pixels.bufferOffset + y * pixels.stride + x]
+                val red = color shr 16 and 0xFF
+                val green = color shr 8 and 0xFF
+                val blue = color and 0xFF
+                if (blue - red >= 15 && blue - green >= 8 && red < 140 && green < 150 && blue < 180) {
+                    coverBlue++
+                }
+                sampled++
+            }
+            assertTrue("The annotation verso must reveal target paper, not the external blue front cover",
+                coverBlue.toFloat() / sampled.coerceAtLeast(1) < .04f)
+
+            compose.onNodeWithTag(HOST).performTouchInput { cancel() }
+            advanceUntil { resting() }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitForIdle()
+        assertEquals("A cancelled probe must keep the exact first annotation anchor", firstAnchor,
+            fixture.progress.get().annotationLocation)
+    }
+
+    private fun assertClosedControlPolicy(fixture: Fixture) {
         val cover = requireNotNull(fixture.bounds.get())
-        val origin = compose.onNodeWithTag(HOST).fetchSemanticsNode().boundsInRoot.topLeft
-        controlTags.forEach { tag ->
-            val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.translate(-origin)
-            assertFalse("$tag overlaps the real ${fixture.face}/${fixture.mode} cover: button=$bounds cover=$cover",
+        val hostNode = compose.onNodeWithTag(HOST).fetchSemanticsNode()
+        val origin = hostNode.boundsInRoot.topLeft
+        val pageMode = pageMode()
+        val expectedTags = expectedControlTags(fixture.face)
+        val unexpectedTags = allControlTags - expectedTags.toSet()
+        unexpectedTags.forEach { tag -> compose.onNodeWithTag(tag).assertDoesNotExist() }
+        val controls = expectedTags.map { tag ->
+            compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.translate(-origin)
+        }
+        controls.zipWithNext().forEach { (upper, lower) ->
+            assertTrue("Closed-book actions must form a vertical stack: $upper then $lower",
+                upper.bottom <= lower.top + 1f)
+        }
+        val centres = controls.map { it.center }
+        assertTrue("Closed-book actions must share one side column: $controls",
+            centres.maxOf { it.x } - centres.minOf { it.x } <= controls.maxOf { it.width } * .2f)
+        if (pageMode == "SINGLE") {
+            controls.forEachIndexed { index, bounds ->
+                assertTrue("${expectedTags[index]} must be drawn over the closed ${fixture.face} cover in SINGLE: button=$bounds cover=$cover",
+                    bounds.overlaps(cover))
+                assertTrue("${expectedTags[index]} must stay inside the closed ${fixture.face} cover in SINGLE: button=$bounds cover=$cover",
+                    bounds.left >= cover.left - 2f && bounds.top >= cover.top - 2f &&
+                        bounds.right <= cover.right + 2f && bounds.bottom <= cover.bottom + 2f)
+            }
+            assertTrue("SINGLE actions must be a left-aligned cover stack: controls=$controls cover=$cover",
+                controls.all { it.center.x < cover.center.x })
+            assertTrue("A single native leaf should consume the viewport instead of shrinking for controls: cover=$cover host=${hostNode.boundsInRoot}",
+                cover.width >= hostNode.boundsInRoot.width * .9f)
+            return
+        }
+        assertEquals("SPREAD", pageMode)
+        controls.forEachIndexed { index, bounds ->
+            assertFalse("${expectedTags[index]} overlaps the real ${fixture.face}/${fixture.mode} cover: button=$bounds cover=$cover",
                 bounds.overlaps(cover))
+        }
+        if (cover.center.x >= hostNode.boundsInRoot.width / 2f) {
+            assertTrue("A right-hand cover must leave all actions on its left: controls=$controls cover=$cover",
+                controls.all { it.right <= cover.left + 1f })
+        } else {
+            assertTrue("A left-hand cover must leave all actions on its right: controls=$controls cover=$cover",
+                controls.all { it.left >= cover.right - 1f })
         }
     }
 
-    private fun assertPortraitRestingCover(fixture: Fixture) {
+    private fun assertNativeLeafSize(fixture: Fixture) {
         val cover = requireNotNull(fixture.bounds.get())
         val host = compose.onNodeWithTag(HOST).fetchSemanticsNode().boundsInRoot
-        assertTrue("Closed ${fixture.face}/${fixture.mode} cover must stay portrait: $cover",
-            cover.width / cover.height <= .70f)
-        assertTrue("Closed ${fixture.face}/${fixture.mode} cover must leave visible desk margins: cover=$cover host=$host",
-            cover.width < host.width * .92f && cover.height < host.height * .94f)
+        val identity = bookConfig()[ReaderLayoutIdentity]
+        val expectedWidth = requireNotNull(Regex("pageWidthPx=(\\d+)").find(identity)).groupValues[1].toFloat()
+        val expectedHeight = requireNotNull(Regex("pageHeightPx=(\\d+)").find(identity)).groupValues[1].toFloat()
+        assertEquals("Closed ${fixture.face}/${fixture.mode} width must equal one native leaf: $identity",
+            expectedWidth, cover.width, 1.1f)
+        assertEquals("Closed ${fixture.face}/${fixture.mode} height must equal one native leaf: $identity",
+            expectedHeight, cover.height, 1.1f)
+        assertTrue("Native cover must remain inside the reader host: cover=$cover host=$host",
+            cover.left >= -1f && cover.top >= -1f && cover.right <= host.width + 1f && cover.bottom <= host.height + 1f)
     }
 
-    private fun assertClosedControlsAbsent() = controlTags.forEach {
+    private fun assertSameLeafSize(before: Rect, after: Rect, mode: ReaderPresentationMode,
+        face: CoverPosition) {
+        assertEquals("Opening/closing $face in $mode must not change leaf width", before.width, after.width, 1.1f)
+        assertEquals("Opening/closing $face in $mode must not change leaf height", before.height, after.height, 1.1f)
+    }
+
+    private fun freeDeskPoint(fixture: Fixture): Offset? {
+        val hostNode = compose.onNodeWithTag(HOST).fetchSemanticsNode()
+        val host = hostNode.boundsInRoot
+        val cover = requireNotNull(fixture.bounds.get())
+        val leftSpace = cover.left
+        val rightSpace = host.width - cover.right
+        val density = compose.activity.resources.displayMetrics.density
+        if (maxOf(leftSpace, rightSpace) < 72f * density) return null
+        val x = if (leftSpace >= rightSpace) cover.left / 2f else (cover.right + host.width) / 2f
+        val origin = host.topLeft
+        val controls = allControlTags.flatMap { tag ->
+            compose.onAllNodesWithTag(tag).fetchSemanticsNodes().map { it.boundsInRoot.translate(-origin) }
+        }
+        return listOf(host.height * .08f, host.height * .92f, host.height * .5f)
+            .map { Offset(x, it) }
+            .firstOrNull { point -> !cover.contains(point) && controls.none { it.contains(point) } }
+    }
+
+    private fun assertClosedControlsAbsent() = allControlTags.forEach {
         compose.onNodeWithTag(it).assertDoesNotExist()
     }
 
@@ -203,13 +328,23 @@ class Rc1ClosedBookTest {
         }
         compose.waitUntil(30_000) {
             bookNode()?.config?.getOrElse(ReaderPaginationComplete) { false } == true &&
-                controlsPresent() && fixture.bounds.get() != null && resting()
+                fixture.bounds.get() != null && resting()
         }
         compose.waitForIdle()
         return fixture
     }
 
-    private fun controlsPresent() = controlTags.all { compose.onAllNodesWithTag(it).fetchSemanticsNodes().size == 1 }
+    private fun controlsPresent() = allControlTags.any {
+        compose.onAllNodesWithTag(it).fetchSemanticsNodes().isNotEmpty()
+    }
+    private fun expectedControlTags(face: CoverPosition) = if (face == CoverPosition.FRONT) {
+        frontControlTags
+    } else {
+        frontControlTags - "closed_book_description"
+    }
+    private fun pageMode(): String = Regex("pageMode=(SINGLE|SPREAD)")
+        .find(bookConfig()[ReaderLayoutIdentity])?.groupValues?.get(1)
+        ?: throw AssertionError("Layout identity has no page mode: ${bookConfig()[ReaderLayoutIdentity]}")
     private fun bookNode() = compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().singleOrNull()
     private fun bookConfig() = requireNotNull(bookNode()).config
     private fun resting() = bookNode()?.config?.let {
@@ -271,6 +406,14 @@ class Rc1ClosedBookTest {
         val modes = listOf(ReaderPresentationMode.AUTOMATIC, ReaderPresentationMode.SINGLE,
             ReaderPresentationMode.SPREAD)
         val faces = listOf(CoverPosition.FRONT, CoverPosition.BACK)
-        val controlTags = listOf("closed_book_shelf", "closed_book_settings", "closed_book_contents", "closed_book_bookmarks")
+        val frontControlTags = listOf(
+            "closed_book_read",
+            "closed_book_description",
+            "closed_book_contents",
+            "closed_book_bookmarks",
+            "closed_book_settings",
+            "closed_book_shelf",
+        )
+        val allControlTags = frontControlTags
     }
 }

@@ -10,7 +10,7 @@ import com.avstaim.listai.core.model.plainText
 import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.PaginationSnapshot
 
-/** The first page belongs to the hard cover; only overflow adds physical paper. */
+/** The first page is boundary matter: cover ink in a spread, a white leaf in single mode. */
 internal class PhysicalAnnotation private constructor(val document: BookDocument) {
     companion object {
         fun create(source: BookDocument): PhysicalAnnotation? {
@@ -34,6 +34,9 @@ internal fun LayoutKey.forAnnotation() = copy(
     horizontalMarginsDp = maxOf(horizontalMarginsDp, 32f),
     verticalMarginsDp = maxOf(verticalMarginsDp, 40f),
 )
+
+/** A narrow book prints its description on a real white leaf, even in the dark reader theme. */
+internal fun LayoutKey.forWhitePaperAnnotation() = forAnnotation().copy(darkTheme = false)
 
 /** The description printed on dark cover stock uses light ink; overflow stays on themed paper. */
 internal fun LayoutKey.forInsideCoverAnnotation() = forAnnotation().copy(darkTheme = true)

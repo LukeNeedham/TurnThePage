@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -38,7 +39,6 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.setProgress
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.avstaim.listai.core.designsystem.PlyosFontFamily
 import com.avstaim.listai.core.model.*
 import kotlin.math.roundToInt
 
@@ -169,7 +170,7 @@ fun PaperReaderInsert(
                         Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             PaperInkIcon(PaperIcon.Bookmarks, Modifier.size(42.dp), colors.outline)
-                            Text(stringResource(R.string.insert_no_bookmarks), fontFamily = FontFamily.Serif,
+                            Text(stringResource(R.string.insert_no_bookmarks), fontFamily = PlyosFontFamily,
                                 style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = colors.onSurfaceVariant)
                         }
                     }
@@ -226,7 +227,7 @@ fun PaperSettingsSheet(
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.insert_settings), Modifier.weight(1f),
-                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
+                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.titleLarge)
             IconPress(PaperIcon.Close, stringResource(R.string.rc1_close_settings), "settings_close", onDismiss)
         }
         InkRule()
@@ -244,12 +245,12 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
             onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(12f)))
         }, enabled = preferences.fontSizeSp > 12f)
         Text(stringResource(R.string.insert_font_value, preferences.fontSizeSp.roundToInt()),
-            style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif, color = colors.onSurface)
+            style = MaterialTheme.typography.headlineMedium, fontFamily = PlyosFontFamily, color = colors.onSurface)
         IconPress(PaperIcon.Plus, stringResource(R.string.insert_font_larger), "reader_font_larger", {
             onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(32f)))
         }, enabled = preferences.fontSizeSp < 32f)
     }
-    Text(stringResource(R.string.insert_type_sample), fontFamily = FontFamily.Serif,
+    Text(stringResource(R.string.insert_type_sample), fontFamily = PlyosFontFamily,
         fontSize = preferences.fontSizeSp.sp, lineHeight = (preferences.fontSizeSp * 1.5f).sp,
         color = colors.onSurface, modifier = Modifier.fillMaxWidth().background(colors.surfaceContainerLow)
             .drawBehind {
@@ -289,7 +290,7 @@ private fun InsertHeading(section: PaperInsertSection, onDismiss: () -> Unit, on
                         PaperInsertSection.BOOKMARKS -> R.string.insert_bookmarks
                         PaperInsertSection.PROGRESS -> R.string.insert_progress
                         PaperInsertSection.MENU -> R.string.insert_title
-                    }), fontFamily = FontFamily.Serif, color = colors.onSurface, style = MaterialTheme.typography.titleLarge)
+                    }), fontFamily = PlyosFontFamily, color = colors.onSurface, style = MaterialTheme.typography.titleLarge)
                 }
             }
             IconPress(PaperIcon.Close, stringResource(R.string.insert_read), "reader_insert_close", onDismiss)
@@ -304,7 +305,7 @@ private fun ReadingPlace(place: ReaderNavigationPreview, isBookmarked: Boolean, 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (!preview && !compact) Text(stringResource(R.string.insert_your_place), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-            Text(place.sectionTitle ?: stringResource(R.string.insert_main_text), fontFamily = FontFamily.Serif,
+            Text(place.sectionTitle ?: stringResource(R.string.insert_main_text), fontFamily = PlyosFontFamily,
                 style = if (compact) MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 25.sp)
                     else MaterialTheme.typography.headlineSmall,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, color = colors.onSurface)
@@ -331,7 +332,7 @@ private fun RulerInvitation(fraction: Float, compact: Boolean, onOpen: () -> Uni
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().testTag("reader_insert_progress").clickable(role = Role.Button, onClick = onOpen)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(stringResource(R.string.insert_progress), fontFamily = FontFamily.Serif, color = colors.primary,
+            Text(stringResource(R.string.insert_progress), fontFamily = PlyosFontFamily, color = colors.primary,
                 style = MaterialTheme.typography.titleMedium)
             PaperInkIcon(PaperIcon.Forward, Modifier.size(19.dp))
         }
@@ -355,7 +356,7 @@ private fun InsertPocket(title: String, detail: String, icon: PaperIcon, tag: St
             top = if (compact) 12.dp else 18.dp, bottom = if (compact) 12.dp else 16.dp),
         verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 7.dp)) {
         PaperInkIcon(icon, Modifier.size(if (compact) 24.dp else 29.dp))
-        Text(title, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+        Text(title, fontFamily = PlyosFontFamily, style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
             color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (!compact) Text(detail, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, minLines = 2)
     }
@@ -369,7 +370,7 @@ private fun ContentsTab(onClick: () -> Unit, compact: Boolean = false) {
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         PaperInkIcon(PaperIcon.Contents, Modifier.size(if (compact) 22.dp else 25.dp))
         Text(stringResource(R.string.insert_toc), Modifier.weight(1f), color = colors.primary,
-            fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleMedium)
+            fontFamily = PlyosFontFamily, style = MaterialTheme.typography.titleMedium)
         PaperInkIcon(PaperIcon.Forward, Modifier.size(18.dp))
     }
 }
@@ -424,15 +425,16 @@ private fun InkAction(text: String, tag: String, onClick: () -> Unit, icon: Pape
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = if (strong) 12.dp else 0.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         icon?.let { PaperInkIcon(it, Modifier.size(20.dp), color) }
-        Text(text, color = color, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodyLarge)
+        Text(text, color = color, fontFamily = PlyosFontFamily, style = MaterialTheme.typography.bodyLarge)
     }
 }
 
 @Composable
-private fun IconPress(icon: PaperIcon, label: String, tag: String, onClick: () -> Unit, enabled: Boolean = true) {
+private fun IconPress(icon: PaperIcon, label: String, tag: String, onClick: () -> Unit,
+    enabled: Boolean = true, color: Color = MaterialTheme.colorScheme.primary) {
     Box(Modifier.size(48.dp).testTag(tag).semantics { contentDescription = label }
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick), contentAlignment = Alignment.Center) {
-        PaperInkIcon(icon, Modifier.size(22.dp), MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else .35f))
+        PaperInkIcon(icon, Modifier.size(22.dp), color.copy(alpha = if (enabled) 1f else .35f))
     }
 }
 
@@ -444,16 +446,21 @@ private fun InkRule() {
 @Composable
 private fun BookmarkStrip(bookmark: Bookmark, onOpen: () -> Unit, onDelete: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val darkTheme = colors.background.luminance() < .5f
+    val ribbon = bookmarkColor(bookmark, darkTheme)
+    val ink = bookmarkInkColor(darkTheme)
     val deleteLabel = stringResource(R.string.insert_delete_bookmark)
     Row(Modifier.fillMaxWidth().shadow(2.dp, BookmarkStripShape).clip(BookmarkStripShape)
-        .background(colors.secondaryContainer), verticalAlignment = Alignment.CenterVertically) {
+        .background(ribbon), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).testTag("bookmark_jump_${bookmark.id}").clickable(role = Role.Button, onClick = onOpen)
             .padding(start = 15.dp, top = 15.dp, bottom = 15.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            PaperInkIcon(PaperIcon.Bookmarks, Modifier.size(18.dp), colors.onSecondaryContainer.copy(alpha = .7f))
-            Text(bookmark.snippet.ifBlank { stringResource(R.string.insert_saved_place) }, color = colors.onSecondaryContainer,
-                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            PaperInkIcon(PaperIcon.Bookmarks, Modifier.size(18.dp), ink.copy(alpha = .78f))
+            Text(bookmark.snippet.ifBlank { stringResource(R.string.insert_saved_place) }, color = ink,
+                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
-        Box(Modifier.padding(end = 6.dp)) { IconPress(PaperIcon.Close, deleteLabel, "bookmark_delete_${bookmark.id}", onDelete) }
+        Box(Modifier.padding(end = 6.dp)) {
+            IconPress(PaperIcon.Close, deleteLabel, "bookmark_delete_${bookmark.id}", onDelete, color = ink)
+        }
     }
 }
 
@@ -465,7 +472,7 @@ private fun InkField(label: String, value: String, tag: String, modifier: Modifi
         Text(label, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
         BasicTextField(value, onChange, Modifier.fillMaxWidth().heightIn(min = 38.dp).testTag(tag)
             .semantics { contentDescription = label }, singleLine = true,
-            textStyle = MaterialTheme.typography.headlineSmall.copy(color = colors.onSurface, fontFamily = FontFamily.Serif),
+            textStyle = MaterialTheme.typography.headlineSmall.copy(color = colors.onSurface, fontFamily = PlyosFontFamily),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType), cursorBrush = SolidColor(colors.primary))
         InkRule()
     }
@@ -522,7 +529,7 @@ private fun BookmarkRuler(fraction: Float, compact: Boolean = false, onChange: (
 }
 
 /** Engraved line drawings shared by the reading card and the book's paper tabs. */
-enum class PaperIcon { Bookmarks, Appearance, Contents, Shelf, Settings, Type, Close, Back, Forward, Plus, Minus, Check, Return, Start, End }
+enum class PaperIcon { Bookmarks, Appearance, Contents, Description, Shelf, Settings, Type, Close, Back, Forward, Plus, Minus, Check, Return, Start, End }
 
 @Composable
 fun PaperInkIcon(icon: PaperIcon, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
@@ -561,6 +568,11 @@ fun PaperInkIcon(icon: PaperIcon, modifier: Modifier = Modifier, color: Color = 
                     10f to 20f, 3f to 20f, closed = true)
                 line(12f, 6f, 12f, 21f)
                 listOf(9f, 12f, 15f).forEach { y -> line(6f, y, 9f, y); line(15f, y, 18f, y) }
+            }
+            PaperIcon.Description -> {
+                outline(5f to 3f, 17f to 3f, 20f to 6f, 20f to 21f, 5f to 21f, 5f to 3f)
+                line(17f, 3f, 17f, 7f); line(17f, 7f, 20f, 7f)
+                line(8f, 10f, 17f, 10f); line(8f, 14f, 17f, 14f); line(8f, 18f, 14f, 18f)
             }
             PaperIcon.Shelf -> {
                 outline(3f to 4f, 7f to 4f, 7f to 19f, 3f to 19f, closed = true)

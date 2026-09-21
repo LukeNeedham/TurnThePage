@@ -42,12 +42,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.avstaim.listai.core.designsystem.ListaiTheme
+import com.avstaim.listai.core.designsystem.PlyosFontFamily
 import com.avstaim.listai.feature.reader.bookview.BookPresentation
 import com.avstaim.listai.feature.reader.bookview.PhysicalBookView
 import com.avstaim.listai.feature.reader.demo.FakeBookDocumentFactory
@@ -138,7 +138,7 @@ fun ReaderOnboardingOverlay(
                 Text(stringResource(title), Modifier.weight(1f), color = ink,
                     fontSize = if (compact) 16.sp else 18.sp,
                     lineHeight = if (compact) 19.sp else 22.sp,
-                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium)
+                    fontFamily = PlyosFontFamily, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(12.dp))
                 Text(stringResource(R.string.reader_onboarding_counter, step.ordinal + 1, ReaderOnboardingStep.entries.size),
                     color = accent, style = MaterialTheme.typography.labelMedium,

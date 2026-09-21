@@ -14,7 +14,6 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -23,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
+import com.avstaim.listai.core.designsystem.PlyosFontFamily
 import com.avstaim.listai.core.model.PageId
 import com.avstaim.listai.feature.reader.R
 import com.avstaim.listai.feature.reader.demo.DemoPageKind
@@ -89,7 +89,7 @@ private fun prepareDemoPageSurface(
             text = AnnotatedString(text),
             style = TextStyle(
                 color = PaperInk,
-                fontFamily = FontFamily.Serif,
+                fontFamily = PlyosFontFamily,
                 fontSize = when (page.kind) {
                     DemoPageKind.TITLE -> if (compact) 25.sp else 30.sp
                     else -> if (compact) 21.sp else 25.sp
@@ -110,7 +110,7 @@ private fun prepareDemoPageSurface(
             text = AnnotatedString(text),
             style = TextStyle(
                 color = if (isDisplayCopy) PaperInk.copy(alpha = 0.72f) else PaperInk,
-                fontFamily = FontFamily.Serif,
+                fontFamily = PlyosFontFamily,
                 fontSize = if (isDisplayCopy) {
                     if (compact) 16.sp else 18.sp
                 } else {
@@ -133,7 +133,7 @@ private fun prepareDemoPageSurface(
         text = AnnotatedString(pageNumberText),
         style = TextStyle(
             color = PaperInk.copy(alpha = 0.52f),
-            fontFamily = FontFamily.Serif,
+            fontFamily = PlyosFontFamily,
             fontSize = 12.sp,
             textAlign = TextAlign.Center,
         ),

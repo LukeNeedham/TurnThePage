@@ -20,7 +20,7 @@ data class LayoutKey(
     val viewportWidthPx: Int,
     val viewportHeightPx: Int,
     val pageMode: PageMode,
-    val fontFamilyId: String = "serif",
+    val fontFamilyId: String = "plyos-0.100",
     val fontSizeSp: Float = 18f,
     val lineHeightMultiplier: Float = 1.35f,
     val paragraphSpacingDp: Float = 8f,

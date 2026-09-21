@@ -105,17 +105,23 @@ class PhysicalAnnotationTest {
             assertTrue(annotationSnapshot.pages.size > 2)
             assertEquals(annotationSnapshot.pages.size - 1, annotationSnapshot.annotationPaperCount)
             val flow = annotation.document.readingFlow().associateBy { it.source.id }
-            val rasterizer = AndroidPageRasterizer(annotation.document, annotationKey, "Missing")
-            val insideSurface = AndroidPageRasterizer(annotation.document,
-                key.forInsideCoverAnnotation(), "Missing").render(annotationSnapshot.pages.first())
-            assertTrue("Inside-cover description always needs light ink", insideSurface.darkTheme)
+            val paperKey = if (mode == PageMode.SINGLE) key.forWhitePaperAnnotation() else annotationKey
+            val rasterizer = AndroidPageRasterizer(annotation.document, paperKey, "Missing")
+            val insideSurface = if (mode == PageMode.SINGLE) rasterizer.render(annotationSnapshot.pages.first())
+                else AndroidPageRasterizer(annotation.document,
+                    key.forInsideCoverAnnotation(), "Missing").render(annotationSnapshot.pages.first())
+            assertEquals("SINGLE starts on white paper; SPREAD starts on the dark inside cover",
+                mode == PageMode.SPREAD, insideSurface.darkTheme)
+            assertTrue("The first physical annotation surface must contain the FB2 description",
+                insideSurface.accessibleText.contains("An opening emphasized phrase in the description."))
             val overflowSurface = rasterizer.render(annotationSnapshot.pages[1])
-            assertEquals("Overflow remains on the selected paper theme", dark, overflowSurface.darkTheme)
+            assertEquals("Every SINGLE annotation leaf stays white; SPREAD overflow follows the selected theme",
+                if (mode == PageMode.SINGLE) false else dark, overflowSurface.darkTheme)
             val renderedText = StringBuilder()
             annotationSnapshot.pages.forEach { page ->
                 val surface = rasterizer.render(page)
                 assertNull(surface.footerText)
-                assertEquals(dark, surface.darkTheme)
+                assertEquals(if (mode == PageMode.SINGLE) false else dark, surface.darkTheme)
                 assertFalse(surface.accessibleText.contains(source.metadata.title))
                 page.blocks.forEach { fragment ->
                     assertEquals(1f, fragment.scale)
@@ -149,6 +155,10 @@ class PhysicalAnnotationTest {
             assertEquals(if (mode == PageMode.SINGLE) PhysicalBookState.FrontBoundary else PhysicalBookState.Open(0),
                 ReaderPosition(sourceLocation, annotationLocation = coverProgress.annotationLocation)
                     .initialState(snapshot, contents, toc, annotationSnapshot = annotationSnapshot))
+            position.commit(PhysicalBookState.Open(0), snapshot, contents, toc,
+                annotationSnapshot = annotationSnapshot)
+            assertEquals(annotationSnapshot.pages[1].start,
+                position.progress(source.readingLength()).annotationLocation)
             position.commit(PhysicalBookState.Open(1), snapshot, contents, toc,
                 annotationSnapshot = annotationSnapshot)
             val overflowProgress = position.progress(source.readingLength())

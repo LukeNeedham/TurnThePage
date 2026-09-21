@@ -83,7 +83,7 @@ class LibraryRepositoryTest {
         val secondId = repository.import("two.fb2") { fb2("Two").inputStream() }
         repository.open(secondId)
         assertEquals(secondId, repository.books.first().first().id)
-        assertEquals(ReadingProgress(), repository.open(secondId).book.progress)
+        assertEquals(ReadingProgress(cover = CoverPosition.FRONT), repository.open(secondId).book.progress)
         assertEquals(progress, repository.open(id).book.progress)
     }
 
@@ -177,7 +177,8 @@ class LibraryRepositoryTest {
         // Late callbacks must not mutate a tombstone while startup recovery is pending.
         repository.saveProgress(interrupted, progress)
         repository.addBookmark(interrupted, location.copy(charOffset = 8), "Late callback")
-        assertEquals(ReadingProgress(), database.library().book(interrupted.value)!!.progress.toModel())
+        assertEquals(ReadingProgress(cover = CoverPosition.FRONT),
+            database.library().book(interrupted.value)!!.progress.toModel())
         assertEquals(1, repository.bookmarks(interrupted).first().size)
 
         val missing = repository.import("missing.fb2") { fb2("Missing private copy").inputStream() }

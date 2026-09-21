@@ -31,6 +31,7 @@ internal data class ReaderTopControlLayout(
     val contentTop: Float,
     val buttons: List<Rect>,
     val onCoverMaterial: Boolean = false,
+    val onWhitePaper: Boolean = false,
 )
 
 /** Two/three ink marks at the paper edges with the camera and fold kept clear. */
@@ -118,7 +119,7 @@ internal fun ReaderTopControls(
                 .testTag(tags[index]), contentAlignment = Alignment.Center) {
                 PaperInkIcon(icons[index], Modifier.size(with(density) {
                     minOf(19.dp.toPx(), bounds.height * .72f, bounds.width * .72f).toDp()
-                }), color = if (darkTheme || layout.onCoverMaterial) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
+                }), color = if ((darkTheme && !layout.onWhitePaper) || layout.onCoverMaterial) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
                     else androidx.compose.ui.graphics.Color(0xFF63717B))
             }
         }

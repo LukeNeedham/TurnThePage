@@ -10,6 +10,7 @@ import android.text.TextDirectionHeuristics
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withSave
 import androidx.core.graphics.withTranslation
+import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.reader.pagination.BlockMeasurement
 import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.PageLayout
@@ -22,10 +23,13 @@ import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sqrt
 
-internal class AndroidContentsMeasurer : ContentsTextMeasurer {
+internal class AndroidContentsMeasurer(
+    private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) : ContentsTextMeasurer {
     override fun measure(text: String, width: Int, style: ContentsTextStyle, key: LayoutKey): BlockMeasurement {
         val paint = textPaint(key, if (style == ContentsTextStyle.TITLE) Typeface.BOLD else Typeface.NORMAL,
-            when (style) { ContentsTextStyle.TITLE -> 1.16f; ContentsTextStyle.NESTED -> .94f; else -> 1f })
+            when (style) { ContentsTextStyle.TITLE -> 1.16f; ContentsTextStyle.NESTED -> .94f; else -> 1f },
+            typefaces)
         return AndroidTextMeasurement(StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
             .setAlignment(if (style == ContentsTextStyle.TITLE) Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL)
             .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
@@ -37,9 +41,13 @@ internal class AndroidContentsMeasurer : ContentsTextMeasurer {
 }
 
 /** Full contents leaves are immutable paper textures, including leaders and source-page labels. */
-internal class AndroidContentsRasterizer(private val contents: PhysicalContents, private val key: LayoutKey) {
+internal class AndroidContentsRasterizer(
+    private val contents: PhysicalContents,
+    private val key: LayoutKey,
+    private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) {
     private val geometry = ContentsGeometry(key)
-    private val measurer = AndroidContentsMeasurer()
+    private val measurer = AndroidContentsMeasurer(typefaces)
     private val rows = contents.entries.associateBy { it.blockId }
     private val numberFormat = NumberFormat.getIntegerInstance(Locale.forLanguageTag(key.localeTag)).apply {
         isGroupingUsed = false
@@ -84,7 +92,8 @@ internal class AndroidContentsRasterizer(private val contents: PhysicalContents,
                     val baseline = (measured.layout.getLineBaseline(lastLine) - measured.lines[fragment.firstLine].top) * fragment.scale
                     val number = numbers.values[entry.blockId]
                     if (number != null) {
-                        val numberPaint = textPaint(key, multiplier = if (entry.depth == 0) 1f else .94f).apply {
+                        val numberPaint = textPaint(key, multiplier = if (entry.depth == 0) 1f else .94f,
+                            typefaces = typefaces).apply {
                             textSize *= fragment.scale
                             textAlign = Paint.Align.RIGHT
                         }
@@ -113,7 +122,8 @@ internal class AndroidContentsRasterizer(private val contents: PhysicalContents,
             }
             context.ensureActive()
             bitmap.prepareToDraw()
-            return PaginatedPageSurface(page.id, bitmap, text.toString(), key.darkTheme, key)
+            return PaginatedPageSurface(page.id, bitmap, text.toString(), key.darkTheme, key,
+                typefaces = typefaces)
         } catch (error: Throwable) {
             bitmap.recycle()
             throw error

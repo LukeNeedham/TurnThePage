@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.core.graphics.withTranslation
 import androidx.core.graphics.withSave
 import androidx.core.graphics.createBitmap
+import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.core.model.BlockId
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.PageId
@@ -44,7 +45,9 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
     private val footer: PreparedPageReadingFooter? = null,
     val noteLinks: List<PreparedNoteLink> = emptyList(),
     val noteReturns: List<PreparedNoteReturn> = emptyList(),
-    private val returnInk: List<PreparedNoteReturnInk> = emptyList()) {
+    private val returnInk: List<PreparedNoteReturnInk> = emptyList(),
+    private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) {
     val byteCount: Long get() = bitmap.allocationByteCount.toLong()
     val footerText: String? get() = footer?.text
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -68,7 +71,8 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         // their own prepared ruler when a newer pagination snapshot supplies another footer.
         if (value == footer?.value) return this
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey,
-            PreparedPageReadingFooter(value, layoutKey, darkTheme), noteLinks, noteReturns, returnInk)
+            PreparedPageReadingFooter(value, layoutKey, darkTheme, typefaces), noteLinks, noteReturns,
+            returnInk, typefaces)
     }
 
     fun withNoteReturns(values: List<PreparedNoteReturn>): PaginatedPageSurface {
@@ -76,7 +80,8 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         val layoutKey = requireNotNull(key)
         val published = values.toList()
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey, footer,
-            noteLinks, published, published.map { PreparedNoteReturnInk(it, layoutKey) })
+            noteLinks, published, published.map { PreparedNoteReturnInk(it, layoutKey, typefaces) },
+            typefaces)
     }
 
     fun asBookSurface(number: Int) = DemoPageSurface(pageId, number, DemoPageKind.TEXT,
@@ -84,7 +89,12 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
 }
 
 /** Tiny publication-time overlay sharing the source bitmap; draw/curl never measures text. */
-internal class PreparedPageReadingFooter(val value: PageReadingFooter, key: LayoutKey, darkTheme: Boolean) {
+internal class PreparedPageReadingFooter(
+    val value: PageReadingFooter,
+    key: LayoutKey,
+    darkTheme: Boolean,
+    typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) {
     val text = value.text(Locale.forLanguageTag(key.localeTag))
     private val density = min(key.density, key.footerHeight / 24f)
     private val dots = value.progressDots(key.contentWidth.toFloat(), density)
@@ -93,7 +103,7 @@ internal class PreparedPageReadingFooter(val value: PageReadingFooter, key: Layo
     private val dotLeft = (key.pageWidthPx - (dots?.width ?: 0f)) / 2
     private val numberBottom = dots?.let { dotCenterY - it.radius - 3f * density } ?: bottom
     private val numberHeight = numberBottom - (bottom - key.footerHeight)
-    private val numberPaint = textPaint(key, multiplier = 12f / key.fontSizeSp).apply {
+    private val numberPaint = textPaint(key, multiplier = 12f / key.fontSizeSp, typefaces = typefaces).apply {
         color = if (darkTheme) 0xFFA2B3C2.toInt() else 0xFF627789.toInt()
         val fontHeight = fontMetrics.descent - fontMetrics.ascent
         // Keep both rows inside the reserved footer even in a short window or with large type.
@@ -130,9 +140,11 @@ internal class AndroidPageRasterizer(
     private val key: LayoutKey,
     missingImageLabel: String,
     measurementCacheBytes: Long = MEASUREMENT_CACHE_BYTES,
+    private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
 ) {
     private val sources by lazy { document.readingFlow().associateBy { it.source.id } }
-    private val measurer = AndroidBookMeasurer(document, missingImageLabel, decodeImages = true)
+    private val measurer = AndroidBookMeasurer(document, missingImageLabel, decodeImages = true,
+        typefaces = typefaces)
     private val measurements = WeightedLruCache<BlockId, BlockMeasurement>(measurementCacheBytes) {
         when (it) {
             is AndroidImageMeasurement -> (it.bitmap?.allocationByteCount?.toLong() ?: 0L) + 1024
@@ -205,7 +217,7 @@ internal class AndroidPageRasterizer(
             }
             val text = listOf(bodyText, footnotes.accessibleText).filter(String::isNotEmpty).joinToString("\n")
             return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key,
-                noteLinks = noteLinks.toList())
+                noteLinks = noteLinks.toList(), typefaces = typefaces)
         } catch (error: Throwable) {
             // This bitmap has never been published and cannot be referenced by the renderer.
             bitmap.recycle()

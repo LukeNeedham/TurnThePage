@@ -12,6 +12,7 @@ import android.text.TextUtils
 import androidx.compose.ui.geometry.Rect
 import androidx.core.graphics.withSave
 import androidx.core.graphics.withTranslation
+import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.core.model.BookLocation
 import com.avstaim.listai.core.model.NoteId
 import com.avstaim.listai.core.model.NoteReference
@@ -36,8 +37,13 @@ internal data class PreparedNoteLink(
 internal data class PreparedNoteReturn(val noteId: NoteId, val bounds: Rect, val label: String)
 
 /** A return mark is printed on the leaf and uses its exact bitmap/curl transform. */
-internal class PreparedNoteReturnInk(val value: PreparedNoteReturn, key: LayoutKey) {
-    private val paint = textPaint(key, multiplier = 13f / key.fontSizeSp).apply { color = noteInkColor(key.darkTheme) }
+internal class PreparedNoteReturnInk(
+    val value: PreparedNoteReturn,
+    key: LayoutKey,
+    typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+) {
+    private val paint = textPaint(key, multiplier = 13f / key.fontSizeSp, typefaces = typefaces)
+        .apply { color = noteInkColor(key.darkTheme) }
     private val text: StaticLayout
 
     init {
@@ -126,8 +132,9 @@ internal fun rasterizeFootnotes(
 ): RasterizedFootnotes {
     if (footnotes.isEmpty()) return RasterizedFootnotes(emptyList(), "")
     val footnoteKey = key.footnoteLayoutKey()
-    val ink = textPaint(footnoteKey)
-    val labelInk = textPaint(footnoteKey).apply { color = noteInkColor(key.darkTheme) }
+    val ink = textPaint(footnoteKey, typefaces = measurer.typefaces)
+    val labelInk = textPaint(footnoteKey, typefaces = measurer.typefaces)
+        .apply { color = noteInkColor(key.darkTheme) }
     val rule = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = if (key.darkTheme) 0xFF6D7D8B.toInt() else 0xFFA4AFB8.toInt()
         strokeWidth = (.55f * key.density).coerceAtLeast(.5f)

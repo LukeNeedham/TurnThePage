@@ -27,11 +27,13 @@ class PhysicalAnnotationPositionTest {
         val front = engine.paginate(annotation.document, null, key.forAnnotation()).last()
         assertTrue(front.pages.size > 3)
         val sourceAnchor = main.pages.last().start
-        val position = ReaderPosition(sourceAnchor)
-        assertEquals(PhysicalBookState.Open(front.annotationPaperCount + main.pages.lastIndex),
+        val exactAnnotationAnchor = front.pages[2].start
+        val position = ReaderPosition(sourceAnchor, annotationLocation = exactAnnotationAnchor)
+        assertEquals(PhysicalBookState.Open(1),
             position.initialState(main, annotationSnapshot = front))
         val mainProgress = position.progress(source.readingLength())
-        position.commit(PhysicalBookState.Open(2), main, annotationSnapshot = front)
+        position.commit(PhysicalBookState.Open(1), main, annotationSnapshot = front)
+        assertEquals(exactAnnotationAnchor, position.annotationLocation)
         val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
         val saved = with(ReaderPosition.Saver) { requireNotNull(scope.save(position)) }
         val restored = requireNotNull(ReaderPosition.Saver.restore(saved))
@@ -45,8 +47,10 @@ class PhysicalAnnotationPositionTest {
             restored.initialState(resizedMain, annotationSnapshot = resized))
         assertEquals(sourceAnchor, restored.location)
         restored.commit(PhysicalBookState.FrontBoundary, main, annotationSnapshot = front)
+        assertEquals(front.pages.first().start, restored.annotationLocation)
         assertEquals(PhysicalBookState.FrontBoundary, restored.initialState(main, annotationSnapshot = front))
-        assertEquals(PhysicalBookState.Open(0), restored.initialState(resizedMain, annotationSnapshot = resized))
+        assertEquals(PhysicalBookState.Open(0),
+            restored.initialState(resizedMain, annotationSnapshot = resized))
         assertEquals(sourceAnchor, restored.location)
     }
 
@@ -63,6 +67,21 @@ class PhysicalAnnotationPositionTest {
         assertEquals(destination, position.location)
         assertEquals(PhysicalBookState.Open(front.annotationPaperCount + 1),
             position.initialState(main, annotationSnapshot = front))
+    }
+
+    @Test fun `single front endpaper is stable without an fb2 annotation`() = runBlocking {
+        val source = document().copy(metadata = BookMetadata("Book"))
+        val main = engine.paginate(source, null, key).last()
+        val original = main.pages.first().start
+        val position = ReaderPosition(original, cover = "front")
+
+        position.commit(PhysicalBookState.FrontBoundary, main, annotationSnapshot = null)
+
+        assertNull(position.annotationLocation)
+        assertEquals(original, position.location)
+        assertEquals(CoverPosition.OPEN, position.progress(source.readingLength()).cover)
+        assertEquals(PhysicalBookState.FrontBoundary,
+            position.initialState(main, annotationSnapshot = null))
     }
 
     private fun document() = BookDocument(BookId("annotation-state"),

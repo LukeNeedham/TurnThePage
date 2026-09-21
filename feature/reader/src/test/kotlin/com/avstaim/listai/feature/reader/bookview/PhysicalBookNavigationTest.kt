@@ -9,8 +9,8 @@ import org.junit.Test
 
 class PhysicalBookNavigationTest {
     @Test
-    fun `single front annotation is readable between closed front and first paper in both directions`() {
-        val navigator = PhysicalBookNavigator(3, hasFrontAnnotation = true)
+    fun `single printed annotation leaf sits between the cover and its overflow pages`() {
+        val navigator = PhysicalBookNavigator(3, hasFrontEndpaper = true)
         val forward = collectStates(navigator, PhysicalBookState.ClosedFront,
             TurnDirection.FORWARD, BookPresentation.SINGLE)
         assertEquals(listOf(PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary,
@@ -18,7 +18,11 @@ class PhysicalBookNavigationTest {
             PhysicalBookState.ClosedBack), forward)
         assertEquals(forward.reversed(), collectStates(navigator, PhysicalBookState.ClosedBack,
             TurnDirection.BACKWARD, BookPresentation.SINGLE))
-        assertEquals(PhysicalTurnSubject.FRONT_COVER, navigator.transition(PhysicalBookState.Open(0),
+        assertEquals(PhysicalTurnSubject.PAGE, navigator.transition(PhysicalBookState.Open(0),
+            TurnDirection.BACKWARD, BookPresentation.SINGLE)?.subject)
+        assertEquals(PhysicalTurnSubject.PAGE, navigator.transition(PhysicalBookState.FrontBoundary,
+            TurnDirection.FORWARD, BookPresentation.SINGLE)?.subject)
+        assertEquals(PhysicalTurnSubject.FRONT_COVER, navigator.transition(PhysicalBookState.FrontBoundary,
             TurnDirection.BACKWARD, BookPresentation.SINGLE)?.subject)
         assertEquals(PhysicalBookState.Open(0), navigator.stateAfter(PhysicalBookState.ClosedFront,
             TurnDirection.FORWARD, BookPresentation.SPREAD))

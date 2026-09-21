@@ -9,6 +9,7 @@ import com.avstaim.listai.core.database.AppPreferences
 import com.avstaim.listai.core.database.BookEntity
 import com.avstaim.listai.core.database.BookmarkEntity
 import com.avstaim.listai.core.database.LibraryDao
+import com.avstaim.listai.core.database.StoredProgress
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.format.fb2.BookParser
 import com.avstaim.listai.format.fb2.Fb2BookParser
@@ -92,7 +93,8 @@ class LibraryRepository(
                         val hasCover = writeCover(document, storage.file(coverName))
                         check(dao.insert(BookEntity(document.id.value, document.metadata.title,
                             document.metadata.authors.joinToString(", "), fileName,
-                            coverName.takeIf { hasCover }, clock(), totalCharacters = document.readingLength())) != -1L)
+                            coverName.takeIf { hasCover }, clock(), totalCharacters = document.readingLength(),
+                            progress = StoredProgress(cover = CoverPosition.FRONT.name))) != -1L)
                         published = true
                     } finally {
                         if (!published && promoted) {

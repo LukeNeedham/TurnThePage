@@ -20,7 +20,6 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -106,7 +105,7 @@ private fun prepareBookCoverSurface(
             text = AnnotatedString(displayTitle),
             style = TextStyle(
                 color = CoverLettering,
-                fontFamily = FontFamily.Serif,
+                fontFamily = PlyosFontFamily,
                 fontSize = titleSize,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = titleSize * 1.18f,
@@ -137,7 +136,7 @@ private fun prepareBookCoverSurface(
                 text = AnnotatedString(displayAuthor),
                 style = TextStyle(
                     color = CoverLettering.copy(alpha = 0.82f),
-                    fontFamily = FontFamily.Serif,
+                    fontFamily = PlyosFontFamily,
                     fontSize = authorSize,
                     fontWeight = FontWeight.Normal,
                     letterSpacing = authorSize * 0.015f,

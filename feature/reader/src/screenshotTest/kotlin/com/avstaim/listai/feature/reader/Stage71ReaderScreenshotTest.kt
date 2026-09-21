@@ -18,6 +18,7 @@ import com.android.tools.screenshot.PreviewTest
 import com.avstaim.listai.core.designsystem.ListaiTheme
 import com.avstaim.listai.core.model.CoverPosition
 import com.avstaim.listai.feature.reader.bookview.DemoTurnPreview
+import com.avstaim.listai.feature.reader.bookview.BookPresentation
 import com.avstaim.listai.feature.reader.bookview.PhysicalBookView
 import com.avstaim.listai.feature.reader.bookview.drawReaderBackdrop
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
@@ -43,6 +44,37 @@ fun ReaderLandscapeControlsScreenshot() { Stage71Preview(landscapeCutout = true,
 fun ReaderNoCutoutControlsScreenshot() { Stage71Preview() }
 
 @PreviewTest
+@Preview(name = "Reader — quick paper bookmark", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkScreenshot() { Stage71Preview(quickBookmark = true) }
+
+@PreviewTest
+@Preview(name = "Reader — quick bookmark avoids camera", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkCameraScreenshot() { Stage71Preview(camera = true, quickBookmark = true) }
+
+@PreviewTest
+@Preview(name = "Reader — quick bookmark at spread spine", widthDp = 1000, heightDp = 650, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkSpreadScreenshot() {
+    Stage71Preview(quickBookmark = true, forceSpread = true)
+}
+
+@PreviewTest
+@Preview(name = "Reader — quick bookmark dark single top", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkDarkSingleScreenshot() {
+    Stage71Preview(quickBookmark = true, dark = true)
+}
+
+@PreviewTest
+@Preview(name = "Reader — quick bookmark dark left of spine", widthDp = 1000, heightDp = 650, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkDarkSpreadScreenshot() {
+    Stage71Preview(quickBookmark = true, forceSpread = true, dark = true)
+}
+
+@PreviewTest
 @Preview(name = "Reader 7.1 — closed back and blank return area", widthDp = 1000, heightDp = 650)
 @Composable
 fun ReaderClosedBackBackgroundScreenshot() { Stage71Preview(back = true) }
@@ -54,7 +86,8 @@ fun ReaderSavedPlaceOpeningScreenshot() { Stage71Preview(coverProgress = .38f) }
 
 @Composable
 private fun Stage71Preview(camera: Boolean = false, landscapeCutout: Boolean = false,
-    dark: Boolean = false, curl: Boolean = false, back: Boolean = false, coverProgress: Float? = null) {
+    dark: Boolean = false, curl: Boolean = false, back: Boolean = false, coverProgress: Float? = null,
+    quickBookmark: Boolean = false, forceSpread: Boolean = false) {
     val document = remember { stage7PreviewDocument() }
     val density = LocalDensity.current
     ListaiTheme(darkTheme = dark) {
@@ -72,6 +105,9 @@ private fun Stage71Preview(camera: Boolean = false, landscapeCutout: Boolean = f
                 document = document, darkTheme = dark, includeContents = true,
                 initialCover = if (back) CoverPosition.BACK else CoverPosition.OPEN,
                 initialLocation = document.tableOfContents[8].location,
+                forcedPresentation = BookPresentation.SPREAD.takeIf { forceSpread },
+                onAddBookmark = if (quickBookmark) ({ _ -> }) else null,
+                onDeleteBookmark = if (quickBookmark) ({ _ -> }) else null,
                 outerPadding = 4.dp, coverInset = 3.dp,
                 previewTurn = if (curl) DemoTurnPreview(TurnDirection.FORWARD, .38f) else null,
                 transitionCoverProgress = coverProgress,

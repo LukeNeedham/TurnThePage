@@ -41,7 +41,8 @@ fun Rc2ClosedBookOnFoldScreenshot() {
         val body = BookBlock.Paragraph(BlockId("rc2-body"), listOf(InlineNode.Text(
             "Книга сохраняет настоящий разворот и не растягивает закрытую обложку на весь экран. ".repeat(20))))
         BookDocument(BookId("rc2-fold-cover"),
-            BookMetadata("Атлас тихих страниц", authors = listOf("Мастерская открытой книги"), language = "ru"),
+            BookMetadata("Атлас тихих страниц", authors = listOf("Мастерская открытой книги"),
+                language = "ru", annotation = "Описание настоящей бумажной книги."),
             listOf(body))
     }
     ListaiTheme(darkTheme = false) {
@@ -49,7 +50,35 @@ fun Rc2ClosedBookOnFoldScreenshot() {
             document = document,
             modifier = Modifier.fillMaxSize(),
             devicePosture = posture,
+            // Preview rendering does not publish window-space layout coordinates reliably;
+            // force the already-verified Fold presentation so this golden guards one native
+            // leaf plus the vertical controls, rather than silently falling back to SINGLE.
+            presentationMode = ReaderPresentationMode.SPREAD,
             initialProgress = ReadingProgress(BookLocation(BlockId("rc2-body"), 0, 0), CoverPosition.FRONT),
+            onboardingCompleted = true,
+        )
+    }
+}
+
+@PreviewTest
+@Preview(name = "RC2 — closed book menu on folded screen", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun Rc2ClosedBookMenuOnFoldedScreenScreenshot() {
+    val document = remember {
+        val body = BookBlock.Paragraph(BlockId("rc2-single-body"), listOf(InlineNode.Text(
+            "Первая глава начинается только после осознанного открытия книги. ".repeat(20))))
+        BookDocument(BookId("rc2-folded-cover-menu"),
+            BookMetadata("Атлас тихих страниц", authors = listOf("Мастерская открытой книги"),
+                language = "ru", annotation = "Описание настоящей бумажной книги."),
+            listOf(body))
+    }
+    ListaiTheme(darkTheme = false) {
+        ReaderScreen(
+            document = document,
+            modifier = Modifier.fillMaxSize(),
+            presentationMode = ReaderPresentationMode.SINGLE,
+            initialProgress = ReadingProgress(BookLocation(BlockId("rc2-single-body"), 0, 0),
+                CoverPosition.FRONT),
             onboardingCompleted = true,
         )
     }

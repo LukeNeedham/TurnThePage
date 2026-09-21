@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
@@ -41,6 +43,7 @@ import com.avstaim.listai.core.model.LibraryBook
 import com.avstaim.listai.core.designsystem.drawBookCover
 import com.avstaim.listai.core.designsystem.rememberBookCoverSurface
 import com.avstaim.listai.core.designsystem.BookCoverFace
+import com.avstaim.listai.core.designsystem.drawListaiBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -61,9 +64,11 @@ fun LibraryScreen(
     onBookBoundsChanged: (BookId, Rect?) -> Unit = { _, _ -> },
     versionLabel: String? = null,
     onSettings: () -> Unit = {},
+    darkTheme: Boolean? = null,
 ) {
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
     val colors = MaterialTheme.colorScheme
+    val useDarkBackdrop = darkTheme ?: (colors.background.luminance() < .5f)
     // Updating a checkpoint must not move the book away from the shelf slot it launched from.
     val bookIds = books.map { it.id }.toSet()
     val orderedIds = remember(bookIds) {
@@ -72,7 +77,8 @@ fun LibraryScreen(
     }
     val byId = books.associateBy { it.id }
     val ordered = orderedIds.mapNotNull(byId::get)
-    BoxWithConstraints(modifier.fillMaxSize().background(colors.background).testTag("library_screen")) {
+    BoxWithConstraints(modifier.fillMaxSize().drawBehind { drawListaiBackdrop(useDarkBackdrop) }
+        .testTag("library_screen")) {
         val density = LocalDensity.current
         val direction = LocalLayoutDirection.current
         val cutout = WindowInsets.displayCutout

@@ -56,6 +56,14 @@ fun Rc1LongAnnotationLightSpreadScreenshot() { AnnotationPreview(kind = Annotati
 fun Rc1AnnotationOverflowLightSingleScreenshot() { AnnotationPreview(kind = AnnotationKind.LONG, overflow = true) }
 
 @PreviewTest
+@Preview(name = "RC1 annotation — paper continuation single curl", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun Rc1AnnotationPaperContinuationSingleCurlScreenshot() {
+    AnnotationPreview(kind = AnnotationKind.LONG,
+        turn = DemoTurnPreview(TurnDirection.FORWARD, .38f))
+}
+
+@PreviewTest
 @Preview(name = "RC1 annotation — overflow dark spread curl", widthDp = 1000, heightDp = 650, locale = "ru")
 @Composable
 fun Rc1AnnotationOverflowDarkSpreadCurlScreenshot() {

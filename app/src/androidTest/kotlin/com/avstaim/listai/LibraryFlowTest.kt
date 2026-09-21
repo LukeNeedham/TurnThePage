@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
@@ -58,19 +59,23 @@ class LibraryFlowTest {
             val id = requireNotNull(controller.selection.value).opened.book.id
             importedId = id
             waitForBook()
+            compose.onNodeWithTag("closed_book_read").assertIsDisplayed().performClick()
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("reader_quick_bookmark").fetchSemanticsNodes().isNotEmpty() &&
+                    !compose.onNodeWithTag("book_view_demo").fetchSemanticsNode().config
+                        .getOrElse(ReaderJumpInProgress) { true }
+            }
             val initial = location()
             turnForward()
             compose.waitUntil(10_000) { location() != initial }
             val anchor = location()
 
-            openBookmarks()
-            compose.onNodeWithTag("reader_add_bookmark").performClick()
+            compose.onNodeWithTag("reader_quick_bookmark").performClick()
             var bookmarkId: String? = null
             compose.waitUntil(10_000) {
                 bookmarkId = runBlocking { controller.repository.bookmarks(id).first().firstOrNull()?.id }
                 bookmarkId != null
             }
-            compose.onNodeWithTag("bookmarks_close").performClick()
             turnForward()
             compose.waitUntil(10_000) { location() != anchor }
             val advanced = location()

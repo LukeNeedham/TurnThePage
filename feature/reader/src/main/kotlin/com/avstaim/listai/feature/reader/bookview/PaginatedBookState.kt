@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalContext
+import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
+import com.avstaim.listai.core.designsystem.rememberPlyosTypefaceFamily
 import com.avstaim.listai.core.model.BlockId
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.BookLocation
@@ -62,20 +64,33 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
 
     fun initialState(snapshot: PaginationSnapshot, contents: PhysicalContents? = null,
         tocSnapshot: PaginationSnapshot? = null, notes: PhysicalNotes? = null,
-        notesSnapshot: PaginationSnapshot? = null, annotationSnapshot: PaginationSnapshot? = null): PhysicalBookState = when (cover) {
-        "front" -> PhysicalBookState.ClosedFront
-        "back" -> PhysicalBookState.ClosedBack
-        "boundary" -> PhysicalBookState.BackBoundary
-        else -> if (annotationLocation != null && annotationSnapshot != null) {
-            val page = annotationSnapshot.pages.pageIndexContaining(requireNotNull(annotationLocation))
-            if (page == 0 && snapshot.key.pageMode == PageMode.SINGLE) PhysicalBookState.FrontBoundary
-            else PhysicalBookState.Open((page - 1).coerceAtLeast(0))
-        } else PhysicalBookState.Open(if (noteId != null && notes != null && notesSnapshot != null)
-            annotationSnapshot.annotationPaperCount + (tocSnapshot?.pages?.size ?: 0) + snapshot.pages.size +
-                notesSnapshot.pages.pageIndexContaining(noteLocation ?: notes.targets.getValue(requireNotNull(noteId)))
-            else if (tocEntryIndex != null && contents != null && tocSnapshot != null)
-            annotationSnapshot.annotationPaperCount + tocSnapshot.pages.pageIndexContaining(contents.location(requireNotNull(tocEntryIndex), tocCharOffset))
-            else annotationSnapshot.annotationPaperCount + (tocSnapshot?.pages?.size ?: 0) + snapshot.pages.pageIndexContaining(location ?: snapshot.pages.first().start))
+        notesSnapshot: PaginationSnapshot? = null, annotationSnapshot: PaginationSnapshot? = null): PhysicalBookState {
+        val annotationCount = annotationSnapshot.annotationPaperCount
+        return when (cover) {
+            "front" -> PhysicalBookState.ClosedFront
+            "front_boundary" -> if (annotationLocation != null && annotationSnapshot != null) {
+                val page = annotationSnapshot.pages.pageIndexContaining(requireNotNull(annotationLocation))
+                if (page == 0 && snapshot.key.pageMode == PageMode.SINGLE) PhysicalBookState.FrontBoundary
+                else PhysicalBookState.Open((page - 1).coerceAtLeast(0))
+            } else if (snapshot.key.pageMode == PageMode.SINGLE) {
+                PhysicalBookState.FrontBoundary
+            } else {
+                PhysicalBookState.Open(0)
+            }
+            "back" -> PhysicalBookState.ClosedBack
+            "boundary" -> PhysicalBookState.BackBoundary
+            else -> if (annotationLocation != null && annotationSnapshot != null) {
+                val page = annotationSnapshot.pages.pageIndexContaining(requireNotNull(annotationLocation))
+                if (page == 0 && snapshot.key.pageMode == PageMode.SINGLE) PhysicalBookState.FrontBoundary
+                else PhysicalBookState.Open((page - 1).coerceAtLeast(0))
+            } else PhysicalBookState.Open(if (noteId != null && notes != null && notesSnapshot != null)
+                annotationCount + (tocSnapshot?.pages?.size ?: 0) + snapshot.pages.size +
+                    notesSnapshot.pages.pageIndexContaining(noteLocation ?: notes.targets.getValue(requireNotNull(noteId)))
+                else if (tocEntryIndex != null && contents != null && tocSnapshot != null)
+                annotationCount + tocSnapshot.pages.pageIndexContaining(contents.location(requireNotNull(tocEntryIndex), tocCharOffset))
+                else annotationCount + (tocSnapshot?.pages?.size ?: 0) +
+                    snapshot.pages.pageIndexContaining(location ?: snapshot.pages.first().start))
+        }
     }
 
     fun commit(state: PhysicalBookState, snapshot: PaginationSnapshot, contents: PhysicalContents? = null,
@@ -84,9 +99,17 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
         val annotationCount = annotationSnapshot.annotationPaperCount
         val tocCount = tocSnapshot?.pages?.size ?: 0
         val notesStart = annotationCount + tocCount + snapshot.pages.size
-        if (state == PhysicalBookState.FrontBoundary || state is PhysicalBookState.Open && state.semanticPageIndex < annotationCount) {
-            annotationLocation = requireNotNull(annotationSnapshot).pages[
-                if (state is PhysicalBookState.Open) state.semanticPageIndex + 1 else 0].start
+        if (state == PhysicalBookState.FrontBoundary) {
+            annotationLocation = annotationSnapshot?.pages?.firstOrNull()?.start
+            clearNotes()
+            tocEntryIndex = null
+            tocCharOffset = 0
+            cover = "front_boundary"
+            return
+        }
+        if (state is PhysicalBookState.Open && state.semanticPageIndex < annotationCount) {
+            val annotationPages = requireNotNull(annotationSnapshot).pages
+            annotationLocation = annotationPages[state.semanticPageIndex + 1].start
             clearNotes()
             tocEntryIndex = null
             tocCharOffset = 0
@@ -237,6 +260,7 @@ internal class PaginationSession(
     private val contentsLabel: String = "Contents",
     val notes: PhysicalNotes? = null,
     val annotation: PhysicalAnnotation? = null,
+    private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
 ) {
     var ready: PreparedPagination? by mutableStateOf(null); private set
     var failed: Boolean by mutableStateOf(false)
@@ -257,13 +281,22 @@ internal class PaginationSession(
     private var jump: JumpPreparation? = null
     private val sourceFlow = document.readingFlow()
     private val sourceLength = document.readingLength()
-    private val rasterizer = AndroidPageRasterizer(document, key, missingImage, MEASUREMENT_CACHE_BYTES)
-    private val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key) }
-    private val annotationRasterizer = annotation?.let { AndroidPageRasterizer(it.document, key.forAnnotation(), missingImage, MEASUREMENT_CACHE_BYTES) }
-    private val insideCoverAnnotationRasterizer = annotation?.let {
-        AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage, MEASUREMENT_CACHE_BYTES)
+    private val rasterizer = AndroidPageRasterizer(document, key, missingImage,
+        MEASUREMENT_CACHE_BYTES, typefaces)
+    private val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key, typefaces) }
+    private val annotationRasterizer = annotation?.let {
+        AndroidPageRasterizer(it.document,
+            if (key.pageMode == PageMode.SINGLE) key.forWhitePaperAnnotation() else key.forAnnotation(),
+            missingImage, MEASUREMENT_CACHE_BYTES, typefaces)
     }
-    private val notesRasterizer = notes?.let { AndroidPageRasterizer(it.document, key.forNotes(), missingImage, MEASUREMENT_CACHE_BYTES) }
+    private val insideCoverAnnotationRasterizer = annotation?.let {
+        AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage,
+            MEASUREMENT_CACHE_BYTES, typefaces)
+    }
+    private val notesRasterizer = notes?.let {
+        AndroidPageRasterizer(it.document, key.forNotes(), missingImage, MEASUREMENT_CACHE_BYTES,
+            typefaces)
+    }
     private val notesCount: Int get() = if (index?.complete == true) notesIndex?.pages?.size ?: 0 else 0
     private val annotationCount: Int get() = annotationIndex.annotationPaperCount
     private val pageCount: Int get() = annotationCount + (index?.pages?.size ?: 0) + (tocIndex?.pages?.size ?: 0) + notesCount
@@ -272,8 +305,11 @@ internal class PaginationSession(
     ) { request ->
         val pageIndex = request.pageIndex - annotationCount
         val tocCount = tocIndex?.pages?.size ?: 0
-        if (request.pageIndex == -1) requireNotNull(insideCoverAnnotationRasterizer)
-            .render(requireNotNull(annotationIndex).pages.first())
+        if (request.pageIndex == -1) {
+            val rasterizer = if (key.pageMode == PageMode.SINGLE) annotationRasterizer
+                else insideCoverAnnotationRasterizer
+            requireNotNull(rasterizer).render(requireNotNull(annotationIndex).pages.first())
+        }
         else if (request.pageIndex < annotationCount) requireNotNull(annotationRasterizer).render(requireNotNull(annotationIndex).pages[request.pageIndex + 1])
         else if (pageIndex < tocCount) requireNotNull(tocRasterizer).render(requireNotNull(tocIndex).pages[pageIndex],
             requireNotNull(request.contentsNumbers))
@@ -375,7 +411,8 @@ internal class PaginationSession(
         }
     }
 
-    private fun insideFrontKeys() = if (annotationIndex != null) listOf(ReaderSurfaceKey(-1)) else emptyList()
+    private fun insideFrontKeys() = if (annotationIndex != null)
+        listOf(ReaderSurfaceKey(-1)) else emptyList()
 
     fun trimMemory() {
         trimmed = true
@@ -427,7 +464,8 @@ internal class PaginationSession(
         ready = PreparedPagination(snapshot, BookSurfaceWindow(totalPages, sourceWindow + window),
             cached.bytes, cached.values.size, cached.rendered, contents, tocIndex, jump = destination,
             notes = notes, notesSnapshot = notesIndex.takeIf { snapshot.complete },
-            annotationSnapshot = annotationIndex, insideFront = cached.values[ReaderSurfaceKey(-1)]?.asBookSurface(0))
+            annotationSnapshot = annotationIndex,
+            insideFront = cached.values[ReaderSurfaceKey(-1)]?.asBookSurface(0))
     }
 }
 
@@ -440,6 +478,7 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
     val notesTitle = stringResource(R.string.reader_notes)
     val notePattern = stringResource(R.string.reader_note_number)
     val returnLabel = stringResource(R.string.reader_note_return)
+    val typefaces = rememberPlyosTypefaceFamily()
     val notes = remember(document, notesTitle, notePattern, returnLabel) {
         PhysicalNotes.create(document, notesTitle, { notePattern.format(it) }, returnLabel)
     }
@@ -449,42 +488,59 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
     val annotation = remember(document) { PhysicalAnnotation.create(document) }
     val scope = rememberCoroutineScope()
     val inspection = LocalInspectionMode.current
-    val session = remember(document, key, missingImage, inspection, contents, notes, annotation, position) {
-        PaginationSession(key, document, missingImage, scope, contents, contentsTitle, notes, annotation).also { created ->
+    val session = remember(document, key, missingImage, inspection, contents, notes, annotation,
+        position, typefaces) {
+        PaginationSession(key, document, missingImage, scope, contents, contentsTitle, notes,
+            annotation, typefaces).also { created ->
             if (inspection) runBlocking {
                 // Tooling has no loading lifecycle. Initialize a new, not-yet-published session.
-                val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage))
+                val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage,
+                    typefaces = typefaces))
                     .paginate(document, position.location, key).last()
-                val rasterizer = AndroidPageRasterizer(document, key, missingImage)
+                val rasterizer = AndroidPageRasterizer(document, key, missingImage,
+                    typefaces = typefaces)
                 val annotationSnapshot = annotation?.let {
-                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage))
+                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
+                        typefaces = typefaces))
                         .paginate(it.document, position.annotationLocation, key.forAnnotation()).last()
                 }
-                val annotationRasterizer = annotation?.let { AndroidPageRasterizer(it.document, key.forAnnotation(), missingImage) }
+                val annotationRasterizer = annotation?.let {
+                    AndroidPageRasterizer(it.document,
+                        if (key.pageMode == PageMode.SINGLE) key.forWhitePaperAnnotation() else key.forAnnotation(),
+                        missingImage, typefaces = typefaces)
+                }
                 val insideCoverAnnotationRasterizer = annotation?.let {
-                    AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage)
+                    AndroidPageRasterizer(it.document, key.forInsideCoverAnnotation(), missingImage,
+                        typefaces = typefaces)
                 }
                 val annotationCount = annotationSnapshot.annotationPaperCount
                 val tocSnapshot = contents?.let {
-                    paginatePhysicalContents(it, key, AndroidContentsMeasurer())
+                    paginatePhysicalContents(it, key, AndroidContentsMeasurer(typefaces))
                 }
-                val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key) }
+                val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key, typefaces) }
                 val notesSnapshot = notes?.let {
-                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage))
+                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
+                        typefaces = typefaces))
                         .paginate(it.document, position.noteLocation, key.forNotes()).last()
                 }
-                val notesRasterizer = notes?.let { AndroidPageRasterizer(it.document, key.forNotes(), missingImage) }
+                val notesRasterizer = notes?.let {
+                    AndroidPageRasterizer(it.document, key.forNotes(), missingImage,
+                        typefaces = typefaces)
+                }
                 val numbers = contents?.sourcePageNumbers(snapshot, notesSnapshot).orEmpty()
                 val tocCount = tocSnapshot?.pages?.size ?: 0
                 val mode = if (key.pageMode == PageMode.SPREAD) BookPresentation.SPREAD else BookPresentation.SINGLE
                 val plan = bookSurfacePlan(position.initialState(snapshot, contents, tocSnapshot, notes, notesSnapshot, annotationSnapshot), mode,
                     snapshot.pages.size + annotationCount + tocCount + (notesSnapshot?.pages?.size ?: 0))
-                val values = (plan.required + if (annotationSnapshot != null) listOf(-1) else emptyList()).associate { index ->
+                val values = (plan.required + if (annotationSnapshot != null)
+                    listOf(-1) else emptyList()).associate { index ->
                     val paper = index - annotationCount
                     val labels = tocSnapshot?.pages?.getOrNull(paper)?.let { ContentsPageNumbers.forPage(it, numbers) }
-                    ReaderSurfaceKey(index, labels) to if (index == -1)
-                        requireNotNull(insideCoverAnnotationRasterizer)
-                            .render(requireNotNull(annotationSnapshot).pages.first())
+                    ReaderSurfaceKey(index, labels) to if (index == -1) {
+                        val frontRasterizer = if (key.pageMode == PageMode.SINGLE) annotationRasterizer
+                            else insideCoverAnnotationRasterizer
+                        requireNotNull(frontRasterizer).render(requireNotNull(annotationSnapshot).pages.first())
+                    }
                     else if (index < annotationCount)
                         requireNotNull(annotationRasterizer).render(requireNotNull(annotationSnapshot).pages[index + 1])
                     else if (paper < tocCount)
@@ -520,23 +576,26 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
         try {
             val annotationSnapshot = annotation?.let {
                 kotlinx.coroutines.withContext(Dispatchers.Default) {
-                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage))
+                    IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
+                        typefaces = typefaces))
                         .paginate(it.document, position.annotationLocation, key.forAnnotation()).last()
                 }
             }
             val tocSnapshot = contents?.let {
                 kotlinx.coroutines.withContext(Dispatchers.Default) {
-                    paginatePhysicalContents(it, key, AndroidContentsMeasurer())
+                    paginatePhysicalContents(it, key, AndroidContentsMeasurer(typefaces))
                 }
             }
             coroutineScope {
                 val notesPending = async(Dispatchers.Default) {
                     notes?.let {
-                        IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage))
+                        IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
+                            typefaces = typefaces))
                             .paginate(it.document, position.noteLocation, key.forNotes()).last()
                     }
                 }
-                IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage))
+                IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage,
+                    typefaces = typefaces))
                     .paginate(document, position.location, key)
                     .flowOn(Dispatchers.Default)
                     .collect { snapshot ->

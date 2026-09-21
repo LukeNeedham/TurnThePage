@@ -13,7 +13,7 @@ import com.avstaim.listai.reader.rendering.turn.TurnDirection
 internal sealed interface PhysicalBookState {
     data object ClosedFront : PhysicalBookState
 
-    /** Inside-front board, readable as a resting surface on narrow screens. */
+    /** A separate white front-matter leaf shown after the cover on narrow screens. */
     data object FrontBoundary : PhysicalBookState
 
     data class Open(
@@ -58,7 +58,7 @@ internal data class PhysicalBookTransition(
  */
 internal class PhysicalBookNavigator(
     private val pageCount: Int,
-    private val hasFrontAnnotation: Boolean = false,
+    private val hasFrontEndpaper: Boolean = false,
 ) {
     init {
         require(pageCount > 0) { "pageCount must be positive" }
@@ -101,7 +101,7 @@ internal class PhysicalBookNavigator(
         PhysicalBookState.ClosedFront -> when (direction) {
             TurnDirection.FORWARD -> PhysicalBookTransition(
                 from = state,
-                to = if (hasFrontAnnotation && presentation == BookPresentation.SINGLE)
+                to = if (hasFrontEndpaper && presentation == BookPresentation.SINGLE)
                     PhysicalBookState.FrontBoundary else PhysicalBookState.Open(semanticPageIndex = 0),
                 direction = direction,
                 subject = PhysicalTurnSubject.FRONT_COVER,
@@ -112,7 +112,8 @@ internal class PhysicalBookNavigator(
 
         PhysicalBookState.FrontBoundary -> PhysicalBookTransition(state,
             if (direction == TurnDirection.BACKWARD) PhysicalBookState.ClosedFront else PhysicalBookState.Open(0),
-            direction, PhysicalTurnSubject.FRONT_COVER)
+            direction, if (direction == TurnDirection.BACKWARD) PhysicalTurnSubject.FRONT_COVER
+            else PhysicalTurnSubject.PAGE)
 
         PhysicalBookState.BackBoundary -> if (presentation == BookPresentation.SINGLE) {
             transitionFromOpen(
@@ -195,13 +196,14 @@ internal class PhysicalBookNavigator(
                     spread = spread,
                 )
                 if (previous == anchor) {
-                    if (hasFrontAnnotation && !spread) PhysicalBookState.FrontBoundary else PhysicalBookState.ClosedFront
+                    if (hasFrontEndpaper && !spread) PhysicalBookState.FrontBoundary else PhysicalBookState.ClosedFront
                 } else PhysicalBookState.Open(previous)
             }
         }
 
         val subject = when (destination) {
-            PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> PhysicalTurnSubject.FRONT_COVER
+            PhysicalBookState.ClosedFront -> PhysicalTurnSubject.FRONT_COVER
+            PhysicalBookState.FrontBoundary -> PhysicalTurnSubject.PAGE
             PhysicalBookState.ClosedBack -> PhysicalTurnSubject.BACK_COVER
             PhysicalBookState.BackBoundary,
             is PhysicalBookState.Open -> PhysicalTurnSubject.PAGE
