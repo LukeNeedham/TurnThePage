@@ -1,7 +1,7 @@
 # Сборки release и benchmark
 
 Версия приложения задаётся в `gradle.properties` (`listai.versionName` и
-`listai.versionCode`). Для текущего кандидата RC2 это `1.0.0-rc2` и `12`.
+`listai.versionCode`). Для текущего кандидата это `1.0-rc1` и `13`.
 Упаковка release не меняет эти значения.
 
 ## Повторяемая локальная сборка
