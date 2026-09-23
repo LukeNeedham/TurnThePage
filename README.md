@@ -11,6 +11,8 @@
 [Скачать APK 1.0](https://sourcecraft.dev/avstaim/listai/releases/v1.0)
 · Android 8.0+ · [Что нового](docs/releases/1.0.md)
 
+[Конфиденциальность](docs/privacy.md) · [Условия использования](docs/terms.md)
+
 ![Двустраничный разворот](docs/images/rc1-spread.png)
 
 ## 1.0
