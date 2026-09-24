@@ -21,6 +21,8 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:database"))
     implementation(project(":format:fb2"))
+    implementation(project(":format:epub"))
+    implementation(project(":format:pdf"))
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)

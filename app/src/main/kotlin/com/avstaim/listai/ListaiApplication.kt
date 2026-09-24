@@ -10,7 +10,7 @@ import java.io.File
 class ListaiApplication : Application() {
     val controller: LibraryController by lazy {
         val preferences = AppPreferences(this)
-        LibraryController(this, LibraryRepository(LibraryDatabase.open(this).library(),
+        LibraryController(this, LibraryRepository(this, LibraryDatabase.open(this).library(),
             PrivateBookStorage(File(filesDir, "books")), preferences), preferences)
     }
 }

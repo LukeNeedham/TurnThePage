@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name="com.avstaim.listai.format.pdf.LegacyPdfMetadataService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":pdf_metadata" />
+    </application>
+</manifest>

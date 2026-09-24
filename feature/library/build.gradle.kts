@@ -24,9 +24,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:database"))
     implementation(project(":core:designsystem"))
-    implementation(project(":core:files"))
     implementation(project(":core:model"))
 
     implementation(platform(libs.androidx.compose.bom))

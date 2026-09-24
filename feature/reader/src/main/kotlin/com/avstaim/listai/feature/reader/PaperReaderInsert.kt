@@ -227,7 +227,7 @@ fun PaperSettingsSheet(
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.insert_settings), Modifier.weight(1f),
-                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.titleLarge)
+                fontFamily = PlyosFontFamily, color = colors.onSurface, style = MaterialTheme.typography.titleLarge)
             IconPress(PaperIcon.Close, stringResource(R.string.rc1_close_settings), "settings_close", onDismiss)
         }
         InkRule()

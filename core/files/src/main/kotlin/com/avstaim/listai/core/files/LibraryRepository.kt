@@ -1,5 +1,6 @@
 package com.avstaim.listai.core.files
 
+import android.content.Context
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -12,6 +13,8 @@ import com.avstaim.listai.core.database.LibraryDao
 import com.avstaim.listai.core.database.StoredProgress
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.format.fb2.BookParser
+import com.avstaim.listai.format.epub.EpubBookParser
+import com.avstaim.listai.format.pdf.PdfBookParser
 import com.avstaim.listai.format.fb2.Fb2BookParser
 import java.io.File
 import java.io.FileNotFoundException
@@ -28,10 +31,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+data class SharedBook(val file: File, val mimeType: String)
+
 data class OpenedBook(val book: LibraryBook, val document: BookDocument)
 
 /** All filesystem work and Room calls happen off the rendering path. Mutations are serialized. */
 class LibraryRepository(
+    private val context: Context,
     private val dao: LibraryDao,
     private val storage: PrivateBookStorage,
     private val preferences: AppPreferences,
@@ -72,7 +78,7 @@ class LibraryRepository(
                 // Install the cleanup reference inside runInterruptible: cancellation can discard
                 // its return value even after the copy finishes.
                 runInterruptible { openSource().use { staged = storage.stage(it) } }
-                val document = requireNotNull(staged).inputStream().use { parser.parse(it, name) }
+                val document = parseFile(requireNotNull(staged), name)
                 currentCoroutineContext().ensureActive()
                 val existing = dao.book(document.id.value)
                 if (existing != null && !existing.deleting && storage.file(existing.fileName).isFile) {
@@ -88,17 +94,18 @@ class LibraryRepository(
                     var published = false
                     var promoted = false
                     try {
+                        val hasCover = writeCover(document, storage.file(coverName))
                         storage.promote(requireNotNull(staged), fileName)
                         promoted = true
-                        val hasCover = writeCover(document, storage.file(coverName))
                         check(dao.insert(BookEntity(document.id.value, document.metadata.title,
                             document.metadata.authors.joinToString(", "), fileName,
                             coverName.takeIf { hasCover }, clock(), totalCharacters = document.readingLength(),
-                            progress = StoredProgress(cover = CoverPosition.FRONT.name))) != -1L)
+                            progress = StoredProgress(cover = CoverPosition.FRONT.name),
+                            shelfOrder = (dao.orderedBooks().firstOrNull()?.shelfOrder ?: 0L) - 1L)) != -1L)
                         published = true
                     } finally {
-                        if (!published && promoted) {
-                            storage.remove(fileName)
+                        if (!published) {
+                            if (promoted) storage.remove(fileName)
                             storage.remove(coverName)
                         }
                     }
@@ -112,13 +119,45 @@ class LibraryRepository(
 
     suspend fun open(id: BookId): OpenedBook = withContext(Dispatchers.IO) { operations.withLock {
         val row = requireNotNull(dao.book(id.value)?.takeUnless { it.deleting }) { "Book was removed" }
-        val document = storage.file(row.fileName).inputStream().use { parser.parse(it) }
+        val document = parseFile(storage.file(row.fileName), null, pdfTitle = "${row.title}.pdf")
         check(document.id == id) { "Book contents changed" }
         val openedAt = clock()
         dao.markOpened(id.value, openedAt)
         preferences.selectBook(id.value)
         OpenedBook(toModel(row.copy(lastOpenedAt = openedAt)), document)
     } }
+
+    private suspend fun parseFile(file: File, name: String?, pdfTitle: String? = name): BookDocument = when (BookFormat.detect(file)) {
+        BookFormat.EPUB -> file.inputStream().use { EpubBookParser().parse(it, name) }
+        BookFormat.PDF -> PdfBookParser(context.applicationContext).parse(file, pdfTitle).withPdfCover(file)
+        BookFormat.FB2, BookFormat.FB2_ZIP -> file.inputStream().use { parser.parse(it, name) }
+    }
+
+    suspend fun moveBook(id: BookId, targetId: BookId) = withContext(Dispatchers.IO) {
+        operations.withLock { dao.moveBook(id.value, targetId.value) }
+    }
+
+    /** A separate read-only sharing copy remains valid even if the shelf book is deleted. */
+    suspend fun prepareShare(id: BookId, cacheDirectory: File): SharedBook = withContext(Dispatchers.IO) {
+        operations.withLock {
+            val row = requireNotNull(dao.book(id.value)?.takeUnless { it.deleting }) { "Book was removed" }
+            val source = storage.file(row.fileName)
+            val format = BookFormat.detect(source)
+            val directory = File(cacheDirectory, row.fileName.removeSuffix(".book"))
+            check(directory.isDirectory || directory.mkdirs())
+            val title = row.title.replace(Regex("[^\\p{L}\\p{N} ._()-]"), "_").trim().take(60).trimEnd { Character.isHighSurrogate(it) }.ifBlank { "book" }
+            val output = File(directory, "$title.${format.extension}")
+            val temporary = File(directory, "share.part")
+            try {
+                runInterruptible { source.inputStream().use { input ->
+                    FileOutputStream(temporary).use { stream -> input.copyTo(stream); stream.fd.sync() }
+                } }
+                currentCoroutineContext().ensureActive()
+                check(temporary.renameTo(output)) { "Cannot prepare sharing copy" }
+            } finally { temporary.delete() }
+            SharedBook(output, format.mimeType)
+        }
+    }
 
     suspend fun saveProgress(id: BookId, value: ReadingProgress) {
         // A long copy/parse must not delay the active reader's durable checkpoints.

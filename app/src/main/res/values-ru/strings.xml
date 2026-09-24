@@ -5,7 +5,7 @@
     <string name="library_error_access">Файл больше недоступен. Выберите его заново в библиотеке.</string>
     <string name="library_error_too_large">Книга превышает допустимый размер или ограничения сложности.</string>
     <string name="library_error_empty_zip">В ZIP-архиве нет книги FB2.</string>
-    <string name="library_error_invalid">Файл не является корректной книгой FB2 или поддерживаемым ZIP-архивом.</string>
+    <string name="library_error_invalid">Файл не является корректной книгой FB2, EPUB или PDF.</string>
     <string name="library_error_storage">Не удалось прочитать или сохранить данные книги. Проверьте свободное место и повторите попытку.</string>
     <string name="action_ok">ОК</string>
     <string name="action_close">Закрыть</string>
@@ -68,4 +68,12 @@
     <string name="diagnostics_fb2_role_verse">строка стиха</string>
     <string name="diagnostics_fb2_role_cite">цитата</string>
     <string name="diagnostics_fb2_role_epigraph">эпиграф</string>
+    <string name="library_error_encrypted">Книга зашифрована или защищена паролем. Импортируйте разблокированную копию.</string>
+    <string name="library_share_title">Поделиться книгой</string>
+    <string name="library_import_title">Импорт книг</string>
+    <string name="library_import_count">Обработано: %1$d. Можно отменить — готовые книги останутся в библиотеке.</string>
+    <string name="action_cancel_import">Отменить импорт</string>
+    <string name="library_import_cancelled">Импорт отменён</string>
+    <string name="library_import_complete">Импорт завершён</string>
+    <string name="library_import_summary">Добавлено: %1$d\nУже в библиотеке: %2$d\nНе удалось импортировать: %3$d\nПропущено других файлов: %4$d</string>
 </resources>

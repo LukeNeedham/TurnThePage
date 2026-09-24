@@ -56,12 +56,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consumeBookIntent(incoming: Intent) {
-        val uri = when (incoming.action) {
-            Intent.ACTION_VIEW -> incoming.data
-            Intent.ACTION_SEND -> androidx.core.content.IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java)
-            else -> null
-        } ?: return
-        (application as ListaiApplication).controller.import(uri, incoming.flags)
+        val uris = when (incoming.action) {
+            Intent.ACTION_VIEW -> listOfNotNull(incoming.data)
+            Intent.ACTION_SEND -> listOfNotNull(androidx.core.content.IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE -> androidx.core.content.IntentCompat.getParcelableArrayListExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) (application as ListaiApplication).controller.importBooks(uris, incoming.flags)
     }
 
     override fun onResume() {

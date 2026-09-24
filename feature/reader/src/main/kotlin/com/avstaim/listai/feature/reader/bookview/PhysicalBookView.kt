@@ -100,6 +100,7 @@ import com.avstaim.listai.feature.reader.ReaderNoteVisit
 import com.avstaim.listai.feature.reader.readerTopControlLayout
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
+import com.avstaim.listai.reader.rendering.geometry.calculateReturningPage
 import com.avstaim.listai.reader.rendering.geometry.Point
 import com.avstaim.listai.reader.rendering.turn.CurlOrigin
 import com.avstaim.listai.reader.rendering.turn.PageTurnPhysicsConfig
@@ -145,6 +146,7 @@ private data class ActiveTurn(
 private data class ResolvedTurn(
     val baseSurfaces: VisibleBookSurfaces,
     val frame: CurlFrame,
+    val progress: Float = frame.geometry.progress.toFloat(),
 )
 
 @Composable
@@ -1096,8 +1098,8 @@ internal fun PhysicalBookView(
                 .then(semanticsModifier)
                 .semantics {
                     val frame = resolvedTurn?.frame
-                    this[ReaderTurnDirection] = frame?.direction?.name?.lowercase().orEmpty()
-                    this[ReaderTurnProgress] = frame?.geometry?.progress?.toFloat() ?: 0f
+                    this[ReaderTurnDirection] = activeTurn?.direction?.name?.lowercase().orEmpty()
+                    this[ReaderTurnProgress] = resolvedTurn?.progress ?: 0f
                     this[ReaderTurnSubject] = when (val source = frame?.source) {
                         is BookVisualSurface.Page -> "page"
                         is BookVisualSurface.Cover -> if (source.face == ExternalBookCoverFace.FRONT || source.isInside) "front_cover" else "back_cover"
@@ -1302,6 +1304,32 @@ private fun resolveTurn(
                             else ExternalBookCoverFace.BACK),
                         backDestinationBounds = incomingGeometry.finalDestinationBounds.toComposeRect(),
                     ),
+                )
+            }
+            if (direction == TurnDirection.BACKWARD && completedTransition.subject == PhysicalTurnSubject.PAGE) {
+                val returningPage = target.right ?: return null
+                val incomingGeometry = geometryEngine.calculateReturningPage(
+                    pageBounds = sourceBounds.toCurlRect(),
+                    pointer = pointer,
+                    origin = origin,
+                    edgeAnchorY = edgeAnchorY,
+                    customAnchor = customAnchor,
+                )
+                return ResolvedTurn(
+                    // Rewind the previous forward turn. The current page stays underneath while
+                    // the previous leaf returns from the left binding, instead of peeling the
+                    // current page off the right edge. Both faces were prepared before the drag.
+                    baseSurfaces = current,
+                    frame = CurlFrame(
+                        direction = TurnDirection.FORWARD,
+                        geometry = incomingGeometry,
+                        source = returningPage,
+                        sourceBounds = sourceBounds,
+                        sourceSide = PageSide.SINGLE,
+                        back = current.right,
+                        backDestinationBounds = incomingGeometry.finalDestinationBounds.toComposeRect(),
+                    ),
+                    progress = (1.0 - incomingGeometry.progress).toFloat(),
                 )
             }
             ResolvedTurn(

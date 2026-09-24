@@ -54,7 +54,7 @@ class LibraryRepositoryTest {
     }
 
     private fun repo(dao: LibraryDao = database.library(), parser: BookParser = Fb2BookParser()) =
-        LibraryRepository(dao, storage, preferences, parser) { ++timestamp }
+        LibraryRepository(context, dao, storage, preferences, parser) { ++timestamp }
 
     @Test fun rawAndZipShareIdentityWithoutResettingDurableCheckpointOrBookmarks() = runBlocking {
         val bytes = fb2("One")
@@ -329,6 +329,35 @@ class LibraryRepositoryTest {
             assertEquals(progress, shared.books.first().single().progress)
         } finally { slow.cancelAndJoin() }
         assertEquals(1, storage.directory.listFiles()!!.size)
+    }
+
+    @Test fun metadataTitleIsNeverUsedAsAFormatHintOnReopen() = runBlocking {
+        val id = repository.import("actual.fb2") { fb2("A story.zip").inputStream() }
+        assertEquals("A story.zip", repository.open(id).book.title)
+        assertEquals(id, repository.open(id).document.id)
+    }
+
+    @Test fun manualOrderAndShareKeepSourceAndProgressAcrossReopen() = runBlocking {
+        val first = repository.import("first.fb2") { fb2("First").inputStream() }
+        val second = repository.import("second.fb2") { fb2("Second").inputStream() }
+        val third = repository.import("third.fb2") { fb2("Third").inputStream() }
+        repository.moveBook(first, third)
+        assertEquals(listOf(first, third, second), repository.books.first().map { it.id })
+        repository.open(second)
+        assertEquals(listOf(first, third, second), repository.books.first().map { it.id })
+        val shareDirectory = File(context.cacheDir, "share-${UUID.randomUUID()}")
+        try {
+            val shared = repository.prepareShare(first, shareDirectory)
+            assertEquals("application/x-fictionbook+xml", shared.mimeType)
+            assertEquals("First.fb2", shared.file.name)
+            assertArrayEquals(fb2("First"), shared.file.readBytes())
+            repository.delete(first)
+            assertArrayEquals(fb2("First"), shared.file.readBytes())
+            database.close()
+            database = LibraryDatabase.open(context, name)
+            repository = repo()
+            assertEquals(listOf(third, second), repository.books.first().map { it.id })
+        } finally { shareDirectory.deleteRecursively() }
     }
 
     private fun fb2(title: String) = """<?xml version="1.0" encoding="UTF-8"?>

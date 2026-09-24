@@ -51,6 +51,8 @@ fun BookDocument.readingBlocks(): List<BookBlock> = buildList {
 fun BookDocument.readingLength(): Long = readingBlocks().sumOf { it.plainText().length + 1L }
 
 fun BookDocument.bookmarkSnippet(location: BookLocation): String = readingBlocks()
-    .firstOrNull { it.id == location.blockId }?.plainText()
+    .firstOrNull { it.id == location.blockId }?.let {
+        if (it is BookBlock.FixedPage) "PDF · ${it.pageIndex + 1}" else it.plainText()
+    }
     ?.let { it.drop(location.charOffset.coerceAtMost(it.length)).ifBlank { it.takeLast(160) } }
     ?.replace(Regex("\\s+"), " ")?.trim()?.take(160).orEmpty()

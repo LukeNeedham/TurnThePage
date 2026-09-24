@@ -185,8 +185,11 @@ class Stage721AcceptanceTest {
             assertEquals("Navigation must bend a paper leaf", "page", frame[ReaderTurnSubject])
             val sourceText = frame[ReaderTurnSourceText]
             assertTrue("The curl must retain an actual source page", sourceText.isNotBlank())
-            assertTrue("The turning pixels must belong to a page visible before the request",
-                before.text.contains(sourceText))
+            val returnsPreviousLeaf = fixture.mode.value == ReaderPresentationMode.SINGLE && direction == "backward"
+            if (!returnsPreviousLeaf) {
+                assertTrue("The turning pixels must belong to a page visible before the request",
+                    before.text.contains(sourceText))
+            }
             assertEquals("A jump must reuse the live pagination layout", before.layout, frame[ReaderLayoutIdentity])
             assertTrue("A remount must not reset the surface render count", frame[ReaderSurfaceRenders] >= before.renders)
             assertTrue("The surface cache must remain within 64 MiB during a jump",
@@ -200,6 +203,12 @@ class Stage721AcceptanceTest {
             }
             assertEquals(target?.encoded().orEmpty(), semanticLocation())
             assertEquals(toc, contentsLocation().isNotEmpty())
+            if (returnsPreviousLeaf) {
+                val destinationText = book().fetchSemanticsNode().config[SemanticsProperties.Text]
+                    .joinToString("\n\n") { it.text }
+                assertTrue("A returning SINGLE leaf carries the destination ink before that anchor is committed",
+                    destinationText.contains(sourceText))
+            }
             assertTrue("The completed destination must keep the surface cache within 64 MiB",
                 book().fetchSemanticsNode().config[ReaderCacheBytes] <= 64L * 1024 * 1024)
             captureBook("${before.captureId}-destination")

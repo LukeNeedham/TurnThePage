@@ -5,7 +5,7 @@
     <string name="library_error_access">This file is no longer available. Choose it again from the library.</string>
     <string name="library_error_too_large">This book exceeds the supported size or complexity limits.</string>
     <string name="library_error_empty_zip">This ZIP archive contains no FB2 book.</string>
-    <string name="library_error_invalid">This file is not a valid FB2 book or supported ZIP archive.</string>
+    <string name="library_error_invalid">This file is not a valid FB2, EPUB or PDF book.</string>
     <string name="library_error_storage">Could not read or save book data. Check available storage and try again.</string>
     <string name="action_ok">OK</string>
     <string name="action_close">Close</string>
@@ -68,4 +68,12 @@
     <string name="diagnostics_fb2_role_verse">verse</string>
     <string name="diagnostics_fb2_role_cite">citation</string>
     <string name="diagnostics_fb2_role_epigraph">epigraph</string>
+    <string name="library_error_encrypted">This book is encrypted or password protected. Import an unlocked copy.</string>
+    <string name="library_share_title">Share book</string>
+    <string name="library_import_title">Importing books</string>
+    <string name="library_import_count">Processed: %1$d. You can cancel; completed books stay in your library.</string>
+    <string name="action_cancel_import">Cancel import</string>
+    <string name="library_import_cancelled">Import cancelled</string>
+    <string name="library_import_complete">Import complete</string>
+    <string name="library_import_summary">Added: %1$d\nAlready in library: %2$d\nCould not import: %3$d\nOther files skipped: %4$d</string>
 </resources>

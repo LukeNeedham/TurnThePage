@@ -17,6 +17,7 @@ import androidx.core.graphics.withSave
 import androidx.core.graphics.createBitmap
 import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.core.model.BlockId
+import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.PageId
 import com.avstaim.listai.core.model.plainText
@@ -176,8 +177,14 @@ internal class AndroidPageRasterizer(
             val noteLinks = mutableListOf<PreparedNoteLink>()
             for (fragment in page.blocks) {
                 context.ensureActive()
+                val source = requireNotNull(sources[fragment.blockId])
+                val fixedPage = source.source as? BookBlock.FixedPage
+                if (fixedPage != null) {
+                    rasterizeFixedPage(fixedPage, fragment, bitmap, key)
+                    continue
+                }
                 val measured = measurements[fragment.blockId] ?: measurer.measure(
-                    requireNotNull(sources[fragment.blockId]), key,
+                    source, key,
                 ).also {
                     measureCount++
                     measurements.put(fragment.blockId, it)
@@ -212,8 +219,9 @@ internal class AndroidPageRasterizer(
             bitmap.prepareToDraw()
             renderCount++
             val bodyText = page.blocks.joinToString("\n") { fragment ->
-                requireNotNull(sources[fragment.blockId]).source.plainText()
-                    .substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
+                val source = requireNotNull(sources[fragment.blockId]).source
+                if (source is BookBlock.FixedPage) "PDF · ${source.pageIndex + 1}" else
+                    source.plainText().substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
             }
             val text = listOf(bodyText, footnotes.accessibleText).filter(String::isNotEmpty).joinToString("\n")
             return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key,

@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_title">Your library</string>
-    <string name="library_import">Import book</string>
-    <string name="library_importing">Importing book…</string>
+    <string name="library_import">Import books</string>
+    <string name="library_importing">Importing books…</string>
     <string name="library_cancel">Cancel</string>
     <string name="library_all">All books</string>
     <string name="library_recent">Recent</string>
     <string name="library_sort_recent">Last opened first</string>
     <string name="library_no_recent">Open a book to find it here.</string>
-    <string name="library_empty">Import an FB2 or FB2.ZIP book to start reading.</string>
+    <string name="library_empty">Import FB2, EPUB or PDF books to start reading.</string>
     <string name="library_unknown_author">Unknown author</string>
     <string name="library_progress">%1$d%% read</string>
     <string name="library_delete">Delete</string>
     <string name="library_delete_title">Delete book?</string>
     <string name="library_delete_message">“%1$s”, its reading progress and bookmarks will be removed from this app. Your original file will be kept.</string>
     <string name="library_settings">Reading settings</string>
+    <string name="library_import_files">Choose books</string>
+    <string name="library_import_folder">Import folder and subfolders</string>
+    <string name="library_share">Share book</string>
+    <string name="library_move_earlier">Move earlier</string>
+    <string name="library_move_later">Move later</string>
+    <string name="library_book_actions">Book actions</string>
+    <string name="library_reorder_hint">Hold and drag a cover to change the order of your books.</string>
+    <string name="library_close">Close</string>
 </resources>

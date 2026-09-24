@@ -159,6 +159,25 @@ sealed interface BookBlock {
         val alternativeText: String? = null,
     ) : BookBlock
 
+    /**
+     * One indivisible page from an app-owned, seekable source. This contains only lightweight
+     * metadata: the Android adapter prepares pixels before a page enters the physical book.
+     * The stable block id is the durable anchor; it never changes with typography or viewport.
+     */
+    data class FixedPage(
+        override val id: BlockId,
+        val sourcePath: String,
+        val mediaType: String,
+        val pageIndex: Int,
+        val widthPoints: Int,
+        val heightPoints: Int,
+    ) : BookBlock {
+        init {
+            require(sourcePath.isNotBlank() && mediaType.isNotBlank())
+            require(pageIndex >= 0 && widthPoints > 0 && heightPoints > 0)
+        }
+    }
+
     data class Quote(
         override val id: BlockId,
         val blocks: List<BookBlock>,
@@ -248,6 +267,7 @@ fun BookBlock.plainText(): String = when (this) {
     is BookBlock.Heading -> content.plainText()
     is BookBlock.Paragraph -> content.plainText()
     is BookBlock.Image -> alternativeText.orEmpty()
+    is BookBlock.FixedPage -> ""
     is BookBlock.Quote -> blocks.joinToString(separator = "\n") { it.plainText() }
     is BookBlock.Poem -> buildList {
         title.forEach { add(it.plainText()) }

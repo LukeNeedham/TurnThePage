@@ -12,6 +12,14 @@
         android:usesCleartextTraffic="false">
         <profileable android:shell="true" />
 
+        <provider
+            android:name=".BookShareProvider"
+            android:authorities="${applicationId}.books"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/book_share_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTop"
@@ -29,6 +37,8 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/x-fictionbook+xml" />
                 <data android:mimeType="application/fb2" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/x-fictionbook+zip" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-zip-compressed" />
@@ -38,9 +48,12 @@
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/x-fictionbook+xml" />
                 <data android:mimeType="application/fb2" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/x-fictionbook+zip" />
                 <data android:mimeType="application/zip" />
                 <data android:mimeType="application/x-zip-compressed" />

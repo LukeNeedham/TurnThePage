@@ -5,9 +5,15 @@ import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -24,18 +30,27 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.avstaim.listai.core.model.BookId
@@ -45,6 +60,8 @@ import com.avstaim.listai.core.designsystem.rememberBookCoverSurface
 import com.avstaim.listai.core.designsystem.BookCoverFace
 import com.avstaim.listai.core.designsystem.drawListaiBackdrop
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /** A matte cabinet: books are the navigation, and each row rests on a physical shelf. */
@@ -65,19 +82,60 @@ fun LibraryScreen(
     versionLabel: String? = null,
     onSettings: () -> Unit = {},
     darkTheme: Boolean? = null,
+    onMoveBook: (BookId, BookId) -> Unit = { _, _ -> },
+    onShare: (BookId) -> Unit = {},
+    onImportFolder: () -> Unit = {},
 ) {
     var deleting by remember { mutableStateOf<LibraryBook?>(null) }
+    var actionsFor by remember { mutableStateOf<LibraryBook?>(null) }
+    var importMenu by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     val useDarkBackdrop = darkTheme ?: (colors.background.luminance() < .5f)
-    // Updating a checkpoint must not move the book away from the shelf slot it launched from.
-    val bookIds = books.map { it.id }.toSet()
-    val orderedIds = remember(bookIds) {
-        books.sortedWith(compareByDescending<LibraryBook> { it.lastOpenedAt ?: Long.MIN_VALUE }
-            .thenByDescending { it.importedAt }.thenBy { it.id.value }).map { it.id }
+    // Repository order is durable. Reading checkpoints must never sort the shelf again.
+    val incomingIds = books.map { it.id }
+    val reorder = remember { LibraryReorderState(incomingIds) }
+    LaunchedEffect(incomingIds) {
+        if (reorder.drag == null) reorder.ids = incomingIds
+        else if (reorder.drag?.originalOrder != incomingIds) { reorder.cancel(); reorder.ids = incomingIds }
     }
     val byId = books.associateBy { it.id }
-    val ordered = orderedIds.mapNotNull(byId::get)
+    val ordered = reorder.ids.mapNotNull(byId::get)
+    val listState = rememberLazyListState()
+    var shelfBounds by remember { mutableStateOf(Rect.Zero) }
+    val haptics = LocalHapticFeedback.current
+    val latestMove by rememberUpdatedState(onMoveBook)
+    val latestBooks by rememberUpdatedState(byId)
+    val latestBoundsChanged by rememberUpdatedState(onBookBoundsChanged)
+    val reportBounds: (BookId, Rect?) -> Unit = { id, bounds ->
+        if (bounds == null) reorder.bounds.remove(id) else reorder.bounds[id] = bounds
+        latestBoundsChanged(id, bounds)
+    }
+    val openActions: (LibraryBook) -> Unit = { actionsFor = it }
+    val moveBook: (BookId, BookId) -> Unit = { source, destination ->
+        reorder.ids = moveShelfBook(reorder.ids, source, destination)
+        latestMove(source, destination)
+    }
+    val moveEarlier = stringResource(R.string.library_move_earlier)
+    val moveLater = stringResource(R.string.library_move_later)
+    val shareLabel = stringResource(R.string.library_share)
+    val deleteLabel = stringResource(R.string.library_delete)
+    val actionsLabel = stringResource(R.string.library_book_actions)
+    val importLabel = stringResource(R.string.library_import)
+    val accessibilityActions: (LibraryBook) -> List<CustomAccessibilityAction> = { book ->
+        buildList {
+            add(CustomAccessibilityAction(shareLabel) { onShare(book.id); true })
+            val index = reorder.ids.indexOf(book.id)
+            reorder.ids.getOrNull(index - 1)?.let { target ->
+                add(CustomAccessibilityAction(moveEarlier) { moveBook(book.id, target); true })
+            }
+            reorder.ids.getOrNull(index + 1)?.let { target ->
+                add(CustomAccessibilityAction(moveLater) { moveBook(book.id, target); true })
+            }
+            add(CustomAccessibilityAction(deleteLabel) { deleting = book; true })
+        }
+    }
     BoxWithConstraints(modifier.fillMaxSize().drawBehind { drawListaiBackdrop(useDarkBackdrop) }
+        .onGloballyPositioned { shelfBounds = it.boundsInRoot() }
         .testTag("library_screen")) {
         val density = LocalDensity.current
         val direction = LocalLayoutDirection.current
@@ -97,25 +155,81 @@ fun LibraryScreen(
             topInsetDp = with(density) { cutout.getTop(this).toDp().value },
             bottomInsetDp = with(density) { cutout.getBottom(this).toDp().value },
         )
-        val shelfModifier = Modifier.fillMaxSize().displayCutoutPadding()
+        val edgeSize = with(density) { 64.dp.toPx() }
+        val bottomControls = with(density) { 88.dp.toPx() }
+        val dragSlop = with(density) { 8.dp.toPx() }
+        LaunchedEffect(reorder.drag?.id, shelfRows.scrollable) {
+            while (isActive && reorder.drag != null && shelfRows.scrollable) {
+                val active = reorder.drag
+                if (active?.moved == true) {
+                    val y = active.pointer.y - shelfBounds.top
+                    val lowerEdge = shelfBounds.height - bottomControls
+                    val speed = when {
+                        y < edgeSize -> -((edgeSize - y) / edgeSize).coerceIn(0f, 1f)
+                        y > lowerEdge - edgeSize -> ((y - lowerEdge + edgeSize) / edgeSize).coerceIn(0f, 1f)
+                        else -> 0f
+                    }
+                    if (speed != 0f) {
+                        listState.scrollBy(speed * with(density) { 12.dp.toPx() })
+                        // Let newly visible rows publish their bounds before testing the next destination.
+                        withFrameNanos { }
+                        reorder.updateDestination()
+                    }
+                }
+                delay(16)
+            }
+        }
+        val shelfModifier = Modifier.fillMaxSize().pointerInput(interactionEnabled) {
+            if (interactionEnabled) awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val held = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                reorder.start(held.position + shelfBounds.topLeft)
+                if (reorder.drag == null) return@awaitEachGesture
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                var released = false
+                try {
+                    while (true) {
+                        // After a hold the shelf owns the gesture. Consume release before the
+                        // cover's clickable sees it, even when the finger never moved.
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == held.id } ?: break
+                        change.consume()
+                        if (!change.pressed) {
+                            reorder.drag?.let { active ->
+                                if (active.moved) {
+                                    val target = active.originalOrder.getOrNull(reorder.ids.indexOf(active.id))
+                                    if (target != null && target != active.id) latestMove(active.id, target)
+                                } else actionsFor = latestBooks[active.id]
+                            }
+                            reorder.drag = null
+                            released = true
+                            break
+                        }
+                        reorder.move(change.position - change.previousPosition, dragSlop)
+                    }
+                } finally {
+                    if (!released) reorder.cancel()
+                }
+            }
+        }.displayCutoutPadding()
         if (shelfRows.scrollable) {
-            LazyColumn(shelfModifier,
-                userScrollEnabled = interactionEnabled,
+            LazyColumn(shelfModifier, state = listState,
+                userScrollEnabled = interactionEnabled && reorder.drag == null,
                 contentPadding = PaddingValues(top = 32.dp, bottom = 88.dp)) {
                 items(shelfRows.rowCount) { rowIndex ->
                     LibraryShelfRow(rowIndex, rows, bookWidth, bookHeight, ordered.isEmpty(), interactionEnabled,
-                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
+                        hiddenBookId, reorder.drag?.id, onOpen, reportBounds, coverContent, openActions, actionsLabel, accessibilityActions)
                 }
             }
         } else {
             Column(shelfModifier.padding(top = 32.dp, bottom = 88.dp)) {
                 repeat(shelfRows.rowCount) { rowIndex ->
                     LibraryShelfRow(rowIndex, rows, bookWidth, bookHeight, ordered.isEmpty(), interactionEnabled,
-                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
+                        hiddenBookId, reorder.drag?.id, onOpen, reportBounds, coverContent, openActions, actionsLabel, accessibilityActions)
                 }
                 repeat(shelfRows.decorativeRowCount) { decorativeIndex ->
                     LibraryShelfRow(shelfRows.rowCount + decorativeIndex, rows, bookWidth, bookHeight, false, interactionEnabled,
-                        hiddenBookId, onOpen, onBookBoundsChanged, coverContent, onDeleteRequest = { deleting = it })
+                        hiddenBookId, reorder.drag?.id, onOpen, reportBounds, coverContent, openActions, actionsLabel, accessibilityActions)
                 }
             }
         }
@@ -152,16 +266,60 @@ fun LibraryScreen(
                 }
                 Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                     if (!importing) {
-                        SmallFloatingActionButton(onClick = { if (interactionEnabled) onImport() },
-                            modifier = Modifier.fillMaxSize().testTag("library_import"),
+                        SmallFloatingActionButton(onClick = { if (interactionEnabled) importMenu = true },
+                            modifier = Modifier.fillMaxSize().testTag("library_import")
+                                .semantics { contentDescription = importLabel },
                             containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
                             Text("+", style = MaterialTheme.typography.headlineSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp))
                         }
                     }
+                    DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_files)) },
+                            modifier = Modifier.testTag("library_import_files"),
+                            onClick = { importMenu = false; onImport() })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) },
+                            modifier = Modifier.testTag("library_import_folder"),
+                            onClick = { importMenu = false; onImportFolder() })
+                    }
                 }
             }
         }
+        reorder.drag?.takeIf { it.moved }?.let { active ->
+            latestBooks[active.id]?.let { book ->
+                Box(Modifier.offset {
+                    val position = active.topLeft - shelfBounds.topLeft
+                    IntOffset(position.x.roundToInt(), position.y.roundToInt())
+                }.size(bookWidth, bookHeight).graphicsLayer { scaleX = 1.04f; scaleY = 1.04f }
+                    .shadow(18.dp, RoundedCornerShape(2.dp)).testTag("library_dragging_book")) {
+                    coverContent(book)
+                }
+            }
+        }
+    }
+    actionsFor?.let { book ->
+        AlertDialog(onDismissRequest = { actionsFor = null },
+            title = { Text(book.title) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.library_reorder_hint), color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
+                    TextButton(onClick = { actionsFor = null; onShare(book.id) },
+                        modifier = Modifier.fillMaxWidth().testTag("library_share")) { Text(shareLabel) }
+                    val index = reorder.ids.indexOf(book.id)
+                    reorder.ids.getOrNull(index - 1)?.let { target ->
+                        TextButton(onClick = { moveBook(book.id, target); actionsFor = null },
+                            modifier = Modifier.fillMaxWidth().testTag("library_move_earlier")) { Text(moveEarlier) }
+                    }
+                    reorder.ids.getOrNull(index + 1)?.let { target ->
+                        TextButton(onClick = { moveBook(book.id, target); actionsFor = null },
+                            modifier = Modifier.fillMaxWidth().testTag("library_move_later")) { Text(moveLater) }
+                    }
+                    TextButton(onClick = { actionsFor = null; deleting = book },
+                        modifier = Modifier.fillMaxWidth().testTag("library_delete")) { Text(deleteLabel) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { actionsFor = null }) { Text(stringResource(R.string.library_close)) } })
     }
     deleting?.let { book ->
         AlertDialog(onDismissRequest = { deleting = null },
@@ -181,28 +339,36 @@ private fun LibraryShelfRow(
     empty: Boolean,
     interactionEnabled: Boolean,
     hiddenBookId: BookId?,
+    draggingBookId: BookId?,
     onOpen: (BookId) -> Unit,
     onBookBoundsChanged: (BookId, Rect?) -> Unit,
     coverContent: @Composable (LibraryBook) -> Unit,
-    onDeleteRequest: (LibraryBook) -> Unit,
+    onActions: (LibraryBook) -> Unit,
+    actionsLabel: String,
+    accessibilityActions: (LibraryBook) -> List<CustomAccessibilityAction>,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(bookHeight + 22.dp).padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
-            rows.getOrNull(rowIndex).orEmpty().forEach { book ->
+            rows.getOrNull(rowIndex).orEmpty().forEach { book -> key(book.id) {
                 DisposableEffect(book.id) {
                     onDispose { onBookBoundsChanged(book.id, null) }
                 }
                 Box(Modifier.width(bookWidth).height(bookHeight)
                     .testTag("library_book_${book.id.value}")
                     .onGloballyPositioned { onBookBoundsChanged(book.id, it.boundsInRoot()) }
-                    .graphicsLayer { alpha = if (book.id == hiddenBookId) 0f else 1f }
+                    .graphicsLayer { alpha = when (book.id) { hiddenBookId -> 0f; draggingBookId -> .25f; else -> 1f } }
                     .shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D))
-                    .combinedClickable(enabled = interactionEnabled,
-                        onClick = { onOpen(book.id) }, onLongClick = { onDeleteRequest(book) })) {
+                    .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { onOpen(book.id) })
+                    .semantics {
+                        if (interactionEnabled) {
+                            onLongClick(actionsLabel) { onActions(book); true }
+                            customActions = accessibilityActions(book)
+                        }
+                    }) {
                     coverContent(book)
                 }
-            }
+            } }
         }
         ShelfEdge()
         if (empty && rowIndex == 0) {

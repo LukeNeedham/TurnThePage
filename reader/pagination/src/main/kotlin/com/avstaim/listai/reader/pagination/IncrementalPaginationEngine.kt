@@ -57,6 +57,9 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
 
         for ((blockIndex, block) in flow.withIndex()) {
             currentCoroutineContext().ensureActive()
+            // Fixed-layout source pages occupy separate leaves even when their aspect ratio
+            // leaves unused paper. Neither font changes nor a short landscape page may merge them.
+            if (block.source is BookBlock.FixedPage) finishPage()
             val measured = nextMeasurement ?: measurer.measure(block, layoutKey)
             nextMeasurement = null
             require(measured.lines.isNotEmpty() && measured.width.isFinite() && measured.width > 0)
@@ -94,7 +97,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
                 lineIndex = endLine
                 if (lineIndex < measured.lines.size) finishPage()
             }
-            y += layoutKey.paragraphGap
+            if (block.source is BookBlock.FixedPage) finishPage() else y += layoutKey.paragraphGap
         }
         finishPage()
         emit(PaginationSnapshot(layoutKey, pages.toList(), pages.pageIndexContaining(anchor), complete = true))

@@ -32,6 +32,7 @@ import com.avstaim.listai.reader.pagination.FlowBlock
 import com.avstaim.listai.reader.pagination.HyphenationMode
 import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.MeasuredLine
+import com.avstaim.listai.reader.pagination.MeasurementMetrics
 import com.avstaim.listai.reader.pagination.textContent
 import java.util.Locale
 import kotlin.math.min
@@ -68,6 +69,13 @@ internal class AndroidBookMeasurer(
     override fun measure(block: FlowBlock, key: LayoutKey): BlockMeasurement {
         val source = block.source
         if (source is BookBlock.Image) return image(source, key)
+        if (source is BookBlock.FixedPage) {
+            val fit = min(key.contentWidth.toFloat() / source.widthPoints,
+                key.contentHeight / source.heightPoints)
+            return MeasurementMetrics(listOf(MeasuredLine(0, 0, 0f,
+                (source.heightPoints * fit).coerceAtLeast(1f))),
+                (source.widthPoints * fit).coerceAtLeast(1f))
+        }
         val paragraph = source as? BookBlock.Paragraph
         val heading = source is BookBlock.Heading || paragraph?.role == ParagraphRole.SUBTITLE
         val italic = block.quoteDepth > 0 || source is BookBlock.Poem || paragraph?.role == ParagraphRole.TEXT_AUTHOR

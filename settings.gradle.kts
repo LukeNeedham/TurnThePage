@@ -26,6 +26,8 @@ include(
     ":feature:library",
     ":feature:reader",
     ":format:fb2",
+    ":format:epub",
+    ":format:pdf",
     ":reader:pagination",
     ":reader:rendering",
 )

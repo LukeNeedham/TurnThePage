@@ -22,6 +22,9 @@ sealed class BookParseException(message: String, cause: Throwable? = null) : Exc
     class MalformedDocument(cause: Throwable? = null) :
         BookParseException("The book document is malformed", cause)
 
+    class EncryptedDocument(cause: Throwable? = null) :
+        BookParseException("Password-protected book documents are not supported", cause)
+
     class ArchiveContainsNoFb2 :
         BookParseException("The archive does not contain an FB2 document")
 

@@ -17,7 +17,9 @@
 
 ## 1.0
 
-Текущая версия — **1.0**, `versionCode = 14`.
+Версия в разработке — **1.1**, `versionCode = 15`. [Изменения 1.1](docs/releases/1.1.md):
+EPUB и PDF, перетаскивание книг, обмен исходным файлом и массовый импорт папок.
+Последний опубликованный выпуск — **1.0**.
 
 В первый стабильный выпуск входят:
 
@@ -87,11 +89,11 @@ APK появится в `app/build/outputs/apk/debug/`. Версия задаё�
 
 ```text
 :core:model
-├── :format:fb2
+├── :format:fb2 / :format:epub / :format:pdf (Android)
 ├── :reader:pagination
 │   └── :reader:rendering
 ├── :core:database
-├── :core:files (также :format:fb2)
+├── :core:files (форматы, SAF, частные копии)
 ├── :feature:library (database, designsystem, files)
 └── :feature:reader (adaptive, designsystem, pagination, rendering)
 

@@ -10,6 +10,7 @@ import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
+import androidx.room.Transaction
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -56,6 +57,7 @@ data class BookEntity(
     val totalCharacters: Long,
     @Embedded val progress: StoredProgress = StoredProgress(),
     val deleting: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0") val shelfOrder: Long = 0,
 )
 
 @Entity(tableName = "bookmarks", foreignKeys = [ForeignKey(entity = BookEntity::class,
@@ -75,8 +77,24 @@ data class BookmarkEntity(
 
 @Dao
 interface LibraryDao {
-    @Query("SELECT * FROM books WHERE deleting = 0 ORDER BY lastOpenedAt DESC, importedAt DESC, id ASC")
+    @Query("SELECT * FROM books WHERE deleting = 0 ORDER BY shelfOrder ASC, importedAt DESC, id ASC")
     fun observeBooks(): Flow<List<BookEntity>>
+
+    @Query("SELECT * FROM books WHERE deleting = 0 ORDER BY shelfOrder ASC, importedAt DESC, id ASC")
+    suspend fun orderedBooks(): List<BookEntity>
+
+    @Query("UPDATE books SET shelfOrder = :position WHERE id = :id AND deleting = 0")
+    suspend fun setShelfOrder(id: String, position: Long)
+
+    @Transaction
+    suspend fun moveBook(id: String, targetId: String) {
+        val ordered = orderedBooks().map { it.id }.toMutableList()
+        val from = ordered.indexOf(id)
+        val to = ordered.indexOf(targetId)
+        if (from < 0 || to < 0 || from == to) return
+        ordered.add(to, ordered.removeAt(from))
+        ordered.forEachIndexed { index, bookId -> setShelfOrder(bookId, index.toLong()) }
+    }
 
     @Query("SELECT * FROM books")
     suspend fun allBooks(): List<BookEntity>
@@ -111,7 +129,7 @@ interface LibraryDao {
     suspend fun deleteBookmark(bookId: String, id: String)
 }
 
-@Database(entities = [BookEntity::class, BookmarkEntity::class], version = 3, exportSchema = true)
+@Database(entities = [BookEntity::class, BookmarkEntity::class], version = 4, exportSchema = true)
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
 
@@ -131,8 +149,22 @@ abstract class LibraryDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN shelfOrder INTEGER NOT NULL DEFAULT 0")
+                // Freeze the existing visible shelf order without changing reading state.
+                val ids = mutableListOf<String>()
+                db.query("SELECT id FROM books ORDER BY lastOpenedAt DESC, importedAt DESC, id ASC").use { cursor ->
+                    while (cursor.moveToNext()) ids += cursor.getString(0)
+                }
+                ids.forEachIndexed { index, id ->
+                    db.execSQL("UPDATE books SET shelfOrder = ? WHERE id = ?", arrayOf(index, id))
+                }
+            }
+        }
+
         fun open(context: Context, name: String = "library.db"): LibraryDatabase =
             Room.databaseBuilder(context.applicationContext, LibraryDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
     }
 }

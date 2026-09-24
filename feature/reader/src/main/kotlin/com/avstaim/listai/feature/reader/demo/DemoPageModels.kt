@@ -100,7 +100,7 @@ internal fun BookDocument.toDemoPages(): List<DemoPageUiModel> {
                 kind = DemoPageKind.TEXT,
             )
 
-            is BookBlock.Spacer -> DemoPageUiModel(
+            is BookBlock.FixedPage, is BookBlock.Spacer -> DemoPageUiModel(
                 stableId = block.id.value,
                 title = null,
                 body = "",

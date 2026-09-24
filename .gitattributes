@@ -12,6 +12,8 @@ gradlew text eol=lf
 gradlew.bat text eol=crlf
 
 *.jar binary
+*.epub binary
+*.pdf binary
 *.png binary
 *.jpg binary
 *.jpeg binary

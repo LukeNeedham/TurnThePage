@@ -1,18 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_title">Ваша библиотека</string>
-    <string name="library_import">Импорт книги</string>
-    <string name="library_importing">Импорт книги…</string>
+    <string name="library_import">Импорт книг</string>
+    <string name="library_importing">Импорт книг…</string>
     <string name="library_cancel">Отмена</string>
     <string name="library_all">Все книги</string>
     <string name="library_recent">Недавние</string>
     <string name="library_sort_recent">Сначала последние открытые</string>
     <string name="library_no_recent">Откройте книгу, чтобы найти её здесь.</string>
-    <string name="library_empty">Импортируйте книгу FB2 или FB2.ZIP, чтобы начать читать.</string>
+    <string name="library_empty">Импортируйте книги FB2, EPUB или PDF, чтобы начать читать.</string>
     <string name="library_unknown_author">Автор неизвестен</string>
     <string name="library_progress">Прочитано %1$d%%</string>
     <string name="library_delete">Удалить</string>
     <string name="library_delete_title">Удалить книгу?</string>
     <string name="library_delete_message">«%1$s», прогресс чтения и закладки будут удалены из приложения. Исходный файл сохранится.</string>
     <string name="library_settings">Настройки чтения</string>
+    <string name="library_import_files">Выбрать книги</string>
+    <string name="library_import_folder">Импорт папки с подпапками</string>
+    <string name="library_share">Поделиться книгой</string>
+    <string name="library_move_earlier">Переместить раньше</string>
+    <string name="library_move_later">Переместить позже</string>
+    <string name="library_book_actions">Действия с книгой</string>
+    <string name="library_reorder_hint">Удерживайте и перетащите обложку, чтобы изменить порядок книг.</string>
+    <string name="library_close">Закрыть</string>
 </resources>

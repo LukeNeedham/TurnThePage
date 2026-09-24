@@ -112,3 +112,20 @@ private fun InsertPreview(section: PaperInsertSection, system: Boolean = false) 
         }
     }
 }
+
+/** Shelf settings deliberately have no Surface ancestor providing LocalContentColor. */
+@PreviewTest
+@Preview(name = "Shelf settings — dark en", widthDp = 412, heightDp = 800, locale = "en", uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Настройки полки — тёмные ru", widthDp = 412, heightDp = 800, locale = "ru", uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "Shelf settings — light en", widthDp = 412, heightDp = 800, locale = "en")
+@Preview(name = "Настройки полки — крупный шрифт ru", widthDp = 320, heightDp = 700, fontScale = 1.3f, locale = "ru", uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ShelfSettingsScreenshots() {
+    val dark = isSystemInDarkTheme()
+    ListaiTheme(darkTheme = dark) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(18.dp),
+            contentAlignment = Alignment.Center) {
+            PaperSettingsSheet(ReaderPreferences(theme = if (dark) ReaderTheme.DARK else ReaderTheme.LIGHT), {}, {}, onShowHints = {})
+        }
+    }
+}

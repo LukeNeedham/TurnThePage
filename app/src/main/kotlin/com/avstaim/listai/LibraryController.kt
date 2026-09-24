@@ -2,6 +2,11 @@ package com.avstaim.listai
 
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
+import androidx.core.content.FileProvider
+import com.avstaim.listai.core.files.visitBookFolder
+import com.avstaim.listai.core.files.FolderTooLargeException
+import java.io.File
 import android.net.Uri
 import com.avstaim.listai.core.database.AppPreferences
 import com.avstaim.listai.core.files.ImportTooLargeException
@@ -13,6 +18,9 @@ import java.io.FileNotFoundException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+
+data class ImportProgress(val completed: Int = 0, val currentName: String? = null)
+data class ImportSummary(val added: Int, val duplicates: Int, val failed: Int, val skipped: Int, val cancelled: Boolean)
 
 data class ReaderSelection(val opened: OpenedBook, val initialProgress: ReadingProgress, val session: Long)
 
@@ -38,6 +46,11 @@ class LibraryController(
     val busy = _busy.asStateFlow()
     private val _importing = MutableStateFlow(false)
     val importing = _importing.asStateFlow()
+    private val _importProgress = MutableStateFlow(ImportProgress())
+    val importProgress = _importProgress.asStateFlow()
+    private val _importSummary = MutableStateFlow<ImportSummary?>(null)
+    val importSummary = _importSummary.asStateFlow()
+    fun dismissImportSummary() { _importSummary.value = null }
     private val _error = MutableStateFlow<Int?>(null)
     val error = _error.asStateFlow()
 
@@ -106,34 +119,107 @@ class LibraryController(
         _selection.value = ReaderSelection(opened, opened.book.progress, ++serial)
     }
 
-    fun import(uri: Uri, flags: Int = 0) {
+    fun import(uri: Uri, flags: Int = 0) = importBooks(listOf(uri), flags)
+
+    fun importBooks(uris: List<Uri>, flags: Int = 0) = startImport(uris.distinct(), null, flags)
+
+    fun importFolder(uri: Uri) = startImport(emptyList(), uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+
+    private fun startImport(uris: List<Uri>, folder: Uri?, flags: Int) {
+        if (uris.isEmpty() && folder == null) return
         if (importJob?.isActive == true) {
             _error.value = R.string.library_import_in_progress
             return
         }
         _importing.value = true
+        _importProgress.value = ImportProgress()
+        _importSummary.value = null
         importJob = scope.launch {
-            var acquiredGrant = false
-            try {
+            val grants = mutableListOf<Uri>()
+            var added = 0
+            var duplicates = 0
+            var failed = 0
+            var skipped = 0
+            var cancelled = false
+            var singleId: BookId? = null
+            var initialIds: Set<BookId>? = null
+            val batch = folder != null || uris.size > 1
+            suspend fun acquire(uri: Uri) {
                 if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0 &&
                     context.contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
                     try {
                         context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        acquiredGrant = true
-                    } catch (_: SecurityException) { /* Copy using the temporary incoming grant. */ }
+                        grants += uri
+                    } catch (_: SecurityException) { /* Temporary incoming grant still permits copying. */ }
                 }
-                val id = repository.import(context.contentResolver, uri)
-                open(id)
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { _error.value = failure.userMessage() }
-            finally {
-                if (acquiredGrant) {
-                    try { context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                    catch (_: SecurityException) { /* The provider may already have revoked it. */ }
+            }
+            try {
+                val known = repository.books.first().mapTo(mutableSetOf()) { it.id }
+                initialIds = known.toSet()
+                suspend fun copy(uri: Uri) {
+                    currentCoroutineContext().ensureActive()
+                    try {
+                        val id = repository.import(context.contentResolver, uri)
+                        if (known.add(id)) added++ else duplicates++
+                        singleId = id
+                    } catch (cancel: CancellationException) { throw cancel }
+                    catch (failure: Exception) {
+                        failed++
+                        if (!batch) _error.value = failure.userMessage()
+                    }
+                    _importProgress.value = ImportProgress(added + duplicates + failed)
                 }
+                if (folder != null) {
+                    acquire(folder)
+                    visitBookFolder(context.contentResolver, folder,
+                        onBook = { uri -> copy(uri) }, onUnreadableFolder = { failed++ },
+                        onSkippedFile = { skipped++ })
+                } else {
+                    for (uri in uris) {
+                        acquire(uri)
+                        try { copy(uri) } finally {
+                            if (grants.remove(uri)) releaseGrant(uri)
+                        }
+                    }
+                }
+                if (!batch && failed == 0) singleId?.let(::open)
+            } catch (cancel: CancellationException) {
+                cancelled = true
+                throw cancel
+            } catch (failure: Exception) {
+                failed++
+                _error.value = failure.userMessage()
+            } finally {
+                // Cancellation may arrive inside the non-cancellable publication section.
+                // Count durable copies rather than losing that last successfully committed book.
+                if (cancelled && initialIds != null) withContext(NonCancellable) {
+                    added = repository.books.first().count { it.id !in requireNotNull(initialIds) }
+                }
+                grants.forEach(::releaseGrant)
                 _importing.value = false
+                if (batch || cancelled) _importSummary.value = ImportSummary(added, duplicates, failed, skipped, cancelled)
             }
         }
+    }
+
+    private fun releaseGrant(uri: Uri) {
+        try { context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        catch (_: SecurityException) { /* Grant may already have been revoked. */ }
+    }
+
+    fun moveBook(id: BookId, targetId: BookId) = enqueue { repository.moveBook(id, targetId) }
+
+    fun share(id: BookId) = enqueue {
+        val shared = repository.prepareShare(id, File(context.cacheDir, "shared_books"))
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.books", shared.file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = shared.mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(shared.file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, context.getString(R.string.library_share_title))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     fun cancelImport() { importJob?.cancel() }
@@ -204,8 +290,9 @@ internal fun ReadingProgress.resetRearCoverForShelf(): ReadingProgress = when (c
 
 private fun Exception.userMessage(): Int = when (this) {
     is SecurityException, is FileNotFoundException -> R.string.library_error_access
-    is ImportTooLargeException, is BookParseException.ResourceLimitExceeded -> R.string.library_error_too_large
+    is ImportTooLargeException, is FolderTooLargeException, is BookParseException.ResourceLimitExceeded -> R.string.library_error_too_large
     is BookParseException.ArchiveContainsNoFb2 -> R.string.library_error_empty_zip
+    is BookParseException.EncryptedDocument -> R.string.library_error_encrypted
     is BookParseException -> R.string.library_error_invalid
     else -> R.string.library_error_storage
 }

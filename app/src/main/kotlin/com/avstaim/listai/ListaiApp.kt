@@ -84,12 +84,17 @@ fun ListaiApp(
     val busy by controller.busy.collectAsState()
     val importing by controller.importing.collectAsState()
     val error by controller.error.collectAsState()
+    val importProgress by controller.importProgress.collectAsState()
+    val importSummary by controller.importSummary.collectAsState()
     val bookmarkFlow = remember(selection?.opened?.book?.id) {
         selection?.opened?.book?.id?.let(controller.repository::bookmarks) ?: flowOf(emptyList())
     }
     val bookmarks by bookmarkFlow.collectAsState(initial = emptyList())
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { controller.import(it, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        controller.importBooks(uris, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(controller::importFolder)
     }
     val density = LocalDensity.current
     var phase by remember { mutableStateOf(ShelfReaderPhase.SHELF) }
@@ -205,6 +210,9 @@ fun ListaiApp(
                     controller.open(id)
                 }
             }, onDelete = controller::delete,
+            onShare = controller::share,
+            onMoveBook = controller::moveBook,
+            onImportFolder = { folderPicker.launch(null) },
             modifier = if (phase == ShelfReaderPhase.SHELF) Modifier else Modifier.clearAndSetSemantics {},
             hiddenBookId = flightBook?.id.takeIf { inFlight || readerVisible },
             interactionEnabled = phase == ShelfReaderPhase.SHELF && !busy,
@@ -291,6 +299,21 @@ fun ListaiApp(
                     controller.open(books.first().id)
                 }} else null)
         }
+    }
+    if (importing) {
+        AlertDialog(onDismissRequest = {},
+            title = { Text(stringResource(R.string.library_import_title)) },
+            text = { Text(stringResource(R.string.library_import_count, importProgress.completed)) },
+            confirmButton = { TextButton(onClick = controller::cancelImport) {
+                Text(stringResource(R.string.action_cancel_import))
+            } })
+    }
+    importSummary?.let { summary ->
+        AlertDialog(onDismissRequest = controller::dismissImportSummary,
+            title = { Text(stringResource(if (summary.cancelled) R.string.library_import_cancelled else R.string.library_import_complete)) },
+            text = { Text(stringResource(R.string.library_import_summary, summary.added, summary.duplicates,
+                summary.failed, summary.skipped)) },
+            confirmButton = { TextButton(onClick = controller::dismissImportSummary) { Text(stringResource(R.string.action_ok)) } })
     }
     error?.let { message ->
         AlertDialog(onDismissRequest = controller::dismissError,
