@@ -242,7 +242,8 @@ fun LibraryScreen(
                     .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text(stringResource(R.string.library_importing), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.library_importing), Modifier.weight(1f),
+                        color = colors.onSurface, style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = onCancelImport, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
                 }
             }
