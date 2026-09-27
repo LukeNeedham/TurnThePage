@@ -1190,10 +1190,13 @@ internal fun PhysicalBookView(
             pageControls?.invoke(pageControlsLayout)
         }
         if (quickBookmarkPlacement != null && transitionCoverProgress == null &&
-            activeTurn == null && !physicalTurnActive) {
+            resolvedTurn?.frame?.source !is BookVisualSurface.Cover) {
             QuickBookmarkTab(
                 placement = quickBookmarkPlacement,
                 darkTheme = darkTheme,
+                // Keep the strip steady like the other printed controls. The committed source
+                // anchor stays visible until settling; do not let a tap bookmark it mid-turn.
+                enabled = activeTurn == null && !physicalTurnActive && jumpPreparing == null && !closingBook,
                 onAdd = { onAddBookmark?.invoke(it) },
                 onRemove = { onDeleteBookmark?.invoke(it) },
             )

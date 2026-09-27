@@ -1,7 +1,9 @@
 package com.avstaim.listai
 
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -25,12 +27,16 @@ class SingleReturningLeafTest {
         for (dark in listOf(false, true)) {
             val document = document(dark)
             val commits = CopyOnWriteArrayList<ReadingProgress>()
+            val bookmarks = mutableStateOf(emptyList<Bookmark>())
             compose.runOnUiThread {
                 compose.activity.setContent {
                     ListaiTheme(darkTheme = dark) {
                         ReaderScreen(document, presentationMode = ReaderPresentationMode.SINGLE,
                             darkTheme = dark, preferences = ReaderPreferences(theme = if (dark) ReaderTheme.DARK else ReaderTheme.LIGHT),
                             initialProgress = ReadingProgress(BookLocation(BlockId("paragraph-4"), 0, 0), CoverPosition.OPEN),
+                            bookmarks = bookmarks.value,
+                            onAddBookmarkAt = { location -> bookmarks.value += Bookmark("saved", document.id, location, 0, "") },
+                            onDeleteBookmark = { bookmark -> bookmarks.value -= bookmark },
                             onProgressChanged = { commits += it }, onboardingCompleted = true)
                     }
                 }
@@ -44,6 +50,9 @@ class SingleReturningLeafTest {
             tapTurn(forward = true)
             compose.waitUntil(20_000) { location() != restored && config()[ReaderTurnProgress] == 0f }
             val original = location()
+            quickBookmark().assertIsDisplayed().assertIsEnabled().performClick()
+            val originalBookmark = bookmarks.value.single()
+            val bookmarkBounds = quickBookmark().fetchSemanticsNode().boundsInRoot
             compose.mainClock.autoAdvance = false
             var cancellationPointerDown = false
             try {
@@ -53,6 +62,8 @@ class SingleReturningLeafTest {
                     awaitPhase("forward", phase)
                     assertEquals("Current anchor must stay put while its leaf departs", original, location())
                     assertEquals("page", config()[ReaderTurnSubject])
+                    quickBookmark().assertIsDisplayed().assertIsNotEnabled()
+                    assertEquals(bookmarkBounds, quickBookmark().fetchSemanticsNode().boundsInRoot)
                     val ink = config()[ReaderTurnSourceText]
                     assertTrue("The moving leaf needs text from its first frame", ink.isNotBlank())
                     if (returningInk.isEmpty()) returningInk = ink else assertEquals(returningInk, ink)
@@ -60,6 +71,8 @@ class SingleReturningLeafTest {
                 awaitRest { location() != original }
                 val following = location()
                 val followingCheckpoint = commits.last()
+                quickBookmark().assertIsDisplayed().assertIsEnabled()
+                assertEquals(listOf(originalBookmark), bookmarks.value)
                 // Let the newly committed page install its pointer-input node and prepared
                 // surface window before holding a partial gesture across test-clock frames.
                 compose.mainClock.autoAdvance = true
@@ -80,10 +93,13 @@ class SingleReturningLeafTest {
                 assertEquals("A backward turn returns the prior leaf; it must not lift the current one",
                     returningInk, config()[ReaderTurnSourceText])
                 assertEquals(followingCheckpoint, commits.last())
+                quickBookmark().assertIsDisplayed().assertIsNotEnabled()
+                assertEquals(bookmarkBounds, quickBookmark().fetchSemanticsNode().boundsInRoot)
                 book().performTouchInput { advanceEventTime(600); up() }
                 cancellationPointerDown = false
                 awaitRest { location() == following }
                 assertEquals("Cancelling cannot write a destination checkpoint", followingCheckpoint, commits.last())
+                quickBookmark().assertIsDisplayed().assertIsEnabled()
 
                 tapTurn(forward = false)
                 for (phase in listOf(.08f, .45f, .80f)) {
@@ -92,8 +108,12 @@ class SingleReturningLeafTest {
                     assertEquals("page", config()[ReaderTurnSubject])
                     assertEquals(returningInk, config()[ReaderTurnSourceText])
                     assertEquals(followingCheckpoint, commits.last())
+                    quickBookmark().assertIsDisplayed().assertIsNotEnabled()
+                    assertEquals(bookmarkBounds, quickBookmark().fetchSemanticsNode().boundsInRoot)
                 }
                 awaitRest { location() == original }
+                quickBookmark().assertIsDisplayed().assertIsEnabled().performClick()
+                assertTrue("The restored bookmark must still remove the original anchor", bookmarks.value.isEmpty())
                 assertTrue(config()[ReaderCacheBytes] <= 64L * 1024 * 1024)
             } finally {
                 if (cancellationPointerDown) runCatching { book().performTouchInput { cancel() } }
@@ -113,7 +133,9 @@ class SingleReturningLeafTest {
     }
 
     private fun awaitRest(predicate: () -> Boolean) = advanceUntil {
-        config()[ReaderTurnProgress] == 0f && predicate()
+        // A cancelled spring can reach zero one frame before its session is cleared.
+        config()[ReaderTurnProgress] == 0f && predicate() &&
+            !quickBookmark().fetchSemanticsNode().config.contains(SemanticsProperties.Disabled)
     }
 
     private fun advanceUntil(description: String = "Resting page", predicate: () -> Boolean) {
@@ -121,6 +143,8 @@ class SingleReturningLeafTest {
         try {
             compose.waitUntil(20_000) {
                 compose.mainClock.advanceTimeByFrame()
+                // This control must not disappear on any sampled drag or settle frame.
+                quickBookmark().assertIsDisplayed()
                 val state = node()?.config
                 val observation = if (state == null) "no book node" else
                     "direction=${state.getOrElse(ReaderTurnDirection) { "" }}, " +
@@ -140,6 +164,7 @@ class SingleReturningLeafTest {
     }
 
     private fun book() = compose.onNodeWithTag("book_view_demo")
+    private fun quickBookmark() = compose.onNodeWithTag("reader_quick_bookmark")
     private fun node() = compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().singleOrNull()
     private fun config() = requireNotNull(node()).config
     private fun location() = config()[ReaderSemanticLocation]

@@ -147,6 +147,7 @@ internal fun QuickBookmarkTab(
     onAdd: (BookLocation) -> Unit,
     onRemove: (Bookmark) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val density = LocalDensity.current
     val active = placement.bookmark
@@ -168,6 +169,7 @@ internal fun QuickBookmarkTab(
             ).testTag("reader_quick_bookmark")
                 .semantics { contentDescription = label }
                 .clickable(
+                    enabled = enabled,
                     interactionSource = interaction,
                     indication = null,
                     role = Role.Button,

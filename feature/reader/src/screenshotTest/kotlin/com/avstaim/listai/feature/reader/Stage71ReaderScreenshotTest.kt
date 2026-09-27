@@ -75,6 +75,21 @@ fun ReaderQuickBookmarkDarkSpreadScreenshot() {
 }
 
 @PreviewTest
+@Preview(name = "Reader — bookmark during forward turn", widthDp = 412, heightDp = 850, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkTurningScreenshot() {
+    Stage71Preview(quickBookmark = true, curl = true)
+}
+
+@PreviewTest
+@Preview(name = "Reader — bookmark during backward spread turn", widthDp = 1000, heightDp = 650, locale = "ru")
+@Composable
+fun ReaderQuickBookmarkTurningDarkSpreadScreenshot() {
+    Stage71Preview(quickBookmark = true, curl = true, forceSpread = true, dark = true,
+        curlDirection = TurnDirection.BACKWARD)
+}
+
+@PreviewTest
 @Preview(name = "Reader 7.1 — closed back and blank return area", widthDp = 1000, heightDp = 650)
 @Composable
 fun ReaderClosedBackBackgroundScreenshot() { Stage71Preview(back = true) }
@@ -87,7 +102,8 @@ fun ReaderSavedPlaceOpeningScreenshot() { Stage71Preview(coverProgress = .38f) }
 @Composable
 private fun Stage71Preview(camera: Boolean = false, landscapeCutout: Boolean = false,
     dark: Boolean = false, curl: Boolean = false, back: Boolean = false, coverProgress: Float? = null,
-    quickBookmark: Boolean = false, forceSpread: Boolean = false) {
+    quickBookmark: Boolean = false, forceSpread: Boolean = false,
+    curlDirection: TurnDirection = TurnDirection.FORWARD) {
     val document = remember { stage7PreviewDocument() }
     val density = LocalDensity.current
     ListaiTheme(darkTheme = dark) {
@@ -109,7 +125,7 @@ private fun Stage71Preview(camera: Boolean = false, landscapeCutout: Boolean = f
                 onAddBookmark = if (quickBookmark) ({ _ -> }) else null,
                 onDeleteBookmark = if (quickBookmark) ({ _ -> }) else null,
                 outerPadding = 4.dp, coverInset = 3.dp,
-                previewTurn = if (curl) DemoTurnPreview(TurnDirection.FORWARD, .38f) else null,
+                previewTurn = if (curl) DemoTurnPreview(curlDirection, .38f) else null,
                 transitionCoverProgress = coverProgress,
                 drawBackdrop = false,
                 pageControlInsets = cutouts.copy(left = 0f,
