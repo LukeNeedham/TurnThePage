@@ -48,7 +48,7 @@ fun V12LibraryEmptySearchScreenshot() { V12LibraryPreview(query = "Нет так
 @Preview(name = "Stack picker — actual membership", widthDp = 412, heightDp = 800, locale = "en")
 @Composable
 fun V12LibraryStackPickerScreenshot() {
-    ListaiTheme { Surface { LibraryBookPicker(v12Catalog(), LibraryBookPickerRequest(listOf(BookId("sky"))), {}, {}) } }
+    ListaiTheme { Surface { LibraryBookPicker(v12Catalog(), LibraryBookPickerRequest(listOf(BookId("sky"))), {}, { _, _ -> }) } }
 }
 
 @Composable

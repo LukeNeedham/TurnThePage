@@ -500,9 +500,10 @@ fun LibraryScreen(
                 }
             } }, confirmButton = { TextButton(onClick = { actionsKey = null }) { Text(stringResource(R.string.library_close)) } })
     }
-    picker?.let { request -> LibraryBookPicker(effectiveCatalog, request, onDismiss = { picker = null }, onConfirm = { ids ->
+    picker?.let { request -> LibraryBookPicker(effectiveCatalog, request, onDismiss = { picker = null }, onConfirm = { ids, name ->
         picker = null
-        if (request.destinationStackId != null) onLibraryCommand(LibraryCommand.AddToStack(request.destinationStackId, ids)) else namingIds = ids
+        if (request.destinationStackId != null) onLibraryCommand(LibraryCommand.AddToStack(request.destinationStackId, ids))
+        else onLibraryCommand(LibraryCommand.CreateStack(name, ids))
     }) }
     namingIds?.let { ids -> LibraryStackNameDialog(suggestedStackName(ids.mapNotNull(byId::get)) ?: newStackLabel, false,
         onDismiss = { namingIds = null }, onConfirm = { name -> onLibraryCommand(LibraryCommand.CreateStack(name, ids)); namingIds = null }) }
