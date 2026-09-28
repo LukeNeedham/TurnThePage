@@ -182,7 +182,6 @@ fun LibraryScreen(
     val focus = LocalFocusManager.current
     val searchFocus = remember { FocusRequester() }
     var shelfBounds by remember { mutableStateOf(Rect.Zero) }
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     var inputBounds by remember { mutableStateOf(Rect.Zero) }
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
@@ -260,7 +259,9 @@ fun LibraryScreen(
         else if (sourceBook != null && targetBook != null) latestMove(sourceBook.id, targetBook.id)
     }
     BackHandler(enabled = interactionEnabled && (searchOpen || stack != null || stackTransition)) {
-        when { stackTransition -> Unit; imeVisible -> { keyboard?.hide(); focus.clearFocus() }; searchOpen -> closeSearch(); else -> changeStack(null) }
+        // The IME consumes its own first Back. Once Back reaches this handler, close
+        // the search even if a pre-30 IME inset still describes the previous frame.
+        when { stackTransition -> Unit; searchOpen -> closeSearch(); else -> changeStack(null) }
     }
     LaunchedEffect(searchOpen, interactionEnabled) {
         if (!interactionEnabled) { keyboard?.hide(); focus.clearFocus() }
