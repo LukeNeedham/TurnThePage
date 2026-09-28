@@ -25,6 +25,7 @@ import com.avstaim.listai.core.designsystem.ListaiTheme
 import com.avstaim.listai.core.model.BookId
 import com.avstaim.listai.core.model.LibraryBook
 import com.avstaim.listai.core.model.ReadingProgress
+import com.avstaim.listai.core.model.ShelfZoom
 
 @PreviewTest
 @Preview(name = "Cover geometry — portrait wide square and long fallback", widthDp = 412, heightDp = 620)
@@ -82,13 +83,18 @@ private fun ShelfFlightPreview(progress: Float) {
     val image = remember { coverFixture(240, 360) }
     val book = remember { fixtureBook(0) }
     val density = LocalDensity.current
+    val geometry = libraryShelfGeometry(412f, ShelfZoom.MEDIUM)
+    val sourceLeft = (412f - geometry.bookWidthDp * 2f - 24f) / 2f
+    // Root clearance16 + shelf content padding16 + the book baseline gap22.
+    val sourceTop = 54f
     ListaiTheme(darkTheme = false) {
         Surface {
             Box(Modifier.fillMaxSize()) {
                 LibraryScreen(listOf(book, fixtureBook(3)), false, {}, {}, {}, {},
                     hiddenBookId = book.id, coverContent = { LibraryCover(it, image.takeIf { _ -> it.id == book.id }) })
                 ShelfBookFlight(book,
-                    with(density) { Rect(20.dp.toPx(), 54.dp.toPx(), 174.dp.toPx(), 281.92.dp.toPx()) },
+                    with(density) { Rect(sourceLeft.dp.toPx(), sourceTop.dp.toPx(),
+                        (sourceLeft + geometry.bookWidthDp).dp.toPx(), (sourceTop + geometry.bookHeightDp).dp.toPx()) },
                     with(density) { Rect(7.dp.toPx(), 7.dp.toPx(), 405.dp.toPx(), 793.dp.toPx()) },
                     progress, previewImage = image)
             }

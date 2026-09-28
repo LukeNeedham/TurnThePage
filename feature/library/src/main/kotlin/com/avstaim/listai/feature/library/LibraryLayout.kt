@@ -25,10 +25,12 @@ internal fun calculateLibraryLayout(
     emptyMessageHeightDp: Float = 68f,
     topInsetDp: Float = 0f,
     bottomInsetDp: Float = 0f,
+    /** Measured paper captions below each occupied shelf; includes the user's font scale. */
+    rowCaptionHeightsDp: List<Float> = emptyList(),
 ): LibraryLayout {
     val actualRowCount = rowCount.coerceAtLeast(if (hasEmptyMessage) 1 else 0)
     val rowHeight = bookHeightDp + bookBaselineGapDp + shelfHeightDp + rowSpacingDp
-    val contentHeight = topPaddingDp + actualRowCount * rowHeight +
+    val contentHeight = topPaddingDp + actualRowCount * rowHeight + rowCaptionHeightsDp.take(actualRowCount).sum() +
         (if (hasEmptyMessage) emptyMessageHeightDp else 0f) + bottomPaddingDp
     val availableHeight = (viewportHeightDp - topInsetDp.coerceAtLeast(0f) - bottomInsetDp.coerceAtLeast(0f)).coerceAtLeast(0f)
     val scrollable = contentHeight > availableHeight

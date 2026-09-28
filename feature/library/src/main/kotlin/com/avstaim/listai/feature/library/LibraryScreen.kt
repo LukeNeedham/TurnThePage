@@ -39,13 +39,16 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -53,6 +56,10 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -66,6 +73,7 @@ import com.avstaim.listai.core.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -125,15 +133,12 @@ fun LibraryScreen(
     }
     val stack = stacks[stackId]
     val stackReveal = remember { Animatable(1f) }
-    var previousStackId by remember { mutableStateOf(stackId) }
-    LaunchedEffect(stackId, interactionEnabled) {
-        val changed = previousStackId != stackId
-        previousStackId = stackId
-        if (changed && stackId != null && interactionEnabled && ValueAnimator.areAnimatorsEnabled()) {
-            stackReveal.snapTo(0f)
-            stackReveal.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
-        } else stackReveal.snapTo(1f)
-    }
+    val searchReveal = remember { Animatable(1f) }
+    var requestSearchKeyboard by remember { mutableStateOf(false) }
+    val motionScope = rememberCoroutineScope()
+    val inspection = LocalInspectionMode.current
+    var stackTransition by remember { mutableStateOf(false) }
+    var stackOrigin by remember { mutableStateOf<Rect?>(null) }
     val incoming = when {
         searchOpen -> searchLibrary(effectiveCatalog, query).map { LibraryTile(LibraryShelfItem.Book(it.id), it) }
         stack != null -> stack.bookIds.mapNotNull { id -> byId[id]?.let { LibraryTile(LibraryShelfItem.Book(id), it) } }
@@ -176,8 +181,12 @@ fun LibraryScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val searchFocus = remember { FocusRequester() }
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     var shelfBounds by remember { mutableStateOf(Rect.Zero) }
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    var inputBounds by remember { mutableStateOf(Rect.Zero) }
+    var headerHeight by remember { mutableIntStateOf(0) }
+    var footerHeight by remember { mutableIntStateOf(0) }
+    val shelfEnabled = interactionEnabled && !stackTransition
     val latestTiles by rememberUpdatedState(tiles)
     val latestStack by rememberUpdatedState(stack)
     val latestSearch by rememberUpdatedState(searchOpen)
@@ -210,13 +219,35 @@ fun LibraryScreen(
     fun hideCat() { blankTapCount = 0; catHide++ }
     fun closeSearch() { searchOpen = false; keyboard?.hide(); focus.clearFocus(); hideCat() }
     fun openSearch() {
+        requestSearchKeyboard = true
         if (searchOpen) { searchFocus.requestFocus(); keyboard?.show() } else searchOpen = true
         hideCat()
     }
     fun openBook(id: BookId) { keyboard?.hide(); focus.clearFocus(); hideCat(); onOpen(id) }
+    fun changeStack(id: String?) {
+        if (stackTransition || id == stackId) return
+        hideCat(); gestures.cancel()
+        val animate = !inspection && ValueAnimator.areAnimatorsEnabled()
+        if (!animate) { stackId = id; return }
+        if (id != null) stackOrigin = gestures.bounds["stack:$id"]
+        stackTransition = true
+        motionScope.launch {
+            try {
+                if (id != null) {
+                    stackReveal.snapTo(0f)
+                    stackId = id
+                    withFrameNanos { }
+                    stackReveal.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+                } else {
+                    stackReveal.animateTo(0f, tween(340, easing = FastOutSlowInEasing))
+                    stackId = null
+                    stackReveal.snapTo(1f)
+                }
+            } finally { stackTransition = false }
+        }
+    }
     fun openTile(tile: LibraryTile) {
-        if (tile.stack != null) { stackId = tile.stack.id; hideCat() }
-        else tile.book?.let { openBook(it.id) }
+        if (tile.stack != null) changeStack(tile.stack.id) else tile.book?.let { openBook(it.id) }
     }
     fun move(source: String, target: String) {
         if (source == target || latestSearch) return
@@ -228,12 +259,18 @@ fun LibraryScreen(
         } else if (catalog != null) latestCommand(LibraryCommand.MoveShelfItem(source, target))
         else if (sourceBook != null && targetBook != null) latestMove(sourceBook.id, targetBook.id)
     }
-    BackHandler(enabled = interactionEnabled && (searchOpen || stack != null)) {
-        when { imeVisible -> { keyboard?.hide(); focus.clearFocus() }; searchOpen -> closeSearch(); else -> { stackId = null; hideCat() } }
+    BackHandler(enabled = interactionEnabled && (searchOpen || stack != null || stackTransition)) {
+        when { stackTransition -> Unit; imeVisible -> { keyboard?.hide(); focus.clearFocus() }; searchOpen -> closeSearch(); else -> changeStack(null) }
     }
     LaunchedEffect(searchOpen, interactionEnabled) {
         if (!interactionEnabled) { keyboard?.hide(); focus.clearFocus() }
-        else if (searchOpen && initialSearchQuery == null) { searchFocus.requestFocus(); keyboard?.show() }
+        else if (searchOpen && (requestSearchKeyboard || initialSearchQuery == null)) { searchFocus.requestFocus(); keyboard?.show() }
+    }
+    LaunchedEffect(searchOpen) {
+        if (searchOpen && requestSearchKeyboard && !inspection && ValueAnimator.areAnimatorsEnabled()) {
+            searchReveal.snapTo(0f)
+            searchReveal.animateTo(1f, tween(180, easing = FastOutSlowInEasing))
+        } else searchReveal.snapTo(1f)
     }
     LaunchedEffect(query) { if (searchOpen) searchList.scrollToItem(0) }
     LaunchedEffect(interactionEnabled, searchOpen, stackId) { if (!interactionEnabled || searchOpen) hideCat() }
@@ -248,7 +285,7 @@ fun LibraryScreen(
         if (bounds == null) gestures.bounds.remove(tile.key) else gestures.bounds[tile.key] = bounds
         if (tile.stack == null) tile.book?.let { latestBoundsChanged(it.id, bounds) }
     }
-    BoxWithConstraints(modifier.fillMaxSize().drawBehind { drawListaiBackdrop(useDarkBackdrop) }
+    BoxWithConstraints(modifier.fillMaxSize().imePadding().drawBehind { drawListaiBackdrop(useDarkBackdrop) }
         .onGloballyPositioned { shelfBounds = it.boundsInRoot() }.testTag("library_screen")) {
         val direction = LocalLayoutDirection.current
         val cutout = WindowInsets.displayCutout
@@ -257,13 +294,35 @@ fun LibraryScreen(
         val columns = geometry.columns
         val bookWidth = geometry.bookWidthDp.dp
         val bookHeight = geometry.bookHeightDp.dp
-        val searchLabels = if (searchOpen) 42.dp else 0.dp
-        val topPadding = if (searchOpen || stack != null) 102.dp else 32.dp
-        val latestTopPaddingPx by rememberUpdatedState(with(density) { topPadding.toPx() })
         val rows = ordered.chunked(columns)
-        val shelfRows = calculateLibraryLayout(maxHeight.value, rows.size, bookHeight.value + searchLabels.value,
-            hasEmptyMessage = ordered.isEmpty(), topPaddingDp = topPadding.value,
-            topInsetDp = with(density) { cutout.getTop(this).toDp().value }, bottomInsetDp = with(density) { cutout.getBottom(this).toDp().value })
+        val rowBookHeight = if (ordered.isEmpty() && searchOpen) 0.dp else bookHeight
+        val textMeasurer = rememberTextMeasurer()
+        val titleStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
+        val authorStyle = MaterialTheme.typography.labelSmall
+        val captions = ordered.associate { tile ->
+            val membership = if (searchOpen) effectiveCatalog.stacks.firstOrNull { tile.book?.id in it.bookIds } else null
+            tile.key to ShelfCaption(tile.stack?.name ?: tile.book?.title.orEmpty(),
+                tile.stack?.let { pluralStringResource(R.plurals.library_sheet_book_count, it.bookIds.size, it.bookIds.size) } ?: tile.book?.authors.orEmpty(),
+                membership?.let { stringResource(R.string.library_in_stack, it.name) }.orEmpty(), tile.stack != null)
+        }
+        val captionHeights = remember(captions, bookWidth, density.density, density.fontScale, titleStyle, authorStyle) {
+            captions.mapValues { (_, caption) ->
+                val width = with(density) { (bookWidth - 14.dp).roundToPx() }.coerceAtLeast(1)
+                fun height(text: String, title: Boolean) = if (text.isBlank()) 0 else textMeasurer.measure(AnnotatedString(text),
+                    style = if (title) titleStyle else authorStyle, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    constraints = Constraints(maxWidth = width)).size.height
+                with(density) { (height(caption.title, true) + height(caption.author, false) + height(caption.membership, false)).toDp() } +
+                    10.dp + (if (caption.author.isBlank()) 0.dp else 2.dp) + (if (caption.membership.isBlank()) 0.dp else 3.dp)
+            }
+        }
+        val rowCaptionHeights = rows.map { row -> row.maxOfOrNull { captionHeights[it.key]?.value ?: 0f } ?: 0f }
+        val headerVisible = searchOpen || stack != null
+        val topPadding = if (headerVisible) with(density) { headerHeight.toDp() } else with(density) { cutout.getTop(this).toDp() } + 16.dp
+        val bottomPadding = with(density) { footerHeight.toDp() }.coerceAtLeast(88.dp)
+        val latestTopPaddingPx by rememberUpdatedState(with(density) { topPadding.toPx() })
+        val shelfRows = calculateLibraryLayout(maxHeight.value, rows.size, rowBookHeight.value,
+            hasEmptyMessage = ordered.isEmpty(), topPaddingDp = topPadding.value + 16f, bottomPaddingDp = bottomPadding.value + 12f,
+            shelfHeightDp = 12f, rowCaptionHeightsDp = rowCaptionHeights)
         val latestColumns by rememberUpdatedState(columns)
         fun changeZoom(next: ShelfZoom) {
             if (next == latestZoom) return
@@ -287,13 +346,13 @@ fun LibraryScreen(
             catalog != null && !latestSearch && latestStack == null && latestTiles[source]?.stack == null && latestTiles[source]?.book != null && source != target
         }
         val edgeSize = with(density) { 64.dp.toPx() }
-        val bottomControls = with(density) { 88.dp.toPx() }
+        val bottomControls = with(density) { bottomPadding.toPx() }
         LaunchedEffect(gestures.drag?.key, shelfRows.scrollable) {
             while (isActive && gestures.drag != null && shelfRows.scrollable) {
                 val active = gestures.drag
                 if (active?.moved == true) {
-                    val y = active.pointer.y - shelfBounds.top
-                    val lowerEdge = shelfBounds.height - bottomControls
+                    val y = active.pointer.y - inputBounds.top
+                    val lowerEdge = inputBounds.height
                     val speed = when { y < edgeSize -> -((edgeSize - y) / edgeSize).coerceIn(0f, 1f)
                         y > lowerEdge - edgeSize -> ((y - lowerEdge + edgeSize) / edgeSize).coerceIn(0f, 1f); else -> 0f }
                     val canScroll = (speed < 0f && listState.canScrollBackward) || (speed > 0f && listState.canScrollForward)
@@ -301,15 +360,17 @@ fun LibraryScreen(
                         val consumed = listState.scrollBy(speed * with(density) { 12.dp.toPx() })
                         if (kotlin.math.abs(consumed) > .5f) {
                             withFrameNanos { }
-                            gestures.drag?.let { gestures.move(it.pointer, with(density) { 8.dp.toPx() }, android.os.SystemClock.uptimeMillis(), canGroup) }
+                            gestures.refreshAfterScroll(with(density) { 8.dp.toPx() }, canGroup)
                         }
                     }
                 }
                 delay(16)
             }
         }
-        val shelfModifier = Modifier.fillMaxSize().libraryShelfInput(interactionEnabled, gestures,
-            origin = { shelfBounds.topLeft }, zoom = { latestZoom },
+        val shelfModifier = Modifier.fillMaxSize()
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+            .onGloballyPositioned { inputBounds = it.boundsInRoot() }.testTag("library_shelf").libraryShelfInput(shelfEnabled, gestures,
+            origin = { inputBounds.topLeft }, zoom = { latestZoom },
             isAtTop = { latestList.firstVisibleItemIndex == 0 && latestList.firstVisibleItemScrollOffset == 0 },
             isSearch = { latestSearch }, canGroup = canGroup, onZoom = ::changeZoom, onSearch = ::openSearch,
             onHold = { hideCat(); haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
@@ -323,11 +384,12 @@ fun LibraryScreen(
                     else target.book?.let { namingIds = listOf(it.id, source.book.id) }
                 } else {
                     // Quick drops remain ordinary moves; only a confirmed center dwell groups.
-                    val destination = drag.hoverKey ?: drag.originalKeys.getOrNull(reordered.indexOf(drag.key))
+                    val destination = drag.dropKey ?: drag.originalKeys.getOrNull(reordered.indexOf(drag.key))
                     if (destination != null && destination != drag.key) move(drag.key, destination)
                 }
             }, onActions = { actionsKey = it },
-            onBlankTap = { point, time ->
+            onBlankTap = { inputPoint, time ->
+                val point = inputPoint + inputBounds.topLeft - shelfBounds.topLeft
                 if (catBounds?.contains(point) == true) catTap++
                 else if (!searchOpen && point.y >= latestTopPaddingPx && point.y < shelfBounds.height - bottomControls) {
                     if (time - firstBlankTap > 3_000 || (point - firstBlankPoint).getDistance() > with(density) { 72.dp.toPx() }) {
@@ -336,10 +398,12 @@ fun LibraryScreen(
                     blankTapCount++
                     if (blankTapCount >= 5) { catSummonPoint = point; catSummon++; blankTapCount = 0 }
                 }
-            }, decorationHit = { catBounds?.contains(it) == true }, onActivity = { blankTapCount = 0 }).displayCutoutPadding().semantics {
+            }, decorationHit = { catBounds?.contains(it + inputBounds.topLeft - shelfBounds.topLeft) == true }, onActivity = { blankTapCount = 0 }).semantics {
                 customActions = buildList {
-                    if (shelfZoom != ShelfZoom.LARGE) add(CustomAccessibilityAction(zoomInLabel) { changeZoom(shelfZoom.closer()); true })
-                    if (shelfZoom != ShelfZoom.SMALL) add(CustomAccessibilityAction(zoomOutLabel) { changeZoom(shelfZoom.farther()); true })
+                    if (shelfEnabled) {
+                        if (shelfZoom != ShelfZoom.LARGE) add(CustomAccessibilityAction(zoomInLabel) { changeZoom(shelfZoom.closer()); true })
+                        if (shelfZoom != ShelfZoom.SMALL) add(CustomAccessibilityAction(zoomOutLabel) { changeZoom(shelfZoom.farther()); true })
+                    }
                 }
             }
         val tileActions: (LibraryTile) -> List<CustomAccessibilityAction> = { tile -> buildList {
@@ -355,87 +419,97 @@ fun LibraryScreen(
             }
         } }
         val rowContent: @Composable (Int) -> Unit = { index ->
-            LibraryShelfRow(index, rows, bookWidth, bookHeight, searchLabels, ordered.isEmpty(), searchOpen, interactionEnabled,
-                hiddenBookId, gestures.drag, ::openTile, reportBounds, coverContent, { actionsKey = it.key },
-                bookActionsLabel, stackActionsLabel, tileActions, effectiveCatalog,
+            LibraryShelfRow(index, rows, bookWidth, rowBookHeight, (rowCaptionHeights.getOrNull(index) ?: 0f).dp,
+                ordered.isEmpty(), searchOpen, shelfEnabled, hiddenBookId, gestures.drag, ::openTile, reportBounds,
+                coverContent, { actionsKey = it.key }, bookActionsLabel, stackActionsLabel, tileActions, captions,
+                stackOrigin = stackOrigin,
                 revealProgress = { if (stack != null && !searchOpen) stackReveal.value else 1f })
         }
-        if (shelfRows.scrollable) {
-            LazyColumn(shelfModifier, state = listState, userScrollEnabled = interactionEnabled && gestures.drag == null,
-                contentPadding = PaddingValues(top = topPadding, bottom = 88.dp)) {
-                items(shelfRows.rowCount) { rowContent(it) }
-            }
-        } else {
-            Column(shelfModifier.padding(top = topPadding, bottom = 88.dp)) {
-                repeat(shelfRows.rowCount) { rowContent(it) }
-                repeat(shelfRows.decorativeRowCount) { index ->
-                    LibraryShelfRow(shelfRows.rowCount + index, emptyList(), bookWidth, bookHeight, 0.dp, false, false,
-                        interactionEnabled, null, null, {}, { _, _ -> }, coverContent, {}, bookActionsLabel, stackActionsLabel, { emptyList() }, effectiveCatalog)
+        Column(Modifier.fillMaxSize()) {
+            if (headerVisible) {
+                Box(Modifier.fillMaxWidth().onSizeChanged { headerHeight = it.height }.displayCutoutPadding().padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.TopCenter) {
+                    if (searchOpen) LibrarySearchStrip(query, { query = it }, ::closeSearch,
+                        { keyboard?.hide(); focus.clearFocus() }, searchFocus, shelfEnabled, Modifier.widthIn(max = 640.dp).fillMaxWidth().graphicsLayer {
+                            translationY = -20.dp.toPx() * (1f - searchReveal.value); alpha = searchReveal.value
+                        })
+                    else stack?.let { current -> LibraryStackHeader(current, { changeStack(null) }, { actionsKey = "stack:${current.id}" },
+                        shelfEnabled, Modifier.widthIn(max = 520.dp).fillMaxWidth()) }
                 }
+            } else {
+                Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top)).height(16.dp))
             }
-        }
-        if (searchOpen || stack != null) {
-            Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().displayCutoutPadding()
-                .background(colors.background.copy(alpha = .97f)).padding(horizontal = 12.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { if (searchOpen) closeSearch() else { stackId = null; hideCat() } }, modifier = Modifier.testTag("library_back")) {
-                    Text(stringResource(if (searchOpen) R.string.library_close else R.string.library_to_shelf))
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                // Header and footer are measured before this weighted shelf in the same layout pass.
+                // A first frame, enlarged font or IME resize can never put a cover behind controls.
+                val fittedRows = calculateLibraryLayout(maxHeight.value, rows.size, rowBookHeight.value,
+                    hasEmptyMessage = ordered.isEmpty(), topPaddingDp = 16f, bottomPaddingDp = 12f,
+                    shelfHeightDp = 12f, rowCaptionHeightsDp = rowCaptionHeights)
+            if (fittedRows.scrollable) {
+                LazyColumn(shelfModifier, state = listState, userScrollEnabled = shelfEnabled && gestures.drag == null,
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
+                    items(fittedRows.rowCount) { rowContent(it) }
                 }
-                if (searchOpen) {
-                    OutlinedTextField(query, { query = it }, singleLine = true, modifier = Modifier.weight(1f)
-                        .focusRequester(searchFocus).testTag("library_search_field"), label = { Text(stringResource(R.string.library_search_hint)) })
-                } else stack?.let { current ->
-                    Column(Modifier.weight(1f)) {
-                        Text(current.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(stringResource(R.string.library_stack_count, current.bookIds.size), style = MaterialTheme.typography.labelSmall)
-                    }
-                    TextButton(onClick = { actionsKey = "stack:${current.id}" }, modifier = Modifier.testTag("library_stack_menu")) { Text("···") }
-                }
-            }
-        }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-            .padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (canUndo) {
-                Surface(color = colors.surface.copy(alpha = .97f), shape = RoundedCornerShape(8.dp), shadowElevation = 3.dp) {
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.library_changed), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { hideCat(); onUndo() }, modifier = Modifier.testTag("library_undo")) { Text(stringResource(R.string.library_undo)) }
+            } else {
+                Column(shelfModifier.padding(top = 16.dp, bottom = 12.dp)) {
+                    repeat(fittedRows.rowCount) { rowContent(it) }
+                    repeat(if (searchOpen && ordered.isEmpty()) 0 else fittedRows.decorativeRowCount) { index ->
+                        LibraryShelfRow(fittedRows.rowCount + index, emptyList(), bookWidth, bookHeight, 0.dp, false, false,
+                            shelfEnabled, null, null, {}, { _, _ -> }, coverContent, {}, bookActionsLabel, stackActionsLabel, { emptyList() }, emptyMap())
                     }
                 }
             }
-            if (importing) {
-                Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
-                    .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text(stringResource(R.string.library_importing), Modifier.weight(1f), color = colors.onSurface, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { hideCat(); onCancelImport() }, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
-                }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.weight(1f)) {
-                    versionLabel?.takeIf(String::isNotBlank)?.let { version -> Text(version, Modifier.testTag("library_version"),
-                        color = colors.onBackground.copy(alpha = .48f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                }
-                val searchLabel = stringResource(R.string.library_search)
-                Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
-                    .clickable(enabled = interactionEnabled, role = Role.Button, onClick = ::openSearch).testTag("library_search")
-                    .semantics { contentDescription = searchLabel }, contentAlignment = Alignment.Center) { PaperSearchIcon() }
-                val settingsLabel = stringResource(R.string.library_settings)
-                Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
-                    .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { hideCat(); onSettings() }).testTag("library_settings")
-                    .semantics { contentDescription = settingsLabel }, contentAlignment = Alignment.Center) { PaperSettingsIcon() }
-                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                    if (!importing) SmallFloatingActionButton(onClick = { if (interactionEnabled) { hideCat(); importMenu = true } },
-                        modifier = Modifier.fillMaxSize().testTag("library_import").semantics { contentDescription = importLabel },
-                        containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
-                        Text("+", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 8.dp))
+            Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)).padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (stack != null && !searchOpen) {
+                    OutlinedButton(onClick = { hideCat(); picker = LibraryBookPickerRequest(emptyList(), stack.id) }, enabled = shelfEnabled,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).testTag("library_stack_add_books"), shape = RoundedCornerShape(3.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = colors.surface.copy(alpha = .92f))) {
+                        LibrarySheetIcon(LibraryMenuIcon.ADD, Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.library_add_books))
                     }
-                    DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
-                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_files)) }, modifier = Modifier.testTag("library_import_files"),
-                            onClick = { importMenu = false; onImport() })
-                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) }, modifier = Modifier.testTag("library_import_folder"),
-                            onClick = { importMenu = false; onImportFolder() })
+                }
+                if (canUndo) {
+                    Surface(color = colors.surface.copy(alpha = .97f), shape = RoundedCornerShape(8.dp), shadowElevation = 3.dp) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.library_changed), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { hideCat(); onUndo() }, modifier = Modifier.testTag("library_undo")) { Text(stringResource(R.string.library_undo)) }
+                        }
+                    }
+                }
+                if (importing) {
+                    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
+                        .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.library_importing), Modifier.weight(1f), color = colors.onSurface, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { hideCat(); onCancelImport() }, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        versionLabel?.takeIf(String::isNotBlank)?.let { version -> Text(version, Modifier.testTag("library_version"),
+                            color = colors.onBackground.copy(alpha = .48f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                    val searchLabel = stringResource(R.string.library_search)
+                    Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
+                        .clickable(enabled = shelfEnabled, role = Role.Button, onClick = { if (searchOpen) closeSearch() else openSearch() }).testTag("library_search")
+                        .semantics { contentDescription = searchLabel }, contentAlignment = Alignment.Center) { PaperSearchIcon() }
+                    val settingsLabel = stringResource(R.string.library_settings)
+                    Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
+                        .clickable(enabled = shelfEnabled, role = Role.Button, onClick = { hideCat(); onSettings() }).testTag("library_settings")
+                        .semantics { contentDescription = settingsLabel }, contentAlignment = Alignment.Center) { PaperSettingsIcon() }
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        if (!importing) SmallFloatingActionButton(onClick = { if (shelfEnabled) { hideCat(); importMenu = true } },
+                            modifier = Modifier.fillMaxSize().testTag("library_import").semantics { contentDescription = importLabel },
+                            containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
+                            Text("+", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                        DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.library_import_files)) }, modifier = Modifier.testTag("library_import_files"),
+                                onClick = { importMenu = false; onImport() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) }, modifier = Modifier.testTag("library_import_folder"),
+                                onClick = { importMenu = false; onImportFolder() })
+                        }
                     }
                 }
             }
@@ -457,12 +531,12 @@ fun LibraryScreen(
             var local = bounds.translate(-shelfBounds.topLeft)
             // A stack occupies only the lower portion of its navigation slot. Its physical top
             // (rather than the empty space above it) is the cat's resting edge.
-            if (tile.stack != null) local = local.copy(top = (local.top + local.height * .35f - with(density) { 50.dp.toPx() }).coerceAtLeast(local.top))
+            if (tile.stack != null) local = local.copy(top = (local.top + local.height * .42f).coerceAtLeast(local.top))
             LibraryCatSupport(key, local, tile.stack != null).takeIf { local.overlaps(localViewport) }
         }.sortedBy { (it.bounds.center - catSummonPoint).getDistance() }
         val topExclusion = if (stack != null) with(density) { topPadding.toPx() } else cutout.getTop(density).toFloat()
-        val bottomExclusion = bottomControls + with(density) { ((if (canUndo) 60 else 0) + (if (importing) 64 else 0)).dp.toPx() }
-        LibraryCat(active = interactionEnabled && !searchOpen && actionsKey == null && picker == null && namingIds == null &&
+        val bottomExclusion = bottomControls
+        LibraryCat(active = shelfEnabled && !searchOpen && actionsKey == null && picker == null && namingIds == null &&
             renamingId == null && deleting == null && movingBook == null && dissolvingId == null && !importMenu,
             darkTheme = useDarkBackdrop, zoom = shelfZoom, summonEvent = catSummon, tapEvent = catTap, hideEvent = catHide,
             supports = catSupports, onBoundsChanged = { catBounds = it }, excludedBounds =
@@ -473,32 +547,40 @@ fun LibraryScreen(
     val actionStack = actionsKey?.removePrefix("stack:")?.let(stacks::get)
     val actionBook = actionsKey?.removePrefix("book:")?.let { byId[BookId(it)] }.takeIf { actionStack == null }
     if (actionStack != null || actionBook != null) {
-        AlertDialog(onDismissRequest = { actionsKey = null }, title = { Text(actionStack?.name ?: actionBook!!.title) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                fun dismiss() { actionsKey = null; hideCat() }
-                if (actionStack != null) {
-                    LibraryActionButton(R.string.library_add_books, "library_add_books") { picker = LibraryBookPickerRequest(emptyList(), actionStack.id); dismiss() }
-                    LibraryActionButton(R.string.library_rename_stack, "library_rename_stack") { renamingId = actionStack.id; dismiss() }
-                    LibraryActionButton(R.string.library_dissolve_stack, "library_dissolve_stack") { dissolvingId = actionStack.id; dismiss() }
-                } else actionBook?.let { book ->
-                    Text(stringResource(R.string.library_reorder_hint), style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
-                    LibraryActionButton(R.string.library_share, "library_share") { onShare(book.id); dismiss() }
-                    LibraryActionButton(R.string.library_create_stack, "library_create_stack") { picker = LibraryBookPickerRequest(listOf(book.id)); dismiss() }
-                    if (book.stackId != null) LibraryActionButton(R.string.library_extract, "library_extract") {
-                        onLibraryCommand(LibraryCommand.ExtractFromStack(listOf(book.id))); dismiss()
-                    }
-                    if (effectiveCatalog.stacks.any { it.id != book.stackId }) LibraryActionButton(
-                        if (book.stackId == null) R.string.library_add_to_stack else R.string.library_move_to_stack, "library_move_to_stack") { movingBook = book; dismiss() }
-                    LibraryActionButton(R.string.library_delete, "library_delete") { deleting = book; dismiss() }
-                }
-                if (!searchOpen) {
-                    val actionKey = actionsKey
-                    val index = ordered.indexOfFirst { it.key == actionKey }
-                    ordered.getOrNull(index - 1)?.let { target -> LibraryActionButton(R.string.library_move_earlier, "library_move_earlier") { move(actionKey!!, target.key); dismiss() } }
-                    ordered.getOrNull(index + 1)?.takeIf { index >= 0 }?.let { target -> LibraryActionButton(R.string.library_move_later, "library_move_later") { move(actionKey!!, target.key); dismiss() } }
-                }
-            } }, confirmButton = { TextButton(onClick = { actionsKey = null }) { Text(stringResource(R.string.library_close)) } })
+        fun dismiss() { actionsKey = null; hideCat() }
+        val menuActions = buildList {
+            if (actionStack != null) {
+                if (stackId != actionStack.id) add(LibraryMenuAction(R.string.library_open_item, "library_open_item", LibraryMenuIcon.OPEN,
+                    { dismiss(); changeStack(actionStack.id) }))
+                add(LibraryMenuAction(R.string.library_add_books, "library_add_books", LibraryMenuIcon.ADD,
+                    { picker = LibraryBookPickerRequest(emptyList(), actionStack.id); dismiss() }))
+                add(LibraryMenuAction(R.string.library_rename_stack, "library_rename_stack", LibraryMenuIcon.RENAME,
+                    { renamingId = actionStack.id; dismiss() }))
+                add(LibraryMenuAction(R.string.library_dissolve_stack, "library_dissolve_stack", LibraryMenuIcon.DISSOLVE,
+                    { dissolvingId = actionStack.id; dismiss() }, destructive = true))
+            } else actionBook?.let { book ->
+                add(LibraryMenuAction(R.string.library_open_item, "library_open_item", LibraryMenuIcon.OPEN, { dismiss(); openBook(book.id) }))
+                add(LibraryMenuAction(R.string.library_share, "library_share", LibraryMenuIcon.SHARE, { onShare(book.id); dismiss() }))
+                add(LibraryMenuAction(R.string.library_create_stack, "library_create_stack", LibraryMenuIcon.STACK,
+                    { picker = LibraryBookPickerRequest(listOf(book.id)); dismiss() }))
+                if (book.stackId != null) add(LibraryMenuAction(R.string.library_extract, "library_extract", LibraryMenuIcon.EXTRACT,
+                    { onLibraryCommand(LibraryCommand.ExtractFromStack(listOf(book.id))); dismiss() }))
+                if (effectiveCatalog.stacks.any { it.id != book.stackId }) add(LibraryMenuAction(
+                    if (book.stackId == null) R.string.library_add_to_stack else R.string.library_move_to_stack,
+                    "library_move_to_stack", LibraryMenuIcon.ADD, { movingBook = book; dismiss() }))
+                add(LibraryMenuAction(R.string.library_delete, "library_delete", LibraryMenuIcon.DELETE,
+                    { deleting = book; dismiss() }, destructive = true))
+            }
+            if (!searchOpen) {
+                val actionKey = actionsKey
+                val index = ordered.indexOfFirst { it.key == actionKey }
+                ordered.getOrNull(index - 1)?.let { target -> add(LibraryMenuAction(R.string.library_move_earlier, "library_move_earlier",
+                    LibraryMenuIcon.EARLIER, { move(actionKey!!, target.key); dismiss() })) }
+                ordered.getOrNull(index + 1)?.takeIf { index >= 0 }?.let { target -> add(LibraryMenuAction(R.string.library_move_later, "library_move_later",
+                    LibraryMenuIcon.LATER, { move(actionKey!!, target.key); dismiss() })) }
+            }
+        }
+        LibraryItemMenu(actionBook, actionStack, effectiveCatalog.books, menuActions, onDismiss = { actionsKey = null })
     }
     picker?.let { request -> LibraryBookPicker(effectiveCatalog, request, onDismiss = { picker = null }, onConfirm = { ids, name ->
         picker = null
@@ -509,25 +591,35 @@ fun LibraryScreen(
         onDismiss = { namingIds = null }, onConfirm = { name -> onLibraryCommand(LibraryCommand.CreateStack(name, ids)); namingIds = null }) }
     renamingId?.let { id -> stacks[id]?.let { current -> LibraryStackNameDialog(current.name, true, onDismiss = { renamingId = null },
         onConfirm = { name -> onLibraryCommand(LibraryCommand.RenameStack(id, name)); renamingId = null }) } }
-    movingBook?.let { book -> AlertDialog(onDismissRequest = { movingBook = null }, title = { Text(stringResource(R.string.library_move_to_stack)) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) { effectiveCatalog.stacks.filter { it.id != book.stackId }.forEach { destination ->
-            TextButton(onClick = { onLibraryCommand(LibraryCommand.AddToStack(destination.id, listOf(book.id))); movingBook = null },
-                modifier = Modifier.fillMaxWidth().testTag("library_destination_${destination.id}")) { Text(destination.name) }
-        } } }, confirmButton = { TextButton(onClick = { movingBook = null }) { Text(stringResource(R.string.library_cancel)) } }) }
-    dissolvingId?.let { id -> AlertDialog(onDismissRequest = { dissolvingId = null }, title = { Text(stringResource(R.string.library_dissolve_stack)) },
-        text = { Text(stringResource(R.string.library_dissolve_message)) }, confirmButton = { TextButton(onClick = {
+    movingBook?.let { book -> LibraryPaperSheet(onDismiss = { movingBook = null }) {
+        Text(stringResource(R.string.library_move_to_stack), style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+            effectiveCatalog.stacks.filter { it.id != book.stackId }.forEach { destination ->
+                Row(Modifier.fillMaxWidth().clickable {
+                    onLibraryCommand(LibraryCommand.AddToStack(destination.id, listOf(book.id))); movingBook = null
+                }.testTag("library_destination_${destination.id}").padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LibrarySheetIcon(LibraryMenuIcon.STACK, Modifier.size(24.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(destination.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(pluralStringResource(R.plurals.library_sheet_book_count, destination.bookIds.size, destination.bookIds.size),
+                            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        TextButton({ movingBook = null }, Modifier.align(Alignment.End).padding(horizontal = 16.dp)) { Text(stringResource(R.string.library_cancel)) }
+    } }
+    dissolvingId?.let { id -> LibraryShelfConfirmation(stringResource(R.string.library_dissolve_stack),
+        stringResource(R.string.library_dissolve_message), stringResource(R.string.library_dissolve_stack),
+        "library_confirm_dissolve", onDismiss = { dissolvingId = null }, onConfirm = {
             onLibraryCommand(LibraryCommand.DissolveStack(id)); dissolvingId = null
-        }, modifier = Modifier.testTag("library_confirm_dissolve")) { Text(stringResource(R.string.library_dissolve_stack)) } },
-        dismissButton = { TextButton(onClick = { dissolvingId = null }) { Text(stringResource(R.string.library_cancel)) } }) }
-    deleting?.let { book -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text(stringResource(R.string.library_delete_title)) },
-        text = { Text(stringResource(R.string.library_delete_message, book.title)) }, confirmButton = { TextButton(onClick = { onDelete(book.id); deleting = null },
-            modifier = Modifier.testTag("library_confirm_delete")) { Text(deleteLabel) } },
-        dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.library_cancel)) } }) }
-}
+        }) }
+    deleting?.let { book -> LibraryShelfConfirmation(stringResource(R.string.library_delete_title),
+        stringResource(R.string.library_delete_message, book.title), deleteLabel, "library_confirm_delete",
+        onDismiss = { deleting = null }, onConfirm = { onDelete(book.id); deleting = null }) }
 
-@Composable
-private fun LibraryActionButton(label: Int, tag: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().testTag(tag)) { Text(stringResource(label)) }
 }
 
 @Composable
@@ -536,90 +628,61 @@ private fun LibraryShelfRow(
     empty: Boolean, search: Boolean, interactionEnabled: Boolean, hiddenBookId: BookId?, drag: ShelfItemDrag?,
     onOpen: (LibraryTile) -> Unit, onBounds: (LibraryTile, Rect?) -> Unit, coverContent: @Composable (LibraryBook) -> Unit,
     onActions: (LibraryTile) -> Unit, bookActionsLabel: String, stackActionsLabel: String,
-    accessibilityActions: (LibraryTile) -> List<CustomAccessibilityAction>, catalog: LibraryCatalog,
-    revealProgress: () -> Float = { 1f },
+    accessibilityActions: (LibraryTile) -> List<CustomAccessibilityAction>, captions: Map<String, ShelfCaption>,
+    stackOrigin: Rect? = null, revealProgress: () -> Float = { 1f },
 ) {
+    val rowTiles = rows.getOrNull(rowIndex).orEmpty()
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().height(bookHeight + labelHeight + 22.dp).padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
-            val rowTiles = rows.getOrNull(rowIndex).orEmpty()
+        Row(Modifier.fillMaxWidth().height(bookHeight + 22.dp).padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.Bottom) {
             rowTiles.forEachIndexed { columnIndex, tile -> key(tile.key) {
+                var restingBounds by remember { mutableStateOf<Rect?>(null) }
                 DisposableEffect(tile.key) { onDispose { onBounds(tile, null) } }
-                Column(Modifier.width(bookWidth)) {
-                    Box(Modifier.width(bookWidth).height(bookHeight)
-                        .testTag(if (tile.stack != null) "library_stack_${tile.stack.id}" else "library_book_${tile.book?.id?.value}")
-                        .onGloballyPositioned { onBounds(tile, it.boundsInRoot()) }
-                        .graphicsLayer {
-                            val reveal = revealProgress()
-                            alpha = when { tile.stack == null && tile.book?.id == hiddenBookId -> 0f; tile.key == drag?.key -> .25f; else -> .82f + .18f * reveal }
-                            translationX = -(columnIndex - (rowTiles.size - 1) / 2f) * 12.dp.toPx() * (1f - reveal)
-                            translationY = 6.dp.toPx() * (1f - reveal)
+                Box(Modifier.width(bookWidth).height(bookHeight)
+                    .testTag(if (tile.stack != null) "library_stack_${tile.stack.id}" else "library_book_${tile.book?.id?.value}")
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInRoot()
+                        restingBounds = bounds
+                        onBounds(tile, bounds)
+                    }
+                    .graphicsLayer {
+                        val p = revealProgress()
+                        alpha = when { tile.stack == null && tile.book?.id == hiddenBookId -> 0f; tile.key == drag?.key -> .25f; else -> 1f }
+                        val target = restingBounds
+                        val origin = stackOrigin
+                        if (p < 1f && target != null && origin != null) {
+                            val fan = columnIndex - (rowTiles.size - 1) / 2f
+                            translationX = (origin.center.x - target.center.x) * (1f - p) + fan * 18.dp.toPx() * kotlin.math.sin(p * Math.PI).toFloat()
+                            translationY = (origin.bottom - target.bottom) * (1f - p) - 36.dp.toPx() * kotlin.math.sin(p * Math.PI).toFloat()
+                            rotationZ = fan * 9f * (1f - p)
+                            rotationX = 58f * (1f - p)
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(.5f, 1f)
+                            cameraDistance = 24f * density
+                            scaleX = .82f + .18f * p; scaleY = .82f + .18f * p
                         }
-                        .then(if (tile.stack == null) Modifier.shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D)) else Modifier)
-                        .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { onOpen(tile) })
-                        .semantics { if (interactionEnabled) {
-                            onLongClick(if (tile.stack != null) stackActionsLabel else bookActionsLabel) { onActions(tile); true }
-                            customActions = accessibilityActions(tile)
-                        } }) {
-                        if (tile.stack != null) LibraryStackCover(tile, coverContent) else tile.book?.let { coverContent(it) }
-                        if (drag?.armed == true && drag.hoverKey == tile.key) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .23f)))
                     }
-                    if (search) {
-                        val membership = catalog.stacks.firstOrNull { tile.book?.id in it.bookIds }
-                        Text(membership?.let { stringResource(R.string.library_in_stack, it.name) } ?: tile.book?.authors.orEmpty(),
-                            Modifier.height(labelHeight).fillMaxWidth().padding(top = 5.dp), style = MaterialTheme.typography.labelSmall,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .7f))
-                    }
+                    .then(if (tile.stack == null) Modifier.shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D)) else Modifier)
+                    .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { onOpen(tile) })
+                    .semantics { if (interactionEnabled) {
+                        onLongClick(if (tile.stack != null) stackActionsLabel else bookActionsLabel) { onActions(tile); true }
+                        customActions = accessibilityActions(tile)
+                    } }) {
+                    if (tile.stack != null) LibraryStackCover(tile, coverContent) else tile.book?.let { coverContent(it) }
+                    if (drag?.armed == true && drag.hoverKey == tile.key) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = .18f)))
                 }
             } }
         }
-        ShelfEdge()
+        LibraryShelfBoard()
+        if (labelHeight > 0.dp) Row(Modifier.fillMaxWidth().height(labelHeight).padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
+            rowTiles.forEach { tile ->
+                captions[tile.key]?.let { LibraryShelfCaption(it, Modifier.width(bookWidth).graphicsLayer { alpha = revealProgress() }) }
+            }
+        }
         if (empty && rowIndex == 0) Text(stringResource(if (search) R.string.library_search_empty else R.string.library_empty),
             Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 24.dp).testTag(if (search) "library_search_empty" else "library_empty"),
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
-    }
-}
-
-/** A few visible paper/cover layers suggest any stack size; the label always gives the true count. */
-@Composable
-internal fun LibraryStackCover(tile: LibraryTile, coverContent: @Composable (LibraryBook) -> Unit) {
-    val stack = tile.stack ?: return
-    val colors = MaterialTheme.colorScheme
-    BoxWithConstraints(Modifier.fillMaxSize().semantics { contentDescription = "${stack.name}, ${stack.bookIds.size}" }) {
-        val layerHeight = maxHeight * .085f
-        val stackBase = maxHeight * .65f
-        repeat(minOf(stack.bookIds.size, 4).coerceAtLeast(1)) { index ->
-            Box(Modifier.fillMaxWidth(.94f).height(layerHeight).align(Alignment.BottomCenter)
-                .offset(y = -(32.dp + layerHeight * index)).graphicsLayer { rotationZ = if (index % 2 == 0) -2f else 2f }
-                .shadow(3.dp, RoundedCornerShape(2.dp)).background(colors.primary.copy(alpha = .54f + .1f * (index % 3)), RoundedCornerShape(2.dp))) {
-                Box(Modifier.fillMaxWidth().height(layerHeight * .54f).align(Alignment.Center).padding(horizontal = 3.dp).background(Color(0xFFE8EBEB)))
-            }
-        }
-        tile.book?.let { book ->
-            Box(Modifier.width(maxWidth * .89f).height(stackBase).align(Alignment.BottomCenter).offset(y = -50.dp)
-                .graphicsLayer { rotationZ = -5f; rotationX = 24f; cameraDistance = 14f * density }
-                .shadow(8.dp, RoundedCornerShape(2.dp))) { coverContent(book) }
-        }
-        Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(min = 32.dp), color = colors.surface,
-            shape = RoundedCornerShape(2.dp), shadowElevation = 1.dp) {
-            Column(Modifier.padding(horizontal = 5.dp, vertical = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(stack.name, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                Text(stringResource(R.string.library_stack_count, stack.bookIds.size), style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant, maxLines = 1)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShelfEdge() {
-    val colors = MaterialTheme.colorScheme
-    Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-        drawRect(colors.onBackground.copy(alpha = .09f), size = Size(size.width, 1.dp.toPx()))
-        drawRect(colors.surfaceVariant, topLeft = Offset(0f, 1.dp.toPx()), size = Size(size.width, 5.dp.toPx()))
-        drawRect(colors.onBackground.copy(alpha = .16f), topLeft = Offset(0f, 6.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
-        drawRect(Color(0xFF15324B).copy(alpha = .07f), topLeft = Offset(0f, 7.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
     }
 }
 
