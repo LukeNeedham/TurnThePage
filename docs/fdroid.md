@@ -26,6 +26,10 @@
 Прошли `fdroid lint`, `fdroid rewritemeta` и настоящий локальный
 `fdroid build --test --verbose --stop com.avstaim.listai:15` с fdroidserver 2.4.5,
 официальным gradlew-fdroid, JDK 21, Gradle 9.5.1 и SDK 36.
+`fdroid checkupdates --allow-dirty com.avstaim.listai` также прошёл: теги и
+`UpdateCheckData` правильно определяют `1.1` / `15`. `AutoName` нормализован
+к стандартному английскому названию `Turn the Page`; русское название «Листай»
+сохраняется в Fastlane.
 
 F-Droid самостоятельно получил публичные исходники, выбрал указанный коммит,
 удалил настройки подписи и Gradle wrapper, выполнил сканирование исходников,
