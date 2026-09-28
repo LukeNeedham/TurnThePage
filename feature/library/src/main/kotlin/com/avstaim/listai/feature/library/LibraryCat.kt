@@ -29,7 +29,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import com.avstaim.listai.core.model.ShelfZoom
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -47,18 +51,28 @@ fun LibraryCat(
     onBoundsChanged: (Rect?) -> Unit,
     excludedBounds: List<Rect> = emptyList(),
 ) {
+    var state by remember { mutableStateOf(LibraryCatState()) }
+    val runningAnimation = remember { AtomicReference<Job?>(null) }
     val view = LocalView.current
     val owner = view.findViewTreeLifecycleOwner()
     var foreground by remember(owner) { mutableStateOf(owner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) != false) }
     DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, _ -> foreground = owner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) != false }
+        val observer = LifecycleEventObserver { _, _ ->
+            foreground = owner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) != false
+            if (!foreground) {
+                // ON_STOP can pause the window's recomposer before it sees foreground=false.
+                // Cancel immediately, rather than waiting for a composition or a later resume.
+                runningAnimation.getAndSet(null)?.cancel()
+                state = LibraryCatState()
+                onBoundsChanged(null)
+            }
+        }
         owner?.lifecycle?.addObserver(observer)
-        onDispose { owner?.lifecycle?.removeObserver(observer); onBoundsChanged(null) }
+        onDispose { owner?.lifecycle?.removeObserver(observer); runningAnimation.getAndSet(null)?.cancel(); onBoundsChanged(null) }
     }
     val enabled = active && foreground
     val inspection = LocalInspectionMode.current
     val animate = !inspection && ValueAnimator.areAnimatorsEnabled()
-    var state by remember { mutableStateOf(LibraryCatState()) }
     var lastSummon by remember { mutableStateOf(summonEvent) }
     var lastTap by remember { mutableStateOf(tapEvent) }
     var lastHide by remember { mutableStateOf(hideEvent) }
@@ -85,6 +99,7 @@ fun LibraryCat(
             lastSummon = summonEvent; lastTap = tapEvent; lastHide = hideEvent
         }
         LaunchedEffect(state.phase, enabled) {
+            runningAnimation.set(currentCoroutineContext().job)
             if (!enabled || state.phase == LibraryCatPhase.HIDDEN) {
                 visibility.snapTo(0f); arrival.snapTo(0f); reaction.snapTo(0f)
                 return@LaunchedEffect
