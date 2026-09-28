@@ -126,10 +126,10 @@ fun LibraryScreen(
     val stack = stacks[stackId]
     val stackReveal = remember { Animatable(1f) }
     var previousStackId by remember { mutableStateOf(stackId) }
-    LaunchedEffect(stackId) {
+    LaunchedEffect(stackId, interactionEnabled) {
         val changed = previousStackId != stackId
         previousStackId = stackId
-        if (changed && stackId != null && ValueAnimator.areAnimatorsEnabled()) {
+        if (changed && stackId != null && interactionEnabled && ValueAnimator.areAnimatorsEnabled()) {
             stackReveal.snapTo(0f)
             stackReveal.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
         } else stackReveal.snapTo(1f)
@@ -231,7 +231,10 @@ fun LibraryScreen(
     BackHandler(enabled = interactionEnabled && (searchOpen || stack != null)) {
         when { imeVisible -> { keyboard?.hide(); focus.clearFocus() }; searchOpen -> closeSearch(); else -> { stackId = null; hideCat() } }
     }
-    LaunchedEffect(searchOpen) { if (searchOpen && initialSearchQuery == null) { searchFocus.requestFocus(); keyboard?.show() } }
+    LaunchedEffect(searchOpen, interactionEnabled) {
+        if (!interactionEnabled) { keyboard?.hide(); focus.clearFocus() }
+        else if (searchOpen && initialSearchQuery == null) { searchFocus.requestFocus(); keyboard?.show() }
+    }
     LaunchedEffect(query) { if (searchOpen) searchList.scrollToItem(0) }
     LaunchedEffect(interactionEnabled, searchOpen, stackId) { if (!interactionEnabled || searchOpen) hideCat() }
     LaunchedEffect(listState) {
