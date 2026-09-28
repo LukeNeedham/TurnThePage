@@ -195,7 +195,7 @@ internal class AndroidPageRasterizer(
                 if (measured is AndroidTextMeasurement) {
                     noteLinks += inlineNoteLinks(fragment, measured.layout,
                         document.noteIndex.referencesIn(fragment.blockId, fragment.startCharOffset,
-                            fragment.endCharOffsetExclusive))
+                            fragment.endCharOffsetExclusive), measured.textTop)
                 }
                 canvas.withTranslation(fragment.x, fragment.y) {
                     canvas.clipRect(0f, 0f, fragment.width, fragment.height)
@@ -203,6 +203,8 @@ internal class AndroidPageRasterizer(
                     when (measured) {
                         is AndroidTextMeasurement -> {
                             canvas.translate(0f, -measured.lines[fragment.firstLine].top)
+                            measured.chapterHeading?.draw(canvas)
+                            canvas.translate(0f, measured.textTop)
                             measured.layout.draw(canvas)
                         }
                         is AndroidImageMeasurement -> {

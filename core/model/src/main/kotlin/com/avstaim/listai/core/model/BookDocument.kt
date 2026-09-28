@@ -12,6 +12,10 @@ data class BookDocument(
     val chapters: List<BookChapter> = emptyList(),
     /** Only source-explicit title pages; matching the book's title is not sufficient. */
     val titlePageBlockIds: List<BlockId> = emptyList(),
+    /** Explicit presentation breaks do not introduce synthetic source characters. */
+    val pageBreakBefore: Set<BlockId> = emptySet(),
+    /** A supplemental projection displays title blocks outside the main reading flow. */
+    val isFrontmatter: Boolean = false,
 ) {
     init {
         val mainBlocks = blocks.flattenedBlocks()
@@ -40,6 +44,7 @@ data class BookDocument(
         val mainBlockIds = mainBlocks.mapTo(mutableSetOf(), BookBlock::id)
         require(chapters.flatMap { it.headingBlockIds }.all { it in mainBlockIds })
         require(titlePageBlockIds.distinct().size == titlePageBlockIds.size && titlePageBlockIds.all { it in mainBlockIds })
+        require(pageBreakBefore.all { it in mainBlockIds })
         fun validateToc(entries: List<BookTocEntry>) {
             entries.forEach { entry ->
                 require(entry.location.blockId in mainBlockIds) {

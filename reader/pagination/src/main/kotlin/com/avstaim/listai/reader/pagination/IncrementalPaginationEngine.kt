@@ -62,7 +62,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
             // leaves unused paper. Neither font changes nor a short landscape page may merge them.
             if (block.source is BookBlock.FixedPage) finishPage()
             // Source metadata marks chapter boundaries; an ordinary nested heading does not.
-            if (block.source.id in chapterStarts) finishPage()
+            if (block.source.id in chapterStarts || block.source.id in document.pageBreakBefore) finishPage()
             val measured = nextMeasurement ?: measurer.measure(block, layoutKey)
             nextMeasurement = null
             require(measured.lines.isNotEmpty() && measured.width.isFinite() && measured.width > 0)

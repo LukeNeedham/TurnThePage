@@ -50,7 +50,8 @@ internal fun paginateWithFootnotes(
         var y = 0f
         while (cursor.block < readingFlow.size) {
             val block = readingFlow[cursor.block]
-            if (cursor.line == 0 && lines.isNotEmpty() && block.source.id in chapterStarts) break
+            if (cursor.line == 0 && lines.isNotEmpty() &&
+                (block.source.id in chapterStarts || block.source.id in document.pageBreakBefore)) break
             val metrics = measured(cursor.block)
             if (cursor.line == 0 && block.source is BookBlock.Heading) {
                 val following = if (cursor.block + 1 < readingFlow.size) measured(cursor.block + 1) else null

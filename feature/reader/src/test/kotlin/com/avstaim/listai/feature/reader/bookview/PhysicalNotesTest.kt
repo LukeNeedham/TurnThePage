@@ -88,7 +88,7 @@ class PhysicalNotesTest {
         BookPresentation.entries.forEach { mode ->
             assertNull(resolveReaderJump(request, main.copy(complete = false), null, null, mode, notes, tail))
             val resolved = resolveReaderJump(request, main, null, null, mode, notes, tail)!!
-            assertEquals(main.pages.size, resolved.target.semanticPageIndex)
+            assertEquals(main.pages.size, (resolved.target as PhysicalBookState.Open).semanticPageIndex)
             val navigator = PhysicalBookNavigator(main.pages.size + tail.pages.size)
             val next = navigator.transition(PhysicalBookState.Open(0), TurnDirection.FORWARD, mode)
             assertNotNull(next)

@@ -7,6 +7,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChapterPaginationTest {
+    @Test fun `native title projection skips duplicates without shifting original global coordinates`() {
+        val title = BookBlock.Heading(BlockId("native-title"), 1, listOf(InlineNode.Text("Book 😀")))
+        val body = BookBlock.Paragraph(BlockId("body"), listOf(InlineNode.Text("Actual source")))
+        val source = BookDocument(BookId("native"), BookMetadata("Book"), listOf(title, body), titlePageBlockIds = listOf(title.id))
+        val main = source.readingFlow().single()
+        assertEquals(body.id, main.source.id)
+        assertEquals(title.plainText().length + 1L, main.globalOffset)
+        assertEquals(listOf(title.id, body.id), source.copy(isFrontmatter = true).readingFlow().map { it.source.id })
+        val legacyTitleAnchor = BookLocation(title.id, 6, 6)
+        assertEquals(legacyTitleAnchor, source.readingFlow(includeNativeTitle = true).resolveLocation(legacyTitleAnchor))
+        assertEquals("Book 😀", source.blocks.first().plainText())
+    }
     private val key = LayoutKey(300, 500, PageMode.SINGLE)
     private val engine = IncrementalPaginationEngine { block, layout ->
         val text = block.source.plainText()

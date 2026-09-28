@@ -7,17 +7,20 @@ import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.inlineContent
 import com.avstaim.listai.core.model.plainText
 
-fun BookDocument.readingFlow(): List<FlowBlock> = buildList {
+fun BookDocument.readingFlow(includeNativeTitle: Boolean = isFrontmatter): List<FlowBlock> = buildList {
     var offset = 0L
+    val nativeTitleIds = if (includeNativeTitle) emptySet() else titlePageBlockIds.toSet()
     fun visit(block: BookBlock, depth: Int) {
         if (block is BookBlock.Quote) {
             block.blocks.forEach { visit(it, depth + 1) }
         } else {
-            add(FlowBlock(block, offset, depth))
+            if (block.id !in nativeTitleIds) add(FlowBlock(block, offset, depth))
             offset += block.plainText().length + 1L
         }
     }
     blocks.forEach { visit(it, 0) }
+    // A document containing only an explicit title still has a readable leaf.
+    if (isEmpty() && blocks.isNotEmpty()) add(FlowBlock(blocks.first(), 0L))
 }
 
 /** Preserve the model's UTF-16 space, including poem newlines and inline-image alt text. */

@@ -3,6 +3,7 @@ package com.avstaim.listai.feature.reader.bookview
 import com.avstaim.listai.core.model.ReadingProgress
 import com.avstaim.listai.core.model.BookLocation
 import com.avstaim.listai.core.model.NoteId
+import com.avstaim.listai.core.model.CoverPosition
 import com.avstaim.listai.reader.pagination.PaginationSnapshot
 import com.avstaim.listai.reader.pagination.pageIndexContaining
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
@@ -10,9 +11,9 @@ import com.avstaim.listai.reader.rendering.turn.TurnDirection
 /** A one-shot command; its checkpoint is applied only after the physical leaf settles. */
 internal data class ReaderJumpRequest(val sequence: Long, val progress: ReadingProgress,
     val noteId: NoteId? = null, val origin: BookLocation? = null, val noteTarget: BookLocation? = null,
-    val returningFromNote: Boolean = false)
+    val returningFromNote: Boolean = false, val returningFromContents: Boolean = false)
 
-internal data class PreparedReaderJump(val request: ReaderJumpRequest, val target: PhysicalBookState.Open)
+internal data class PreparedReaderJump(val request: ReaderJumpRequest, val target: PhysicalBookState)
 
 /** A partial index must never silently clamp a distant bookmark to its current last page. */
 internal fun resolveReaderJump(
@@ -24,14 +25,20 @@ internal fun resolveReaderJump(
     notes: PhysicalNotes? = null,
     notesSnapshot: PaginationSnapshot? = null,
     annotationPageCount: Int = 0,
+    annotationSnapshot: PaginationSnapshot? = null,
 ): PreparedReaderJump? {
     val progress = request.progress
+    if (progress.cover == CoverPosition.FRONT) return PreparedReaderJump(request, PhysicalBookState.ClosedFront)
+    if (progress.cover == CoverPosition.BACK && snapshot.complete) return PreparedReaderJump(request, PhysicalBookState.ClosedBack)
     val tocCount = annotationPageCount + (tocSnapshot?.pages?.size ?: 0)
     val tocEntry = progress.tocEntryIndex
     val targetIndex = if (request.noteId != null) {
         if (!snapshot.complete || notes == null || notesSnapshot == null) return null
         val location = request.noteTarget ?: notes.targets[request.noteId] ?: return null
         tocCount + snapshot.pages.size + notesSnapshot.pages.pageIndexContaining(location)
+    } else if (progress.titleLocation != null || progress.annotationLocation != null) {
+        val frontmatter = annotationSnapshot ?: return null
+        frontmatter.pages.pageIndexContaining(requireNotNull(progress.titleLocation ?: progress.annotationLocation))
     } else if (tocEntry != null) {
         if (contents == null || tocSnapshot == null) return null
         annotationPageCount + tocSnapshot.pages.pageIndexContaining(contents.location(tocEntry, progress.tocCharOffset))
@@ -51,10 +58,14 @@ internal fun resolveReaderJump(
 /** TOC leaves precede the source even though their fallback source offsets are unrelated. */
 internal fun readerJumpDirection(
     source: PhysicalBookState,
-    target: PhysicalBookState.Open,
+    target: PhysicalBookState,
     current: ReadingProgress,
     requested: ReadingProgress,
-): TurnDirection = when (source) {
+): TurnDirection = when {
+    target == PhysicalBookState.ClosedFront -> TurnDirection.BACKWARD
+    target == PhysicalBookState.ClosedBack || target == PhysicalBookState.BackBoundary -> TurnDirection.FORWARD
+    target !is PhysicalBookState.Open -> TurnDirection.BACKWARD
+    else -> when (source) {
     PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> TurnDirection.FORWARD
     PhysicalBookState.ClosedBack, PhysicalBookState.BackBoundary -> TurnDirection.BACKWARD
     is PhysicalBookState.Open -> when {
@@ -66,6 +77,7 @@ internal fun readerJumpDirection(
         (requested.location?.fallbackGlobalOffset ?: 0) < (current.location?.fallbackGlobalOffset ?: 0) -> TurnDirection.BACKWARD
         else -> TurnDirection.FORWARD
     }
+}
 }
 
 /** Long jumps own at most two visible spreads, regardless of the distance travelled. */
@@ -80,5 +92,5 @@ internal fun PreparedPagination.visibleOnly(state: PhysicalBookState, presentati
         indices.mapNotNull { index -> surfaces[index]?.let { index to it } }.toMap()),
         cacheBytes, cachedPages, renderedPages, contents, tocSnapshot, interactionToken,
         notes = notes, notesSnapshot = notesSnapshot,
-        annotationSnapshot = annotationSnapshot, insideFront = insideFront)
+        annotationSnapshot = annotationSnapshot, insideFront = insideFront, titleBlockIds = titleBlockIds)
 }
