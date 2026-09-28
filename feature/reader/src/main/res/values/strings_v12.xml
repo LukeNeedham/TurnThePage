@@ -1,0 +1,5 @@
+<resources>
+    <string name="reader_description_heading">Description</string>
+    <string name="reader_title_page">Title page</string>
+    <string name="reader_show_clock">Show clock</string>
+</resources>

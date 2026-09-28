@@ -32,6 +32,7 @@ internal data class ReaderTopControlLayout(
     val buttons: List<Rect>,
     val onCoverMaterial: Boolean = false,
     val onWhitePaper: Boolean = false,
+    val clockBounds: Rect? = null,
 )
 
 /** Two/three ink marks at the paper edges with the camera and fold kept clear. */
@@ -77,7 +78,17 @@ internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, de
         slots = candidates(top)
     }
     val buttons = if (slots.size >= 5) slots.take(2) + slots.takeLast(3) else emptyList()
-    return ReaderTopControlLayout(maxOf(top + touch, insets.top) + 14f * density, buttons)
+    val contentTop = maxOf(top + touch, insets.top) + 14f * density
+    val clockWidth = 82f * density
+    val clockHeight = 12f * density
+    val clock = paperBounds.sortedByDescending { it.width }.firstNotNullOfOrNull { paper ->
+        val center = paper.center.x
+        val candidate = Rect(center - clockWidth / 2, contentTop - clockHeight,
+            center + clockWidth / 2, contentTop)
+        candidate.takeIf { it.left >= paper.left && it.right <= paper.right && it.bottom <= paper.bottom &&
+            insets.cutouts.none { cutout -> cutout.overlaps(it) } && buttons.none { button -> button.overlaps(it) } }
+    }
+    return ReaderTopControlLayout(contentTop, buttons, clockBounds = clock)
 }
 
 @Composable
@@ -91,6 +102,8 @@ internal fun ReaderTopControls(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onMenu: () -> Unit = {},
+    showClock: Boolean = false,
+    active: Boolean = true,
 ) {
     val density = LocalDensity.current
     val labels = listOf(stringResource(R.string.reader_top_close), stringResource(R.string.reader_top_contents),
@@ -110,6 +123,12 @@ internal fun ReaderTopControls(
     }
     CompositionLocalProvider(LocalViewConfiguration provides exactTargets) {
       Box(modifier) {
+        if (showClock) layout.clockBounds?.let { bounds ->
+            ReaderClock(active, if ((darkTheme && !layout.onWhitePaper) || layout.onCoverMaterial)
+                androidx.compose.ui.graphics.Color(0xFF98A5B0) else androidx.compose.ui.graphics.Color(0xFF71808B),
+                Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
+                    .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() }))
+        }
         layout.buttons.forEachIndexed { index, bounds ->
             Box(Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
                 .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })

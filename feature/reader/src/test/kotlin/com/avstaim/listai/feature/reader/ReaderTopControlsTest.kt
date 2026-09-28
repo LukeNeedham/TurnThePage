@@ -18,6 +18,12 @@ class ReaderTopControlsTest {
             insets.cutouts.forEach { assertFalse("Button $button overlaps cutout $it", button.overlaps(it)) }
         }
         layout.buttons.zipWithNext().forEach { (a, b) -> assertFalse(a.overlaps(b)) }
+        layout.clockBounds?.let { clock ->
+            assertTrue(paper.any { clock.left >= it.left && clock.right <= it.right && clock.top >= it.top && clock.bottom <= it.bottom })
+            assertTrue(clock.bottom <= layout.contentTop)
+            assertTrue(layout.buttons.none { it.overlaps(clock) })
+            assertTrue(insets.cutouts.none { it.overlaps(clock) })
+        }
         return layout
     }
 

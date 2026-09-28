@@ -1,0 +1,5 @@
+<resources>
+    <string name="reader_description_heading">Описание</string>
+    <string name="reader_title_page">Титульная страница</string>
+    <string name="reader_show_clock">Показывать часы</string>
+</resources>

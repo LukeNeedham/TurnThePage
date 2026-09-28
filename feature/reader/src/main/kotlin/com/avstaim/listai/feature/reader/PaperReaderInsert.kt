@@ -266,6 +266,18 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
             }
         }
     }
+    InkRule()
+    val clockLabel = stringResource(R.string.reader_show_clock)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(clockLabel, Modifier.weight(1f),
+            style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
+        androidx.compose.material3.Switch(preferences.showClock,
+            { onPreferencesChange(preferences.copy(showClock = it)) },
+            modifier = Modifier.testTag("reader_show_clock").semantics {
+                contentDescription = clockLabel
+            })
+    }
     onShowHints?.let {
         InkRule()
         InkAction(stringResource(R.string.rc1_show_hints), "reader_show_hints", it, PaperIcon.Contents)
