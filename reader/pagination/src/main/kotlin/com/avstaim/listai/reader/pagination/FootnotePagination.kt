@@ -27,12 +27,13 @@ internal fun paginateWithFootnotes(
     measurer: BlockMeasurer,
 ): Flow<PaginationSnapshot> = flow {
     val readingFlow = document.readingFlow()
+    val chapterStarts = document.chapters.mapTo(hashSetOf()) { it.startBlockId }
     val anchor = readingFlow.resolveLocation(location)
     val measurements = mutableMapOf<Int, MeasurementMetrics>()
     val notes = FootnotePlanner(document, key, measurer)
     var chapter: BlockId? = null
     val chapters = readingFlow.map {
-        if (it.source is BookBlock.Heading) chapter = it.source.id
+        if (it.source.id in chapterStarts || document.chapters.isEmpty() && it.source is BookBlock.Heading) chapter = it.source.id
         chapter
     }
     suspend fun measured(index: Int): MeasurementMetrics {
@@ -49,6 +50,7 @@ internal fun paginateWithFootnotes(
         var y = 0f
         while (cursor.block < readingFlow.size) {
             val block = readingFlow[cursor.block]
+            if (cursor.line == 0 && lines.isNotEmpty() && block.source.id in chapterStarts) break
             val metrics = measured(cursor.block)
             if (cursor.line == 0 && block.source is BookBlock.Heading) {
                 val following = if (cursor.block + 1 < readingFlow.size) measured(cursor.block + 1) else null
