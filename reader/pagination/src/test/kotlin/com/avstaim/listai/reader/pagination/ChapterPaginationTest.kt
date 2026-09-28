@@ -7,6 +7,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChapterPaginationTest {
+    @Test fun `title-only source has no duplicate main leaf in either paginator branch`() = runBlocking {
+        for (withNotes in listOf(false, true)) {
+            val id = NoteId("title-note")
+            val title = BookBlock.Heading(BlockId("title"), 1, listOf(InlineNode.Text("Title 😀")) +
+                if (withNotes) listOf(InlineNode.Link(LinkTarget.Note(id), listOf(InlineNode.Text("1")))) else emptyList())
+            val source = BookDocument(BookId("title-only"), BookMetadata("Title"), listOf(title),
+                notes = if (withNotes) listOf(BookNote(id, listOf(BookBlock.Paragraph(BlockId("note"), listOf(InlineNode.Text("Note")))))) else emptyList(),
+                titlePageBlockIds = listOf(title.id))
+            assertTrue(source.readingFlow().isEmpty())
+            assertSame(title, source.readingFlow(includeNativeTitle = true).single().source)
+            val snapshot = engine.paginate(source, BookLocation(title.id, 5, 5), key).last()
+            assertTrue(snapshot.complete)
+            assertTrue(snapshot.pages.isEmpty())
+            assertEquals(0, snapshot.anchorPageIndex)
+            val projected = engine.paginate(source.copy(isFrontmatter = true), null, key).last()
+            assertTrue(projected.pages.isNotEmpty())
+            assertEquals(title.id, projected.pages.first().start.blockId)
+        }
+    }
+
     @Test fun `native title projection skips duplicates without shifting original global coordinates`() {
         val title = BookBlock.Heading(BlockId("native-title"), 1, listOf(InlineNode.Text("Book 😀")))
         val body = BookBlock.Paragraph(BlockId("body"), listOf(InlineNode.Text("Actual source")))

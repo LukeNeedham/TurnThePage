@@ -19,8 +19,7 @@ fun BookDocument.readingFlow(includeNativeTitle: Boolean = isFrontmatter): List<
         }
     }
     blocks.forEach { visit(it, 0) }
-    // A document containing only an explicit title still has a readable leaf.
-    if (isEmpty() && blocks.isNotEmpty()) add(FlowBlock(blocks.first(), 0L))
+    // A title-only source has no main leaves; its original blocks live in frontmatter.
 }
 
 /** Preserve the model's UTF-16 space, including poem newlines and inline-image alt text. */

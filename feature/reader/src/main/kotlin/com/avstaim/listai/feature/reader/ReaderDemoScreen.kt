@@ -279,13 +279,12 @@ fun ReaderScreen(
                 },
             )
         }
-        AnimatedVisibility(insertOpen && navigation != null, modifier = Modifier.fillMaxSize(),
+        AnimatedVisibility(insertOpen, modifier = Modifier.fillMaxSize(),
             enter = fadeIn(tween(140)) + slideInVertically(tween(230)) { it / 12 } + scaleIn(tween(230), initialScale = .96f),
             exit = fadeOut(tween(130))) {
             Box(Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .18f))
                     .clickable { insertOpen = false })
-                navigation?.let { state ->
                 val currentBookmark = bookmarks.firstOrNull {
                     it.location.blockId == bookmarkableLocation?.blockId &&
                         it.location.charOffset == bookmarkableLocation?.charOffset
@@ -302,7 +301,7 @@ fun ReaderScreen(
                     onReturnFromToc = if (checkpoint.tocEntryIndex != null) {
                         ::returnFromContents
                     } else null,
-                    navigation = state, onConfirmNavigation = ::goTo,
+                    navigation = navigation, onConfirmNavigation = ::goTo,
                     isBookmarked = currentBookmark != null,
                     canBookmarkCurrent = bookmarkableLocation != null,
                     onRemoveCurrentBookmark = { currentBookmark?.let(onDeleteBookmark) },
@@ -314,7 +313,6 @@ fun ReaderScreen(
                         end = with(density) { right.toDp() } + 18.dp,
                         bottom = with(density) { bottom.toDp() } + 12.dp),
                 )
-                }
             }
         }
         ReaderOnboardingOverlay(onboarding, darkTheme)

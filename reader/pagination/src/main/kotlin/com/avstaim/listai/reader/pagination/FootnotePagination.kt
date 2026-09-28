@@ -27,6 +27,10 @@ internal fun paginateWithFootnotes(
     measurer: BlockMeasurer,
 ): Flow<PaginationSnapshot> = flow {
     val readingFlow = document.readingFlow()
+    if (readingFlow.isEmpty() && document.titlePageBlockIds.isNotEmpty()) {
+        emit(PaginationSnapshot(key, emptyList(), 0, complete = true))
+        return@flow
+    }
     val chapterStarts = document.chapters.mapTo(hashSetOf()) { it.startBlockId }
     val anchor = readingFlow.resolveLocation(location)
     val measurements = mutableMapOf<Int, MeasurementMetrics>()

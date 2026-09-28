@@ -24,6 +24,10 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
         if (document.noteIndex.referencesByBlock.isNotEmpty()) paginateWithFootnotes(document, location, layoutKey, measurer)
         else flow {
         val flow = document.readingFlow()
+        if (flow.isEmpty() && document.titlePageBlockIds.isNotEmpty()) {
+            emit(PaginationSnapshot(layoutKey, emptyList(), 0, complete = true))
+            return@flow
+        }
         val chapterStarts = document.chapters.associateBy { it.startBlockId }
         val anchor = flow.resolveLocation(location)
         val pages = mutableListOf<PageLayout>()

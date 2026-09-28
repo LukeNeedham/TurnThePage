@@ -105,6 +105,7 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
                     notesSnapshot.pages.pageIndexContaining(noteLocation ?: notes.targets.getValue(requireNotNull(noteId)))
                 else if (tocEntryIndex != null && contents != null && tocSnapshot != null)
                 annotationCount + tocSnapshot.pages.pageIndexContaining(contents.location(requireNotNull(tocEntryIndex), tocCharOffset))
+                else if (snapshot.pages.isEmpty()) 0
                 else annotationCount + (tocSnapshot?.pages?.size ?: 0) +
                     snapshot.pages.pageIndexContaining(location ?: snapshot.pages.first().start))
         }
@@ -161,8 +162,8 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
         when (state) {
             PhysicalBookState.ClosedFront -> { cover = "front" }
             PhysicalBookState.FrontBoundary -> Unit
-            PhysicalBookState.ClosedBack -> { cover = "back"; location = snapshot.pages.last().endExclusive }
-            PhysicalBookState.BackBoundary -> { cover = "boundary"; location = snapshot.pages.last().endExclusive }
+            PhysicalBookState.ClosedBack -> { cover = "back"; location = snapshot.pages.lastOrNull()?.endExclusive ?: location }
+            PhysicalBookState.BackBoundary -> { cover = "boundary"; location = snapshot.pages.lastOrNull()?.endExclusive ?: location }
             is PhysicalBookState.Open -> { cover = "open"; location = snapshot.pages[state.semanticPageIndex - annotationCount - tocCount].start }
         }
     }
@@ -261,14 +262,17 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
 internal fun rememberReaderPosition(document: BookDocument, initialLocation: BookLocation? = null,
     initialCover: CoverPosition = CoverPosition.OPEN, initialTocEntryIndex: Int? = null,
     initialTocCharOffset: Int = 0, initialNoteId: NoteId? = null, readerSession: Long = 0L,
-    initialAnnotationLocation: BookLocation? = null, initialTitleLocation: BookLocation? = null): ReaderPosition =
+    initialAnnotationLocation: BookLocation? = null, initialTitleLocation: BookLocation? = null): ReaderPosition {
     // Session is an input: a live bookmark selection resets state, while a restored process
     // can consume its saved Bundle even though the controller's counter restarted.
-    rememberSaveable(document.id.value, readerSession, saver = ReaderPosition.Saver) {
+    val position = rememberSaveable(document.id.value, readerSession, saver = ReaderPosition.Saver) {
         ReaderPosition(initialLocation ?: document.readingBlocks().firstOrNull()?.let { BookLocation(it.id, 0, 0) },
             initialCover.name.lowercase(), initialTocEntryIndex, initialTocCharOffset, noteId = initialNoteId,
             annotationLocation = initialAnnotationLocation, titleLocation = initialTitleLocation)
     }
+    // Publish a migrated checkpoint before the first progress effect, including restored Bundles.
+    return remember(document, position) { position.apply { restoreNativeTitle(document.titlePageBlockIds.toSet()) } }
+}
 
 internal class PreparedPagination(
     val snapshot: PaginationSnapshot,

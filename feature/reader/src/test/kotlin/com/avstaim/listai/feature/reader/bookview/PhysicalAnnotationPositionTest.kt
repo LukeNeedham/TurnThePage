@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.avstaim.listai.reader.rendering.turn.TurnDirection
 
 class PhysicalAnnotationPositionTest {
     private val key = LayoutKey(400, 800, PageMode.SINGLE)
@@ -19,6 +20,33 @@ class PhysicalAnnotationPositionTest {
             MeasuredLine(start, minOf(start + columns, text.length), index * lineHeight, (index + 1) * lineHeight)
         }, layout.contentWidth.toFloat())
     })
+
+    @Test fun `native title-only book restores one white projection and can close its back cover`() = runBlocking {
+        val title = BookBlock.Heading(BlockId("native-title-only"), 1, listOf(InlineNode.Text("Title 😀")))
+        val source = BookDocument(BookId("only-title"), BookMetadata("Title"), listOf(title), titlePageBlockIds = listOf(title.id))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val main = engine.paginate(source, null, key).last()
+        val front = engine.paginate(matter.document, null, key.forWhitePaperAnnotation()).last()
+        assertTrue(main.pages.isEmpty())
+        assertEquals(1, front.pages.flatMap { it.blocks }.count { it.blockId == title.id })
+        val legacy = BookLocation(title.id, 2, 2)
+        val position = ReaderPosition(legacy)
+        position.restoreNativeTitle(source.titlePageBlockIds.toSet())
+        var state = position.initialState(main, annotationSnapshot = front)
+        assertEquals(PhysicalBookState.Open(0), state)
+        val target = resolveReaderJump(ReaderJumpRequest(1, position.progress(source.readingLength())), main,
+            null, null, BookPresentation.SINGLE, annotationPageCount = front.pages.size, annotationSnapshot = front)
+        assertEquals(state, target?.target)
+        val navigator = PhysicalBookNavigator(front.pages.size, hasFrontEndpaper = false)
+        repeat(2) {
+            if (state != PhysicalBookState.ClosedBack) {
+                state = requireNotNull(navigator.transition(state, TurnDirection.FORWARD, BookPresentation.SINGLE)).to
+                position.commit(state, main, annotationSnapshot = front, titleBlockIds = matter.titleBlockIds)
+            }
+        }
+        assertEquals(PhysicalBookState.ClosedBack, state)
+        assertEquals(legacy, position.location)
+    }
 
     @Test fun `annotation saver preserves exact source checkpoint across font reflow and page-mode change`() = runBlocking {
         val source = document()

@@ -429,7 +429,8 @@ internal fun PhysicalBookView(
             }
         }
         val navigationState = remember(document, ready?.snapshot, readingPosition?.location) {
-            if (navigationSource != null && ready != null) ReaderNavigationState(navigationSource, ready.snapshot, readingPosition?.location) else null
+            if (navigationSource != null && navigationSource.flow.isNotEmpty() && ready != null && ready.snapshot.pages.isNotEmpty())
+                ReaderNavigationState(navigationSource, ready.snapshot, readingPosition?.location) else null
         }
         LaunchedEffect(navigationState) { navigationState?.let { navigationCallback?.invoke(it) } }
         SideEffect {
@@ -810,8 +811,9 @@ internal fun PhysicalBookView(
                 "${it.noteId.value}|${it.origin.blockId.value}:${it.origin.charOffset}:${it.origin.fallbackGlobalOffset}"
             }.orEmpty()
             ready?.let {
-                val anchor = readingPosition?.location ?: it.snapshot.pages.first().start
-                this[ReaderSemanticLocation] = "${anchor.blockId.value}:${anchor.charOffset}:${anchor.fallbackGlobalOffset}"
+                val anchor = readingPosition?.location ?: it.snapshot.pages.firstOrNull()?.start
+                    ?: it.annotationSnapshot?.pages?.firstOrNull()?.start
+                this[ReaderSemanticLocation] = anchor?.let { "${it.blockId.value}:${it.charOffset}:${it.fallbackGlobalOffset}" }.orEmpty()
                 this[ReaderPaginationComplete] = it.snapshot.complete
                 this[ReaderLayoutIdentity] = it.snapshot.key.toString()
                 this[ReaderCacheBytes] = liveCache?.bytes ?: it.cacheBytes
