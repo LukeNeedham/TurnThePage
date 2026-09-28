@@ -11,6 +11,8 @@ internal class EpubContentState(val limits: EpubParserLimits) {
     val noteTargets = linkedMapOf<String, NoteId>()
     val usedImages = mutableSetOf<String>()
     val firstImagesByPath = mutableMapOf<String, String>()
+    val headingGroups = mutableListOf<BookHeadingGroup>()
+    val titlePageBlockIds = mutableListOf<BlockId>()
     private var blockCount = 0
     private var globalOffset = 0L
     private var noteOffset = 0L
@@ -25,7 +27,7 @@ internal class EpubContentState(val limits: EpubParserLimits) {
 }
 
 private data class InlineStyle(val kind: String, val link: LinkTarget? = null)
-private data class HtmlFrame(val tag: String, val styles: List<InlineStyle>)
+private data class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>)
 private data class PendingAnchor(val key: String, val offset: Int)
 
 internal class XhtmlHandler(
@@ -34,6 +36,7 @@ internal class XhtmlHandler(
     private val images: Map<String, ImageId>,
     private val linear: Boolean,
     private val stylesheets: Map<String, EpubCss> = emptyMap(),
+    private val isTitlePage: Boolean = false,
 ) : EpubHandler() {
     private var depth = 0
     private var bodyDepth = -1
@@ -85,7 +88,7 @@ internal class XhtmlHandler(
         if (properties["font-style"] in setOf("italic", "oblique") && styles.none { it.kind == "em" }) styles += InlineStyle("em")
         if (properties["font-weight"] in setOf("bold", "600", "700", "800", "900") && styles.none { it.kind == "strong" }) styles += InlineStyle("strong")
         if ((properties["text-decoration-line"] ?: properties["text-decoration"]).orEmpty().split(' ').contains("line-through") && styles.none { it.kind == "strike" }) styles += InlineStyle("strike")
-        frames += HtmlFrame(tag, styles)
+        frames += HtmlFrame(tag, styles, attrs.epubType())
         if (tag == "body") {
             bodyDepth = depth
             if (linear) anchors += PendingAnchor(sourceKey(path), 0)
@@ -207,6 +210,18 @@ internal class XhtmlHandler(
     }
     private fun append(block: BookBlock) {
         val location = state.append(block, noteBlocks)
+        if (noteBlocks == null) {
+            val types = frames.flatMap { it.types }.toSet()
+            if (isTitlePage || "titlepage" in types) state.titlePageBlockIds += block.id
+            else if (block is BookBlock.Heading) {
+                val role = when {
+                    "chapter" in types -> BookHeadingRole.CHAPTER
+                    types.any { it in setOf("part", "volume", "prologue", "epilogue", "preface", "foreword", "introduction") } -> BookHeadingRole.OTHER
+                    else -> BookHeadingRole.UNSPECIFIED
+                }
+                state.headingGroups += BookHeadingGroup(listOf(block.id), block.level, role)
+            }
+        }
         val length = block.plainText().length
         anchors.forEach { anchor ->
             val offset = anchor.offset.coerceAtMost(length)

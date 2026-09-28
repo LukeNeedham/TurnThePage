@@ -88,9 +88,11 @@ class EpubBookParser(
                             fallback = fallback.fallback?.let(manifest.items::get)
                         }
                         if (fallback == null || fallback.mediaType != "application/xhtml+xml") malformed()
-                        archive.xml(fallback.path, xml, XhtmlHandler(fallback.path, state, imagePaths, reference.linear, stylesheets))
+                        archive.xml(fallback.path, xml, XhtmlHandler(fallback.path, state, imagePaths, reference.linear, stylesheets,
+                            isTitlePage = fallback.path == manifest.titlePage))
                     } else {
-                        archive.xml(item.path, xml, XhtmlHandler(item.path, state, imagePaths, reference.linear, stylesheets))
+                        archive.xml(item.path, xml, XhtmlHandler(item.path, state, imagePaths, reference.linear, stylesheets,
+                            isTitlePage = item.path == manifest.titlePage))
                     }
                 }
                 if (state.blocks.isEmpty()) throw BookParseException.MissingReadableBody()
@@ -160,6 +162,7 @@ class EpubBookParser(
                     id = BookId("sha256:" + digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 255) }),
                     metadata = BookMetadata(title, manifest.authors.distinct(), manifest.language,
                         manifest.subjects.distinct(), annotation, coverImageId = imagePaths[coverPath],
+                        sequence = manifest.seriesName?.let { BookSequence(it, manifest.seriesNumber) },
                         documentId = manifest.identifier, annotationBlocks = annotation?.let {
                             listOf(BookBlock.Paragraph(BlockId("epub:annotation"), listOf(InlineNode.Text(it))))
                         }.orEmpty()),
@@ -168,6 +171,8 @@ class EpubBookParser(
                     tableOfContents = resolvedToc,
                     images = images,
                     locationsBySourceId = locations,
+                    chapters = chapterOpenings(state.blocks, state.headingGroups),
+                    titlePageBlockIds = state.titlePageBlockIds.toList(),
                 )
             }
         } catch (error: CancellationException) {

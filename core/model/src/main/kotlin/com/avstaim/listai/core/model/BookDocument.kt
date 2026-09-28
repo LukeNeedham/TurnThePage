@@ -8,6 +8,10 @@ data class BookDocument(
     val notes: List<BookNote> = emptyList(),
     val images: List<BookImage> = emptyList(),
     val locationsBySourceId: Map<String, BookLocation> = emptyMap(),
+    /** Presentation metadata only: original blocks and their UTF-16 coordinates stay intact. */
+    val chapters: List<BookChapter> = emptyList(),
+    /** Only source-explicit title pages; matching the book's title is not sufficient. */
+    val titlePageBlockIds: List<BlockId> = emptyList(),
 ) {
     init {
         val mainBlocks = blocks.flattenedBlocks()
@@ -34,6 +38,8 @@ data class BookDocument(
             "Source locations must point to document or note blocks"
         }
         val mainBlockIds = mainBlocks.mapTo(mutableSetOf(), BookBlock::id)
+        require(chapters.flatMap { it.headingBlockIds }.all { it in mainBlockIds })
+        require(titlePageBlockIds.distinct().size == titlePageBlockIds.size && titlePageBlockIds.all { it in mainBlockIds })
         fun validateToc(entries: List<BookTocEntry>) {
             entries.forEach { entry ->
                 require(entry.location.blockId in mainBlockIds) {

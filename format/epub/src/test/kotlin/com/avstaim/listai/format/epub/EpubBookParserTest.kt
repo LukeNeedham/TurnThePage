@@ -13,6 +13,31 @@ import org.junit.Test
 class EpubBookParserTest {
     private val parser = EpubBookParser()
 
+    @Test fun `explicit title page and chapter semantics retain every source block and anchor`() = runBlocking {
+        val archive = book(chapters = mapOf("chapter" to xhtml("""
+            <section epub:type='titlepage'><h1 id='title'>Quiet book</h1><p>Author One</p></section>
+            <section epub:type='part'><h1>Part I</h1></section>
+            <section epub:type='chapter'><header><h1 id='number'>Chapter XI.</h1><h2 id='name'>The Pacific</h2></header><p id='text'>Text 😀.</p><h3>A subtitle</h3><p>More text</p></section>
+        """)), extraMetadata = "<meta name='calibre:series' content='Quiet stories'/><meta name='calibre:series_index' content='2.0'/>")
+        val document = parser.parse(archive.inputStream(), "semantics.epub")
+        assertEquals(2, document.titlePageBlockIds.size)
+        assertEquals("Quiet book", document.blocks.first().plainText())
+        val chapter = document.chapters.single()
+        assertEquals("XI", chapter.number)
+        assertEquals(2, chapter.headingBlockIds.size)
+        assertEquals(document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", "number")).blockId, chapter.startBlockId)
+        assertEquals(BookSequence("Quiet stories", 2), document.metadata.sequence)
+        val body = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", "text"))
+        val before = document.blocks.takeWhile { it.id != body.blockId }
+        assertEquals(before.sumOf { it.plainText().length + 1L }, body.fallbackGlobalOffset)
+    }
+
+    @Test fun `matching title text without semantic marker is never removed or promoted`() = runBlocking {
+        val document = parser.parse(book(chapters = mapOf("chapter" to xhtml("<p>Quiet book</p><p>Actual text</p>"))).inputStream(), "plain.epub")
+        assertTrue(document.titlePageBlockIds.isEmpty())
+        assertEquals("Quiet book", document.blocks.first().plainText())
+    }
+
     @Test fun `EPUB3 metadata spine navigation rich text and deferred image survive archive close`() = runBlocking {
         val image = byteArrayOf(1, 2, 3, 4)
         val archive = book(

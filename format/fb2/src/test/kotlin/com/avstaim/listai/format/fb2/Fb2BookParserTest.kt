@@ -28,6 +28,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Fb2BookParserTest {
+    @Test fun `chapter projection groups title paragraphs without changing source anchors`() = runBlocking {
+        val document = Fb2BookParser().parse("""<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section id="part"><title><p>Часть первая</p></title><section id="chapter"><title><p id="number">Глава XI.</p><p id="name">Тихий берег</p></title><p id="body">Текст 😀 конца.</p><section><title><p>Подзаголовок</p></title><p>Ещё текст.</p></section></section></section>
+            </body></FictionBook>""".byteInputStream())
+        val chapter = document.chapters.single()
+        assertEquals("XI", chapter.number)
+        assertEquals(2, chapter.headingBlockIds.size)
+        assertEquals(document.locationsBySourceId.getValue("number").blockId, chapter.startBlockId)
+        assertEquals(document.locationsBySourceId.getValue("name").blockId, chapter.headingBlockIds.last())
+        val source = document.blocks.flatMap { if (it is BookBlock.Quote) it.blocks else listOf(it) }
+        val bodyIndex = source.indexOfFirst { it.id == document.locationsBySourceId.getValue("body").blockId }
+        assertEquals(source.take(bodyIndex).sumOf { it.plainText().length + 1L }, document.locationsBySourceId.getValue("body").fallbackGlobalOffset)
+        assertEquals("Глава XI.", source.first { it.id == chapter.startBlockId }.plainText())
+    }
     private val parser = Fb2BookParser()
 
     @Test

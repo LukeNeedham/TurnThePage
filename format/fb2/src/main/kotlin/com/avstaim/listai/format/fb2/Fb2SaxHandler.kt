@@ -12,6 +12,8 @@ import com.avstaim.listai.core.model.BookNote
 import com.avstaim.listai.core.model.BookPoemStanza
 import com.avstaim.listai.core.model.BookSequence
 import com.avstaim.listai.core.model.BookTocEntry
+import com.avstaim.listai.core.model.BookHeadingGroup
+import com.avstaim.listai.core.model.chapterOpenings
 import com.avstaim.listai.core.model.ImageId
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -33,6 +35,7 @@ internal class Fb2SaxHandler(
     private val elements = mutableListOf<String>()
     private val mainBlocks = mutableListOf<RawBlock>()
     private val tableOfContents = mutableListOf<RawTocEntry>()
+    private val headingGroups = mutableListOf<BookHeadingGroup>()
     private val notes = mutableListOf<RawNote>()
     private val binaries = mutableListOf<RawBinary>()
     private val anchorsToBlockKey = linkedMapOf<String, String>()
@@ -341,6 +344,7 @@ internal class Fb2SaxHandler(
             notes = modelNotes,
             images = modelImages,
             locationsBySourceId = locationsBySourceId,
+            chapters = chapterOpenings(modelBlocks, headingGroups),
         )
     }
 
@@ -485,18 +489,24 @@ internal class Fb2SaxHandler(
         if (loose != null && currentTitle.lines.isEmpty()) {
             currentTitle.lines += RawLine(listOf(RawInline.Text(loose)), currentTitle.sourceId)
         }
+        val headingIds = mutableListOf<BlockId>()
         currentTitle.lines.forEachIndexed { index, line ->
             val normalized = normalizeInline(line.content)
             if (normalized.isNotEmpty()) {
+                val key = blockIds.next()
+                headingIds += BlockId(key)
                 addBlock(
                     RawBlock.Heading(
-                        key = blockIds.next(),
+                        key = key,
                         sourceIds = listOfNotNull(line.sourceId, currentTitle.sourceId.takeIf { index == 0 }),
                         level = currentTitle.level,
                         content = normalized,
                     ),
                 )
             }
+        }
+        if (!requireNotNull(body).isNotes && sections.isNotEmpty() && headingIds.isNotEmpty()) {
+            headingGroups += BookHeadingGroup(headingIds, currentTitle.level)
         }
         sections.lastOrNull()?.let { section ->
             if (section.title == null) {

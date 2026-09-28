@@ -132,6 +132,9 @@ internal class PackageHandler(private val path: String) : EpubHandler() {
     var identifier: String? = null
     var coverId: String? = null
     var coverPage: String? = null
+    var titlePage: String? = null
+    var seriesName: String? = null
+    var seriesNumber: Int? = null
     var ncxId: String? = null
     private val stack = mutableListOf<String>()
     private var capture: String? = null
@@ -164,8 +167,13 @@ internal class PackageHandler(private val path: String) : EpubHandler() {
             tag == "spine" -> ncxId = attrs.value("toc")
             tag == "itemref" && parent == "spine" -> spine += SpineReference(attrs.value("idref") ?: malformed(), attrs.value("linear") != "no")
             tag == "meta" && parent == "metadata" && attrs.value("name") == "cover" -> coverId = attrs.value("content")
+            tag == "meta" && parent == "metadata" && attrs.value("name") == "calibre:series" -> seriesName = attrs.value("content")
+            tag == "meta" && parent == "metadata" && attrs.value("name") == "calibre:series_index" ->
+                seriesNumber = attrs.value("content")?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 && it <= Int.MAX_VALUE && it % 1.0 == 0.0 }?.toInt()
             tag == "reference" && parent == "guide" && attrs.value("type") == "cover" ->
                 coverPage = attrs.value("href")?.let { resolveReference(path, it)?.path }
+            tag == "reference" && parent == "guide" && attrs.value("type") == "title-page" ->
+                titlePage = attrs.value("href")?.let { resolveReference(path, it)?.path }
         }
     }
     override fun characters(chars: CharArray, start: Int, length: Int) {
