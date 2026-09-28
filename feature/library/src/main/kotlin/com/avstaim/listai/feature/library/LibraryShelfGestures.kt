@@ -152,6 +152,9 @@ internal fun Modifier.libraryShelfInput(
                 if (decoration) change.consume()
                 if (state.drag != null) {
                     change.consume()
+                    // Account for a stationary dwell even if the release arrives before the
+                    // timeout job gets its frame (also true for injected event-time tests).
+                    if (state.armHover(lastTime)) onGroupReady()
                     if (!change.pressed) {
                         val keys = state.keys
                         state.release()?.let { final -> if (final.moved) onDrop(final, keys) else onActions(final.key) }

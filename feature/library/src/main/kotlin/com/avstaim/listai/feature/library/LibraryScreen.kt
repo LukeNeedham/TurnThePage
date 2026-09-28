@@ -1,8 +1,12 @@
 package com.avstaim.listai.feature.library
 
+import android.animation.ValueAnimator
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -120,6 +124,16 @@ fun LibraryScreen(
         if (stackId != null && stackId !in stacks && effectiveCatalog.books.isNotEmpty()) stackId = null
     }
     val stack = stacks[stackId]
+    val stackReveal = remember { Animatable(1f) }
+    var previousStackId by remember { mutableStateOf(stackId) }
+    LaunchedEffect(stackId) {
+        val changed = previousStackId != stackId
+        previousStackId = stackId
+        if (changed && stackId != null && ValueAnimator.areAnimatorsEnabled()) {
+            stackReveal.snapTo(0f)
+            stackReveal.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+        } else stackReveal.snapTo(1f)
+    }
     val incoming = when {
         searchOpen -> searchLibrary(effectiveCatalog, query).map { LibraryTile(LibraryShelfItem.Book(it.id), it) }
         stack != null -> stack.bookIds.mapNotNull { id -> byId[id]?.let { LibraryTile(LibraryShelfItem.Book(id), it) } }
@@ -220,7 +234,13 @@ fun LibraryScreen(
     LaunchedEffect(searchOpen) { if (searchOpen && initialSearchQuery == null) { searchFocus.requestFocus(); keyboard?.show() } }
     LaunchedEffect(query) { if (searchOpen) searchList.scrollToItem(0) }
     LaunchedEffect(interactionEnabled, searchOpen, stackId) { if (!interactionEnabled || searchOpen) hideCat() }
-    LaunchedEffect(listState.isScrollInProgress) { if (listState.isScrollInProgress) hideCat() }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            // The hold already hid the cat. Avoid turning each tiny auto-scroll mutation
+            // into a new hide event/recomposition while a drag remains stationary.
+            if (scrolling && gestures.drag == null) hideCat()
+        }
+    }
     val reportBounds: (LibraryTile, Rect?) -> Unit = { tile, bounds ->
         if (bounds == null) gestures.bounds.remove(tile.key) else gestures.bounds[tile.key] = bounds
         if (tile.stack == null) tile.book?.let { latestBoundsChanged(it.id, bounds) }
@@ -236,6 +256,7 @@ fun LibraryScreen(
         val bookHeight = geometry.bookHeightDp.dp
         val searchLabels = if (searchOpen) 42.dp else 0.dp
         val topPadding = if (searchOpen || stack != null) 102.dp else 32.dp
+        val latestTopPaddingPx by rememberUpdatedState(with(density) { topPadding.toPx() })
         val rows = ordered.chunked(columns)
         val shelfRows = calculateLibraryLayout(maxHeight.value, rows.size, bookHeight.value + searchLabels.value,
             hasEmptyMessage = ordered.isEmpty(), topPaddingDp = topPadding.value,
@@ -247,7 +268,7 @@ fun LibraryScreen(
             pendingAnchor = anchor?.let { LibraryViewportAnchor(it, latestList.firstVisibleItemScrollOffset) }
             gestures.cancel(); blankTapCount = 0; latestZoomChanged(next)
         }
-        LaunchedEffect(columns, shelfZoom, surfaceKey) {
+        LaunchedEffect(columns, shelfZoom, surfaceKey, incomingKeys.isEmpty()) {
             val anchor = pendingAnchor ?: viewports.anchor(surfaceKey)
             val row = anchor?.let { libraryAnchorRow(incomingKeys, columns, it) }
             if (row != null && shelfRows.scrollable) listState.scrollToItem(row, anchor.offset)
@@ -260,7 +281,7 @@ fun LibraryScreen(
             }
         }
         val canGroup: (String, String) -> Boolean = { source, target ->
-            !latestSearch && latestStack == null && latestTiles[source]?.stack == null && latestTiles[source]?.book != null && source != target
+            catalog != null && !latestSearch && latestStack == null && latestTiles[source]?.stack == null && latestTiles[source]?.book != null && source != target
         }
         val edgeSize = with(density) { 64.dp.toPx() }
         val bottomControls = with(density) { 88.dp.toPx() }
@@ -272,10 +293,13 @@ fun LibraryScreen(
                     val lowerEdge = shelfBounds.height - bottomControls
                     val speed = when { y < edgeSize -> -((edgeSize - y) / edgeSize).coerceIn(0f, 1f)
                         y > lowerEdge - edgeSize -> ((y - lowerEdge + edgeSize) / edgeSize).coerceIn(0f, 1f); else -> 0f }
-                    if (speed != 0f) {
-                        listState.scrollBy(speed * with(density) { 12.dp.toPx() })
-                        withFrameNanos { }
-                        gestures.drag?.let { gestures.move(it.pointer, with(density) { 8.dp.toPx() }, android.os.SystemClock.uptimeMillis(), canGroup) }
+                    val canScroll = (speed < 0f && listState.canScrollBackward) || (speed > 0f && listState.canScrollForward)
+                    if (canScroll) {
+                        val consumed = listState.scrollBy(speed * with(density) { 12.dp.toPx() })
+                        if (kotlin.math.abs(consumed) > .5f) {
+                            withFrameNanos { }
+                            gestures.drag?.let { gestures.move(it.pointer, with(density) { 8.dp.toPx() }, android.os.SystemClock.uptimeMillis(), canGroup) }
+                        }
                     }
                 }
                 delay(16)
@@ -302,7 +326,7 @@ fun LibraryScreen(
             }, onActions = { actionsKey = it },
             onBlankTap = { point, time ->
                 if (catBounds?.contains(point) == true) catTap++
-                else if (!searchOpen && point.y >= with(density) { topPadding.toPx() } && point.y < shelfBounds.height - bottomControls) {
+                else if (!searchOpen && point.y >= latestTopPaddingPx && point.y < shelfBounds.height - bottomControls) {
                     if (time - firstBlankTap > 3_000 || (point - firstBlankPoint).getDistance() > with(density) { 72.dp.toPx() }) {
                         firstBlankTap = time; firstBlankPoint = point; blankTapCount = 0
                     }
@@ -330,7 +354,8 @@ fun LibraryScreen(
         val rowContent: @Composable (Int) -> Unit = { index ->
             LibraryShelfRow(index, rows, bookWidth, bookHeight, searchLabels, ordered.isEmpty(), searchOpen, interactionEnabled,
                 hiddenBookId, gestures.drag, ::openTile, reportBounds, coverContent, { actionsKey = it.key },
-                bookActionsLabel, stackActionsLabel, tileActions, effectiveCatalog)
+                bookActionsLabel, stackActionsLabel, tileActions, effectiveCatalog,
+                revealProgress = { if (stack != null && !searchOpen) stackReveal.value else 1f })
         }
         if (shelfRows.scrollable) {
             LazyColumn(shelfModifier, state = listState, userScrollEnabled = interactionEnabled && gestures.drag == null,
@@ -508,17 +533,24 @@ private fun LibraryShelfRow(
     onOpen: (LibraryTile) -> Unit, onBounds: (LibraryTile, Rect?) -> Unit, coverContent: @Composable (LibraryBook) -> Unit,
     onActions: (LibraryTile) -> Unit, bookActionsLabel: String, stackActionsLabel: String,
     accessibilityActions: (LibraryTile) -> List<CustomAccessibilityAction>, catalog: LibraryCatalog,
+    revealProgress: () -> Float = { 1f },
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(bookHeight + labelHeight + 22.dp).padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Bottom) {
-            rows.getOrNull(rowIndex).orEmpty().forEach { tile -> key(tile.key) {
+            val rowTiles = rows.getOrNull(rowIndex).orEmpty()
+            rowTiles.forEachIndexed { columnIndex, tile -> key(tile.key) {
                 DisposableEffect(tile.key) { onDispose { onBounds(tile, null) } }
                 Column(Modifier.width(bookWidth)) {
                     Box(Modifier.width(bookWidth).height(bookHeight)
                         .testTag(if (tile.stack != null) "library_stack_${tile.stack.id}" else "library_book_${tile.book?.id?.value}")
                         .onGloballyPositioned { onBounds(tile, it.boundsInRoot()) }
-                        .graphicsLayer { alpha = when { tile.stack == null && tile.book?.id == hiddenBookId -> 0f; tile.key == drag?.key -> .25f; else -> 1f } }
+                        .graphicsLayer {
+                            val reveal = revealProgress()
+                            alpha = when { tile.stack == null && tile.book?.id == hiddenBookId -> 0f; tile.key == drag?.key -> .25f; else -> .82f + .18f * reveal }
+                            translationX = -(columnIndex - (rowTiles.size - 1) / 2f) * 12.dp.toPx() * (1f - reveal)
+                            translationY = 6.dp.toPx() * (1f - reveal)
+                        }
                         .then(if (tile.stack == null) Modifier.shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D)) else Modifier)
                         .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { onOpen(tile) })
                         .semantics { if (interactionEnabled) {
