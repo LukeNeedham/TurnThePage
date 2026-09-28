@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.avstaim.listai.core.model.ReaderPreferences
 import com.avstaim.listai.core.model.ReaderTheme
+import com.avstaim.listai.core.model.ShelfZoom
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.*
@@ -26,13 +27,16 @@ class ReaderPreferencesTest {
         var preferences = open()
         try {
             assertEquals(ReaderPreferences(18f, ReaderTheme.LIGHT), preferences.reader.first())
+            assertEquals(ShelfZoom.MEDIUM, preferences.shelfZoom.first())
             preferences.markInitialized()
             preferences.selectBook("source-😀")
-            preferences.setReaderPreferences(ReaderPreferences(25f, ReaderTheme.DARK))
+            preferences.setReaderPreferences(ReaderPreferences(25f, ReaderTheme.DARK, showClock = false))
+            preferences.setShelfZoom(ShelfZoom.SMALL)
             job.cancelAndJoin()
             job = SupervisorJob()
             preferences = open()
-            assertEquals(ReaderPreferences(25f, ReaderTheme.DARK), preferences.reader.first())
+            assertEquals(ReaderPreferences(25f, ReaderTheme.DARK, showClock = false), preferences.reader.first())
+            assertEquals(ShelfZoom.SMALL, preferences.shelfZoom.first())
             assertEquals("source-😀", preferences.lastBook.first())
             assertTrue(preferences.initialized.first())
             preferences.setReaderPreferences(ReaderPreferences(16f, ReaderTheme.SYSTEM))
@@ -41,6 +45,7 @@ class ReaderPreferencesTest {
             job = SupervisorJob()
             preferences = open()
             assertEquals(ReaderPreferences(16f, ReaderTheme.SYSTEM), preferences.reader.first())
+            assertEquals(ShelfZoom.SMALL, preferences.shelfZoom.first())
             assertNull(preferences.lastBook.first())
             assertTrue(preferences.initialized.first())
         } finally { job.cancelAndJoin(); file.delete() }
@@ -56,9 +61,11 @@ class ReaderPreferencesTest {
                 it[floatPreferencesKey("reader_font_size_sp")] = Float.NaN
                 it[stringPreferencesKey("reader_theme")] = "UNKNOWN_FUTURE_VALUE"
                 it[stringPreferencesKey("last_book")] = "original"
+                it[stringPreferencesKey("shelf_zoom")] = "UNKNOWN_FUTURE_VALUE"
             }
             val preferences = AppPreferences(store)
             assertEquals(ReaderPreferences(), preferences.reader.first())
+            assertEquals(ShelfZoom.MEDIUM, preferences.shelfZoom.first())
             assertEquals("original", preferences.lastBook.first())
         } finally { job.cancelAndJoin(); file.delete() }
     }

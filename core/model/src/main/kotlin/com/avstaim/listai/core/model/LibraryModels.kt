@@ -10,6 +10,8 @@ data class ReadingProgress(
     val tocCharOffset: Int = 0,
     /** Independent front-cover/frontmatter anchor; never substitutes the main source location. */
     val annotationLocation: BookLocation? = null,
+    /** Independent title-page anchor; never contributes to source reading progress. */
+    val titleLocation: BookLocation? = null,
 ) {
     init {
         require(fraction.isFinite() && fraction in 0f..1f)
@@ -30,6 +32,10 @@ data class LibraryBook(
     val lastOpenedAt: Long?,
     val totalCharacters: Long,
     val progress: ReadingProgress,
+    val authorNames: List<String> = emptyList(),
+    val series: String? = null,
+    val genres: List<String> = emptyList(),
+    val stackId: String? = null,
 )
 
 data class Bookmark(
