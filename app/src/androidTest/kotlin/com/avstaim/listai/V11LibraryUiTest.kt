@@ -85,13 +85,17 @@ class V11LibraryUiTest {
 
     @Test fun heldDragScrollsAcrossLazyRowsWithoutLosingTheBook() {
         val books = List(24) { index -> fixtures().first().copy(id = BookId("long-$index"), title = "Book $index") }
+        val visibleBounds = java.util.concurrent.ConcurrentHashMap<BookId, androidx.compose.ui.geometry.Rect>()
         var destination: BookId? = null
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value }
         compose.runOnUiThread {
             compose.activity.setContent {
                 ListaiTheme {
-                    LibraryScreen(books, false, {}, {}, {}, {}, onMoveBook = { _, target -> destination = target })
+                    LibraryScreen(books, false, {}, {}, {}, {}, onMoveBook = { _, target -> destination = target },
+                        onBookBoundsChanged = { id, bounds ->
+                            if (bounds == null) visibleBounds.remove(id) else visibleBounds[id] = bounds
+                        })
                 }
             }
         }
@@ -106,13 +110,28 @@ class V11LibraryUiTest {
             advanceEventTime(50)
             moveTo(edge)
         }
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("library_book_long-12").fetchSemanticsNodes().any {
-                it.boundsInRoot.top < screen.bottom - 100f * density && it.boundsInRoot.bottom > screen.top
+        val autoAdvance = compose.mainClock.autoAdvance
+        compose.mainClock.autoAdvance = false
+        var released = false
+        try {
+            compose.waitUntil(10_000) {
+                // Drive the held drag's frame/delay loop explicitly. Wall-clock waiting alone
+                // advances too few Compose frames on a busy emulator. waitUntil still yields
+                // between batches so Android can lay out the newly visible lazy rows.
+                compose.mainClock.advanceTimeBy(128)
+                visibleBounds[BookId("long-12")]?.let {
+                    it.top < screen.bottom - 100f * density && it.bottom > screen.top
+                } == true
             }
+            compose.onNodeWithTag("library_dragging_book").assertIsDisplayed()
+            compose.onNodeWithTag("library_screen").performTouchInput { up() }
+            released = true
+        } finally {
+            if (!released) runCatching {
+                compose.onNodeWithTag("library_screen").performTouchInput { cancel() }
+            }
+            compose.mainClock.autoAdvance = autoAdvance
         }
-        compose.onNodeWithTag("library_dragging_book").assertIsDisplayed()
-        compose.onNodeWithTag("library_screen").performTouchInput { up() }
         compose.waitForIdle()
         assertNotNull(destination)
         assertTrue(destination!!.value.removePrefix("long-").toInt() >= 6)
