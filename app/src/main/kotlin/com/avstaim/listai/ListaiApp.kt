@@ -76,6 +76,9 @@ fun ListaiApp(
     val context = LocalContext.current
     val controller = remember(context) { (context.applicationContext as ListaiApplication).controller }
     val books by controller.books.collectAsState()
+    val catalog by controller.catalog.collectAsState()
+    val shelfZoom by controller.shelfZoom.collectAsState()
+    val canUndoLibraryChange by controller.canUndoLibraryChange.collectAsState()
     val selection by controller.selection.collectAsState()
     val preferences by controller.readerPreferences.collectAsState()
     val onboardingCompleted by controller.readerOnboardingCompleted.collectAsState()
@@ -215,13 +218,30 @@ fun ListaiApp(
             onImportFolder = { folderPicker.launch(null) },
             modifier = if (phase == ShelfReaderPhase.SHELF) Modifier else Modifier.clearAndSetSemantics {},
             hiddenBookId = flightBook?.id.takeIf { inFlight || readerVisible },
-            interactionEnabled = phase == ShelfReaderPhase.SHELF && !busy,
+            interactionEnabled = phase == ShelfReaderPhase.SHELF && !busy && !shelfSettingsOpen,
             onBookBoundsChanged = { id, bounds ->
                 if (bounds == null) shelfBounds.remove(id) else shelfBounds[id] = bounds
             },
             versionLabel = "v${BuildConfig.VERSION_NAME}",
             onSettings = { shelfSettingsOpen = true },
-            darkTheme = darkTheme)
+            darkTheme = darkTheme,
+            catalog = catalog,
+            shelfZoom = shelfZoom,
+            onShelfZoomChanged = controller::setShelfZoom,
+            onLibraryCommand = controller::libraryCommand,
+            canUndo = canUndoLibraryChange,
+            onUndo = controller::undoLibraryChange,
+            restoredBookId = selectedId,
+            occlusionBounds = when (devicePosture) {
+                is DevicePosture.Flat -> devicePosture.foldBounds.takeIf {
+                    devicePosture.separating || devicePosture.occluding
+                }
+                is DevicePosture.HalfOpened -> devicePosture.foldBounds.takeIf {
+                    devicePosture.separating || devicePosture.occluding
+                }
+                DevicePosture.Unknown -> null
+            }?.let { listOf(Rect(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat())) }
+                .orEmpty())
         if (busy && books.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         }
@@ -254,6 +274,7 @@ fun ListaiApp(
                     onReturnToShelf = ::returnToShelf,
                     transitionCoverProgress = if (phase == ShelfReaderPhase.READING) null else coverOpen.value,
                     closingBook = returning,
+                    active = phase == ShelfReaderPhase.READING,
                     onBookReady = { readerCoverBounds[selected.opened.book.id] = it },
                     onBookCoverChanged = { readerCoverFaces[selected.opened.book.id] = it },
                     onBookArtworkReady = { artwork ->

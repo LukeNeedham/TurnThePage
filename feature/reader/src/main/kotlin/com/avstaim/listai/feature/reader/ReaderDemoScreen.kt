@@ -1,5 +1,6 @@
 package com.avstaim.listai.feature.reader
 
+import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -82,23 +83,25 @@ fun ReaderScreen(
     onboardingCompleted: Boolean? = true,
     onOnboardingComplete: () -> Unit = {},
     onboardingReplayRequest: Long = 0L,
+    active: Boolean = true,
 ) {
     var insertOpen by rememberSaveable(readerSession) { mutableStateOf(false) }
     var insertSection by rememberSaveable(readerSession) { mutableStateOf(PaperInsertSection.MENU) }
     var checkpoint by remember(document, readerSession) { mutableStateOf(initialProgress) }
+    var contentsOrigin by rememberSaveable(document.id.value) { mutableStateOf<Bundle?>(null) }
     var navigationSequence by remember(document, readerSession) { mutableLongStateOf(0L) }
     var navigationRequest by remember(document, readerSession) { mutableStateOf<ReaderJumpRequest?>(null) }
     var navigation by remember(document, readerSession) { mutableStateOf<ReaderNavigationState?>(null) }
     var bookmarkableLocation by remember(document, readerSession) { mutableStateOf<BookLocation?>(null) }
     val firstChapterLocation = remember(document) { document.firstChapterLocation() }
-    val hasDescription = remember(document) { PhysicalAnnotation.create(document) != null }
+    val hasDescription = remember(document) { PhysicalAnnotation.create(document)?.hasDescription == true }
     val progressCallback by rememberUpdatedState(onProgressChanged)
     var localReplay by rememberSaveable { mutableLongStateOf(0L) }
     var handledExternalReplay by rememberSaveable(document.id.value) { mutableLongStateOf(0L) }
     var dispatchedExternalReplay by remember(document, readerSession) { mutableLongStateOf(0L) }
     var hintsOpening by remember(document, readerSession) { mutableStateOf(false) }
     val atReadingPage = checkpoint.cover == CoverPosition.OPEN &&
-        checkpoint.annotationLocation == null && checkpoint.tocEntryIndex == null
+        checkpoint.annotationLocation == null && checkpoint.titleLocation == null && checkpoint.tocEntryIndex == null
     val externalOpeningPending = onboardingReplayRequest > 0L &&
         handledExternalReplay != onboardingReplayRequest && !atReadingPage
     val onboarding = rememberReaderOnboardingState(onboardingCompleted,
@@ -114,8 +117,9 @@ fun ReaderScreen(
         }
     }
 
-    fun navigate(progress: ReadingProgress) {
-        navigationRequest = ReaderJumpRequest(++navigationSequence, progress)
+    fun navigate(progress: ReadingProgress, returningFromContents: Boolean = false) {
+        navigationRequest = ReaderJumpRequest(++navigationSequence, progress,
+            returningFromContents = returningFromContents)
         insertOpen = false
     }
     fun goTo(location: BookLocation) {
@@ -129,7 +133,8 @@ fun ReaderScreen(
         if (!atReadingPage) {
             hintsOpening = true
             navigate(checkpoint.copy(location = checkpoint.location ?: current.location,
-                cover = CoverPosition.OPEN, annotationLocation = null, tocEntryIndex = null, tocCharOffset = 0))
+                cover = CoverPosition.OPEN, annotationLocation = null, titleLocation = null,
+                tocEntryIndex = null, tocCharOffset = 0))
         }
     }
     // A replay requested on the shelf may restore either cover or the inside-cover annotation.
@@ -147,7 +152,15 @@ fun ReaderScreen(
     }
 
     BackHandler(enabled = insertOpen) { insertOpen = false }
-    BackHandler(enabled = !insertOpen && !onboarding.visible) { onReturnToShelf() }
+    fun returnFromContents() {
+        val origin = contentsOrigin?.toReaderProgress() ?: checkpoint.copy(cover = CoverPosition.OPEN,
+            tocEntryIndex = null, tocCharOffset = 0, annotationLocation = null, titleLocation = null)
+        navigate(origin, returningFromContents = true)
+        contentsOrigin = null
+    }
+    BackHandler(enabled = active && !insertOpen && !onboarding.visible) {
+        if (checkpoint.tocEntryIndex != null) returnFromContents() else onReturnToShelf()
+    }
 
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
@@ -156,8 +169,11 @@ fun ReaderScreen(
     val cutout = WindowInsets.displayCutout
     var windowOrigin by remember { mutableStateOf(Offset.Zero) }
     fun openMenu() { insertSection = PaperInsertSection.MENU; insertOpen = true }
-    fun openContents() { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = 0,
-        tocCharOffset = 0, annotationLocation = null)) }
+    fun openContents() {
+        if (checkpoint.tocEntryIndex == null) contentsOrigin = checkpoint.toReaderBundle()
+        navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = 0,
+            tocCharOffset = 0, annotationLocation = null, titleLocation = null))
+    }
     fun replayHints() {
         insertOpen = false
         openReadingPageForHints()
@@ -191,9 +207,11 @@ fun ReaderScreen(
                 readerSession = readerSession,
                 initialTocEntryIndex = checkpoint.tocEntryIndex, initialTocCharOffset = checkpoint.tocCharOffset,
                 initialAnnotationLocation = checkpoint.annotationLocation,
+                initialTitleLocation = checkpoint.titleLocation,
                 onProgressChanged = {
                     checkpoint = it
-                    if (it.cover == CoverPosition.OPEN && it.annotationLocation == null && it.tocEntryIndex == null) {
+                    if (it.cover == CoverPosition.OPEN && it.annotationLocation == null &&
+                        it.titleLocation == null && it.tocEntryIndex == null) {
                         if (hintsOpening && dispatchedExternalReplay == onboardingReplayRequest) {
                             handledExternalReplay = onboardingReplayRequest
                         }
@@ -230,12 +248,14 @@ fun ReaderScreen(
                         onToggleTheme = { onPreferencesChange(preferences.copy(theme =
                             if (darkTheme) ReaderTheme.LIGHT else ReaderTheme.DARK)) },
                         onContents = ::openContents,
+                        showClock = preferences.showClock,
+                        active = active && !closingBook && transitionCoverProgress == null,
                         onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize(), onMenu = ::openMenu)
                 },
                 closedBookControls = { bookBounds, viewportBounds, physicalPresentation,
                     frontCover, openFrontCover ->
                     if (!insertOpen) ClosedBookControls(
-                        onRead = { firstChapterLocation?.let(::goTo) },
+                        onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
                         onDescription = openFrontCover.takeIf { frontCover && hasDescription },
                         onShelf = onReturnToShelf,
                         onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
@@ -245,6 +265,17 @@ fun ReaderScreen(
                         viewportBounds = viewportBounds,
                         overlayOnCover = physicalPresentation == BookPresentation.SINGLE,
                         modifier = Modifier.fillMaxSize())
+                },
+                insideCoverControls = { bookBounds, viewportBounds, openDescription ->
+                    if (!insertOpen) ClosedBookControls(
+                        onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
+                        onDescription = openDescription.takeIf { hasDescription },
+                        onShelf = onReturnToShelf,
+                        onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                        onContents = ::openContents,
+                        onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
+                        bookBounds = bookBounds, viewportBounds = viewportBounds,
+                        overlayOnCover = true, modifier = Modifier.fillMaxSize())
                 },
             )
         }
@@ -269,7 +300,7 @@ fun ReaderScreen(
                     onReturnToShelf = { insertOpen = false; onReturnToShelf() }, onDismiss = { insertOpen = false },
                     onGoToToc = ::openContents,
                     onReturnFromToc = if (checkpoint.tocEntryIndex != null) {
-                        { navigate(checkpoint.copy(cover = CoverPosition.OPEN, tocEntryIndex = null, tocCharOffset = 0, annotationLocation = null)) }
+                        ::returnFromContents
                     } else null,
                     navigation = state, onConfirmNavigation = ::goTo,
                     isBookmarked = currentBookmark != null,
@@ -291,11 +322,45 @@ fun ReaderScreen(
 }
 
 private fun BookDocument.firstChapterLocation(): BookLocation? {
+    chapters.firstOrNull()?.startBlockId?.let { id ->
+        var offset = 0L
+        readingBlocks().forEach { block ->
+            if (block.id == id) return BookLocation(id, 0, offset)
+            offset += block.plainText().length + 1L
+        }
+    }
     val firstEntry = tableOfContents.firstOrNull()
     // FB2 has no semantic "chapter" kind. One level handles the common Part -> Chapter
     // hierarchy without accidentally skipping a real first chapter for its first subchapter.
     return firstEntry?.children?.firstOrNull()?.location ?: firstEntry?.location
         ?: readingBlocks().firstOrNull()?.let { BookLocation(it.id, 0, 0) }
+}
+
+/** Only platform-saveable values cross recreation; source and supplemental anchors stay separate. */
+private fun ReadingProgress.toReaderBundle(): Bundle = Bundle().apply {
+    fun putLocation(prefix: String, value: BookLocation?) {
+        value ?: return
+        putString("${prefix}Id", value.blockId.value)
+        putInt("${prefix}Char", value.charOffset)
+        putLong("${prefix}Global", value.fallbackGlobalOffset)
+    }
+    putLocation("source", location)
+    putLocation("annotation", annotationLocation)
+    putLocation("title", titleLocation)
+    putString("cover", cover.name)
+    putFloat("fraction", fraction)
+    tocEntryIndex?.let { putInt("tocEntry", it) }
+    putInt("tocChar", tocCharOffset)
+}
+
+private fun Bundle.toReaderProgress(): ReadingProgress {
+    fun location(prefix: String) = getString("${prefix}Id")?.let {
+        BookLocation(BlockId(it), getInt("${prefix}Char"), getLong("${prefix}Global"))
+    }
+    return ReadingProgress(location("source"),
+        CoverPosition.entries.firstOrNull { it.name == getString("cover") } ?: CoverPosition.OPEN,
+        getFloat("fraction"), if (containsKey("tocEntry")) getInt("tocEntry") else null,
+        getInt("tocChar"), location("annotation"), location("title"))
 }
 
 private fun ReaderPresentationMode.physical(): BookPresentation? = when (this) {

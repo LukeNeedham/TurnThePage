@@ -14,6 +14,7 @@ import com.avstaim.listai.core.files.LibraryRepository
 import com.avstaim.listai.core.files.OpenedBook
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.format.fb2.BookParseException
+import com.avstaim.listai.feature.library.LibraryCommand
 import java.io.FileNotFoundException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -36,12 +37,16 @@ class LibraryController(
     private var openRequest = 0L
     private var checkpoint: ReadingProgress? = null
     private var importJob: Job? = null
+    private var undoExpiryJob: Job? = null
     private val _selection = MutableStateFlow<ReaderSelection?>(null)
     val selection = _selection.asStateFlow()
     val readerPreferences = preferences.reader.stateIn(scope, SharingStarted.Eagerly, ReaderPreferences())
     val readerOnboardingCompleted = preferences.readerOnboardingCompleted
         .map<Boolean, Boolean?> { it }.stateIn(scope, SharingStarted.Eagerly, null)
     val books = repository.books.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val catalog = repository.catalog.stateIn(scope, SharingStarted.WhileSubscribed(5_000), LibraryCatalog())
+    val shelfZoom = preferences.shelfZoom.stateIn(scope, SharingStarted.Eagerly, ShelfZoom.MEDIUM)
+    val canUndoLibraryChange = repository.canUndo.stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
     private val _busy = MutableStateFlow(true)
     val busy = _busy.asStateFlow()
     private val _importing = MutableStateFlow(false)
@@ -64,6 +69,9 @@ class LibraryController(
         enqueue {
             try {
                 repository.initialize()
+                scope.launch(Dispatchers.IO) {
+                    while (isActive && repository.backfillMetadata() > 0) yield()
+                }
                 if (!preferences.initialized.first()) {
                     val sample = repository.import("stage4_reading_sample.fb2") {
                         context.resources.openRawResource(R.raw.stage4_reading_sample)
@@ -83,6 +91,31 @@ class LibraryController(
 
     fun dismissError() { _error.value = null }
     fun setReaderPreferences(value: ReaderPreferences) = enqueue { preferences.setReaderPreferences(value) }
+    fun setShelfZoom(value: ShelfZoom) = enqueue { preferences.setShelfZoom(value) }
+    fun undoLibraryChange() = enqueue {
+        undoExpiryJob?.cancel()
+        repository.undoLastLibraryChange()
+    }
+    fun libraryCommand(command: LibraryCommand) = enqueue {
+        when (command) {
+            is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
+            is LibraryCommand.RenameStack -> repository.renameStack(command.stackId, command.name)
+            is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+            is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
+            is LibraryCommand.DissolveStack -> repository.dissolveStack(command.stackId)
+            is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)
+            is LibraryCommand.MoveStackBook -> repository.moveStackBook(command.stackId, command.bookId, command.targetBookId)
+        }
+        undoExpiryJob?.cancel()
+        undoExpiryJob = scope.launch {
+            val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as android.view.accessibility.AccessibilityManager
+            val timeout = if (android.os.Build.VERSION.SDK_INT >= 29) manager.getRecommendedTimeoutMillis(
+                8_000, android.view.accessibility.AccessibilityManager.FLAG_CONTENT_TEXT or
+                    android.view.accessibility.AccessibilityManager.FLAG_CONTENT_CONTROLS) else 8_000
+            delay(timeout.toLong())
+            repository.dismissLibraryUndo()
+        }
+    }
     fun completeReaderOnboarding() = enqueue { preferences.completeReaderOnboarding() }
 
     fun returnToShelf() {
@@ -252,7 +285,7 @@ class LibraryController(
     }
 
     fun addBookmark() {
-        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null ||
+        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null || checkpoint?.titleLocation != null ||
             checkpoint?.cover != CoverPosition.OPEN) return
         val location = checkpoint?.location ?: return
         addBookmarkAt(location)
@@ -260,7 +293,7 @@ class LibraryController(
 
     fun addBookmarkAt(location: BookLocation) {
         val current = _selection.value ?: return
-        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null ||
+        if (checkpoint?.tocEntryIndex != null || checkpoint?.annotationLocation != null || checkpoint?.titleLocation != null ||
             checkpoint?.cover != CoverPosition.OPEN) return
         enqueue {
             val snippet = withContext(Dispatchers.Default) { current.opened.document.bookmarkSnippet(location) }
