@@ -1,0 +1,27 @@
+Листай / Turn the Page
+Copyright 2026 Алексей Щербинин (Aleksei Shcherbinin)
+https://sourcecraft.dev/avstaim/listai
+
+Unless a file or the exceptions below state otherwise, the original source
+code, build scripts, documentation, and test fixtures are licensed under the
+Apache License, Version 2.0. See LICENSE.
+
+The original demonstration book "Седьмой огонь" (The Seventh Light), its cover
+and illustrations, and the project's original artwork and screenshots are
+licensed under the Creative Commons Attribution 4.0 International license.
+See LICENSES/CC-BY-4.0.txt. Attribution: Алексей Щербинин, Листай project,
+https://sourcecraft.dev/avstaim/listai. "Нина Ладожина" in the demonstration
+book is a fictional author name, not a separate rights holder. The book's
+illustrations were generated with OpenAI tools for this project.
+
+The Plyos fonts remain under the SIL Open Font License 1.1:
+Copyright 2017 The Literata Project Authors.
+Copyright 2026 The Plyos Contributors.
+See third_party/plyos/OFL.txt and the bundled plyos_ofl.txt resource.
+
+The DejaVu Sans subset embedded only in the PDF test fixture remains under
+its Bitstream Vera and Arev font notices. See third_party/dejavu/NOTICE.txt.
+It is not included in the application APK.
+
+Gradle and other third-party dependencies retain their own copyright notices
+and licenses. This notice does not replace those notices or licenses.

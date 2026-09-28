@@ -1,0 +1,1 @@
+Added EPUB and PDF support, library reordering, book sharing and batch/folder import. Fixed dark theme text colors, backward page turns on phones and the blinking bookmark control.

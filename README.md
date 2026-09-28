@@ -12,6 +12,11 @@
 · Android 8.0+ · [Что нового](docs/releases/1.1.md)
 
 [Конфиденциальность](docs/privacy.md) · [Условия использования](docs/terms.md)
+· [Лицензии](docs/licenses.md)
+
+Код — [Apache-2.0](LICENSE); собственные книга, иллюстрации и скриншоты —
+[CC-BY-4.0](LICENSES/CC-BY-4.0.txt). Шрифт «Плёс» сохраняет SIL OFL-1.1.
+Область действия и сторонние уведомления указаны в [NOTICE](NOTICE).
 
 ![Двустраничный разворот](docs/images/rc1-spread.png)
 

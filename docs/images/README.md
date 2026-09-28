@@ -1,6 +1,9 @@
 # Визуальные материалы RC1
 
 Все изображения показывают компоненты Листай, без сторонних книжных обложек.
+Copyright 2026 Алексей Щербинин. Изображения доступны по
+[CC-BY-4.0](../../LICENSES/CC-BY-4.0.txt); атрибуция и исключения —
+в [перечне лицензий](../licenses.md).
 
 - `rc1-reading.png`, `rc1-spread.png`, `rc1-dark.png`, `rc1-contents.png` —
   Android API 36 emulator, production `MainActivity`; встроенный оригинальный
