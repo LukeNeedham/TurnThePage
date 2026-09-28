@@ -17,14 +17,16 @@ class LibraryShelfGesturesTest {
         assertFalse(state.armHover(649)); assertTrue(state.armHover(650)); assertFalse(state.armHover(900))
         assertTrue(state.release()!!.armed)
     }
-    @Test fun movingOutsideTheCenterClearsGroupingAndPreviewsReordering() {
+    @Test fun movingOutsideTheCenterClearsGroupingButKeepsTargetInPlaceUntilDrop() {
         val state = shelf(); state.move(Offset(170f, 75f), 8f, 100, { _, _ -> true }); state.armHover(650)
         state.move(Offset(126f, 75f), 8f, 700, { _, _ -> true })
         assertFalse(state.drag!!.armed); assertNull(state.drag!!.hoverKey)
-        assertEquals(listOf("book:b", "book:a", "stack:c"), state.keys)
+        assertEquals("book:b", state.drag!!.dropKey)
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
     }
     @Test fun secondFingerCancellationRestoresOriginalOrderingAndCannotCommitGroup() {
-        val state = shelf(); state.move(Offset(126f, 75f), 8f, 100, { _, _ -> true })
+        val state = shelf(); state.move(Offset(126f, 75f), 8f, 100, { _, _ -> false })
+        assertEquals(listOf("book:b", "book:a", "stack:c"), state.keys)
         state.cancel()
         assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys); assertNull(state.release())
     }
@@ -33,4 +35,60 @@ class LibraryShelfGesturesTest {
         assertFalse(state.armHover(1000)); assertNull(state.drag!!.hoverKey)
         assertEquals(listOf("book:b", "stack:c", "book:a"), state.keys)
     }
+    @Test fun gradualTrajectoryThroughTargetEdgeLeavesItsSlotStableAndArmsTheIntendedBook() {
+        val state = shelf()
+        listOf(64f, 90f, 108f, 121f, 132f, 146f, 158f, 170f).forEachIndexed { index, x ->
+            state.move(Offset(x, 75f), 8f, index * 32L, { _, _ -> true })
+            assertEquals("No edge may move the target out from under the finger",
+                listOf("book:a", "book:b", "stack:c"), state.keys)
+        }
+        assertEquals("book:b", state.drag!!.hoverKey)
+        assertEquals("book:b", state.drag!!.dropKey)
+        assertFalse(state.armHover(700))
+        assertTrue(state.armHover(710))
+        assertEquals("book:b", state.release()!!.hoverKey)
+    }
+
+    @Test fun crossingANeighbourAndDwellingOnAStackNeverReordersEitherTarget() {
+        val state = shelf()
+        listOf(121f, 150f, 175f, 219f, 241f, 265f, 290f).forEachIndexed { index, x ->
+            state.move(Offset(x, 75f), 8f, index * 50L, { _, _ -> true })
+        }
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
+        assertEquals("stack:c", state.drag!!.hoverKey)
+        assertFalse(state.armHover(799)); assertTrue(state.armHover(800))
+    }
+
+    @Test fun leavingAnArmedTargetOrCancellingCannotCreateAGroup() {
+        val state = shelf()
+        state.move(Offset(170f, 75f), 8f, 100, { _, _ -> true }); state.armHover(650)
+        state.move(Offset(230f, 75f), 8f, 700, { _, _ -> true })
+        assertFalse(state.drag!!.armed); assertNull(state.drag!!.hoverKey); assertNull(state.drag!!.dropKey)
+        state.cancel()
+        assertNull(state.release())
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
+    }
+
+    @Test fun quickEdgeDropRetainsTheIntendedOrdinaryMoveWithoutStartingADwell() {
+        val state = shelf()
+        state.move(Offset(126f, 75f), 8f, 100, { _, _ -> true })
+        assertFalse(state.armHover(2000))
+        val drop = state.release()!!
+        assertEquals("book:b", drop.dropKey); assertNull(drop.hoverKey); assertFalse(drop.armed)
+        assertEquals(drop.originalKeys, state.keys)
+    }
+
+    @Test fun eventTimeoutAndScrollClockNeverRewindsAfterARealStationaryPause() {
+        var elapsed = 0L
+        val clock = LibraryGestureClock { elapsed }
+        assertEquals(1_000L, clock.start(1_000))
+        elapsed = 650L
+        assertEquals(1_650L, clock.now())
+        assertEquals(1_650L, clock.advanceTo(1_016)) // a queued event cannot undo the hold
+        assertEquals(2_200L, clock.advanceTo(2_200)) // completed pointer timeout
+        elapsed += 32L
+        assertEquals(2_232L, clock.now()) // same clock used by auto-scroll
+        assertEquals(2_232L, clock.advanceTo(1_032))
+    }
+
 }

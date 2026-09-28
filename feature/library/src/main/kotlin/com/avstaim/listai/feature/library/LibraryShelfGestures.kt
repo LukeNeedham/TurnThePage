@@ -20,13 +20,42 @@ internal data class ShelfItemDrag(
     val start: Offset,
     val pointer: Offset = start,
     val moved: Boolean = false,
+    val dropKey: String? = null,
     val hoverKey: String? = null,
     val hoverStartedAt: Long = 0,
     val armed: Boolean = false,
 ) { val topLeft get() = bounds.topLeft + pointer - start }
 
+/**
+ * One monotonic timeline for event timestamps, stationary timeouts and scrolling layouts.
+ * Injected/queued events may lag behind a completed timeout; they must never rewind a dwell.
+ */
+internal class LibraryGestureClock(private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000L }) {
+    private var logicalTime = 0L
+    private var sampledAt = elapsedMillis()
+
+    fun start(eventTime: Long): Long {
+        logicalTime = eventTime
+        sampledAt = elapsedMillis()
+        return logicalTime
+    }
+
+    fun now(): Long {
+        val sample = elapsedMillis()
+        logicalTime += (sample - sampledAt).coerceAtLeast(0)
+        sampledAt = sample
+        return logicalTime
+    }
+
+    fun advanceTo(eventTime: Long): Long {
+        logicalTime = maxOf(now(), eventTime)
+        return logicalTime
+    }
+}
+
 /** The only arbiter for shelf tap/hold/drag/group/pinch/pull. Nothing is durable until release. */
 internal class LibraryShelfGestureState {
+    val clock = LibraryGestureClock()
     var keys by mutableStateOf(emptyList<String>())
     val bounds = mutableStateMapOf<String, Rect>()
     var drag by mutableStateOf<ShelfItemDrag?>(null)
@@ -44,20 +73,36 @@ internal class LibraryShelfGestureState {
         var next = old.copy(pointer = pointer, moved = moved)
         if (moved) {
             val target = bounds.entries.firstOrNull { it.key != old.key && it.key in keys && it.value.contains(pointer) }
-            val center = target?.value?.let { rect -> Rect(rect.left + rect.width * .23f, rect.top + rect.height * .2f,
-                rect.right - rect.width * .23f, rect.bottom - rect.height * .2f) }
-            val hover = target?.takeIf { center?.contains(pointer) == true && canGroup(old.key, it.key) }?.key
+            val groupable = target != null && canGroup(old.key, target.key)
+            val center = target?.value?.let { rect ->
+                // Once acquired, a slightly wider zone tolerates hand jitter at the center edge.
+                val horizontalInset = if (old.hoverKey == target.key) .18f else .23f
+                val verticalInset = if (old.hoverKey == target.key) .15f else .2f
+                Rect(rect.left + rect.width * horizontalInset, rect.top + rect.height * verticalInset,
+                    rect.right - rect.width * horizontalInset, rect.bottom - rect.height * verticalInset)
+            }
+            val hover = target?.takeIf { groupable && center?.contains(pointer) == true }?.key
+            next = next.copy(dropKey = target?.key)
             next = if (hover != old.hoverKey) next.copy(hoverKey = hover, hoverStartedAt = time, armed = false) else next
-            if (hover == null) {
+            if (!groupable) {
                 val destination = target?.let { it.key to it.value }
                 if (destination != null && destination != lastDestination) {
                     val from = keys.indexOf(old.key); val to = keys.indexOf(destination.first)
                     if (from >= 0 && to >= 0) keys = keys.toMutableList().apply { add(to, removeAt(from)) }
                 }
                 lastDestination = destination
-            } else lastDestination = null
+            } else {
+                // Do not move a possible grouping target when entering its outer edge. A real
+                // finger crosses that edge before reaching the center; moving it here makes
+                // the target escape before the dwell can start. Quick drops still reorder.
+                lastDestination = null
+            }
         }
         drag = next
+    }
+
+    fun refreshAfterScroll(slop: Float, canGroup: (String, String) -> Boolean) {
+        drag?.let { move(it.pointer, slop, clock.now(), canGroup) }
     }
 
     fun armHover(time: Long): Boolean {
@@ -90,7 +135,7 @@ internal fun Modifier.libraryShelfInput(
     decorationHit: (Offset) -> Boolean = { false },
     onActivity: () -> Unit,
 ): Modifier = pointerInput(enabled) {
-    if (!enabled) return@pointerInput
+    if (!enabled) { state.cancel(); return@pointerInput }
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         val initial = down.position
@@ -105,10 +150,11 @@ internal fun Modifier.libraryShelfInput(
         var holdEligible = hit != null
         var searchOpened = false
         var completed = false
-        var lastTime = down.uptimeMillis
+        var lastTime = state.clock.start(down.uptimeMillis)
         val slop = viewConfiguration.touchSlop
         try {
             while (true) {
+                lastTime = state.clock.now()
                 val drag = state.drag
                 val holdRemaining = if (holdEligible && drag == null) (viewConfiguration.longPressTimeoutMillis - (lastTime - down.uptimeMillis)).coerceAtLeast(1) else Long.MAX_VALUE
                 val hoverRemaining = if (drag?.hoverKey != null && !drag.armed) (LibraryShelfGestureState.GROUP_HOVER_MS - (lastTime - drag.hoverStartedAt)).coerceAtLeast(1) else Long.MAX_VALUE
@@ -116,7 +162,7 @@ internal fun Modifier.libraryShelfInput(
                 val event = if (timeout == Long.MAX_VALUE) awaitPointerEvent(PointerEventPass.Initial)
                     else withTimeoutOrNull(timeout) { awaitPointerEvent(PointerEventPass.Initial) }
                 if (event == null) {
-                    lastTime += timeout
+                    lastTime = state.clock.advanceTo(lastTime + timeout)
                     if (state.drag == null && holdEligible && hit != null) {
                         state.start(hit, initialRoot)
                         holdEligible = false
@@ -124,7 +170,7 @@ internal fun Modifier.libraryShelfInput(
                     } else if (state.armHover(lastTime)) onGroupReady()
                     continue
                 }
-                lastTime = event.changes.maxOf { it.uptimeMillis }
+                lastTime = state.clock.advanceTo(event.changes.maxOf { it.uptimeMillis })
                 val pressed = event.changes.filter { it.pressed }
                 if (pressed.size >= 2) {
                     if (!multiTouch) { state.cancel(); onActivity() }
@@ -152,16 +198,15 @@ internal fun Modifier.libraryShelfInput(
                 if (decoration) change.consume()
                 if (state.drag != null) {
                     change.consume()
-                    // Account for a stationary dwell even if the release arrives before the
-                    // timeout job gets its frame (also true for injected event-time tests).
+                    // Validate the release position too: an up outside the target must not
+                    // commit a group that had armed over a different book earlier.
+                    if (!isSearch()) state.move(change.position + origin(), slop, lastTime, canGroup)
                     if (state.armHover(lastTime)) onGroupReady()
                     if (!change.pressed) {
                         val keys = state.keys
                         state.release()?.let { final -> if (final.moved) onDrop(final, keys) else onActions(final.key) }
                         completed = true; break
                     }
-                    if (!isSearch()) state.move(change.position + origin(), slop, lastTime, canGroup)
-                    if (state.armHover(lastTime)) onGroupReady()
                 } else {
                     if (searchOpened) change.consume()
                     else if (!isSearch() && shouldOpenPullSearch(atTop, false, delta.x, delta.y, 72f * density)) {
