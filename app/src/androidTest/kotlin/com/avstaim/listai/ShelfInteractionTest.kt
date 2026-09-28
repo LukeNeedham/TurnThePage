@@ -39,12 +39,12 @@ class ShelfInteractionTest {
         }
         val first = compose.onNodeWithTag("library_book_scroll-0")
         val originalSlot = first.fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("library_screen").performTouchInput { swipeUp() }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
         assertEquals("An inactive shelf must retain the selected book's return slot",
             originalSlot, first.fetchSemanticsNode().boundsInRoot)
 
         compose.runOnUiThread { enabled.value = true }
-        compose.onNodeWithTag("library_screen").performTouchInput { swipeUp() }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
         first.assertIsNotDisplayed()
     }
 }

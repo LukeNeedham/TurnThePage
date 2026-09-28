@@ -7,6 +7,10 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.Espresso
+import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.database.AppPreferences
 import com.avstaim.listai.core.database.LibraryDatabase
@@ -109,11 +113,23 @@ class V12LibraryUiTest {
         val second = ids[2]
         compose.onNodeWithTag("library_book_${first.value}").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithTag("library_create_stack").performClick()
+        compose.onNodeWithTag("library_picker_confirm").assertIsNotEnabled()
         compose.onNodeWithTag("library_select_${second.value}").performScrollTo().performClick()
-        compose.onNodeWithTag("library_picker_confirm").performClick()
+        compose.onNodeWithTag("library_stack_name").performScrollTo().performTouchInput { click(center) }
+        compose.waitUntil(10_000) {
+            var keyboardVisible = false
+            Espresso.onView(isRoot()).check { view, error ->
+                if (error != null) throw error
+                keyboardVisible = ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            keyboardVisible
+        }
         compose.onNodeWithTag("library_stack_name").performTextReplacement("  Путешествия  ")
-        compose.onNodeWithTag("library_name_confirm").performClick()
+        // The pinned footer is still touchable while a real IME covers the lower screen.
+        compose.onNodeWithTag("library_picker_confirm").assertIsDisplayed().performTouchInput { click(center) }
         awaitObservedState { latestCatalog.stacks.size == 1 }
+        // Naming and selection are one transaction on one sheet, with no second dialog.
+        compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
         val stack = latestCatalog.stacks.single().id
         assertEquals(listOf(first, second), latestCatalog.stacks.single().bookIds)
         assertEquals("Путешествия", latestCatalog.stacks.single().name)
@@ -166,8 +182,11 @@ class V12LibraryUiTest {
         // Make real scrolling possible and verify scrolling back does not become pull-search.
         runBlocking { repeat(20) { add("Additional $it") } }
         compose.waitUntil(10_000) { latestCatalog.books.size == 24 }
-        compose.onNodeWithTag("library_screen").performTouchInput { swipeUp() }
-        compose.onNodeWithTag("library_screen").performTouchInput { swipeDown() }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
+        compose.onNodeWithTag("library_shelf").assert(SemanticsMatcher("Shelf has really scrolled") {
+            it.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value() > 0f
+        })
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
         compose.onNodeWithTag("library_search_field").assertDoesNotExist()
         // Return to the top through the list's semantics, then start a separate downward gesture.
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex)).performScrollToIndex(0)
