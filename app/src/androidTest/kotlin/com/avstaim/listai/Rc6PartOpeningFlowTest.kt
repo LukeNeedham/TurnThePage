@@ -1,7 +1,9 @@
 package com.avstaim.listai
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Build
+import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
@@ -207,10 +209,42 @@ class Rc6PartOpeningFlowTest {
             view.invalidate()
         }
         assertTrue("A new native frame is presented before capture", frame.await(5, TimeUnit.SECONDS))
-        val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        // API26 can publish Compose semantics and an OnDraw fence before SurfaceFlinger has
+        // replaced the preceding blank verso. Wait for native window quiet, then capture pixels.
+        automation.waitForIdle(200, 5_000)
+        SystemClock.sleep(500)
+        var bitmap = requireNotNull(automation.takeScreenshot())
+        val verifyChapterPixels = Build.VERSION.SDK_INT < 29 && name == "phone-following-chapter"
+        if (verifyChapterPixels) {
+            val deadline = SystemClock.uptimeMillis() + 5_000
+            while (!hasChapterInk(bitmap) && SystemClock.uptimeMillis() < deadline) {
+                bitmap.recycle()
+                SystemClock.sleep(100)
+                bitmap = requireNotNull(automation.takeScreenshot())
+            }
+        }
         val directory = requireNotNull(compose.activity.getExternalFilesDir("rc6-parts")).also { it.mkdirs() }
         File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         File(directory, "$name.txt").writeText("anchor=${progress.get().location}\n" + visibleText().joinToString("\n---\n"))
+        val chapterVisible = !verifyChapterPixels || hasChapterInk(bitmap)
         bitmap.recycle()
+        if (verifyChapterPixels) {
+            assertTrue("Chapter source is current before inspecting its presented frame",
+                visibleText().any { it.contains("Глава четвёртая") })
+            assertTrue("The native screenshot contains chapter ink, not the preceding blank verso", chapterVisible)
+        }
+    }
+
+    /** Sample the white page's text area, excluding its edges, controls, clock and footer. */
+    private fun hasChapterInk(bitmap: Bitmap): Boolean {
+        var ink = 0
+        for (y in (bitmap.height * .20f).toInt() until (bitmap.height * .75f).toInt() step 4) {
+            for (x in (bitmap.width * .15f).toInt() until (bitmap.width * .85f).toInt() step 4) {
+                val color = bitmap.getPixel(x, y)
+                if (Color.red(color) < 170 && Color.green(color) < 170 && Color.blue(color) < 170 && ++ink >= 100) return true
+            }
+        }
+        return false
     }
 }
