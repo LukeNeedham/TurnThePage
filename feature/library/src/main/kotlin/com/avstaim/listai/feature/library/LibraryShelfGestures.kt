@@ -74,12 +74,21 @@ internal class LibraryShelfGestureState {
         if (moved) {
             val target = bounds.entries.firstOrNull { it.key != old.key && it.key in keys && it.value.contains(pointer) }
             val groupable = target != null && canGroup(old.key, target.key)
-            val center = target?.value?.let { rect ->
-                // Once acquired, a slightly wider zone tolerates hand jitter at the center edge.
-                val horizontalInset = if (old.hoverKey == target.key) .18f else .23f
-                val verticalInset = if (old.hoverKey == target.key) .15f else .2f
-                Rect(rect.left + rect.width * horizontalInset, rect.top + rect.height * verticalInset,
-                    rect.right - rect.width * horizontalInset, rect.bottom - rect.height * verticalInset)
+            val center = target?.let { entry ->
+                val rect = entry.value
+                if (entry.key.startsWith("stack:")) {
+                    // A physical stack lies at the bottom of its navigation slot. Its spines
+                    // and bottom edge are the obvious drop target, not an invisible book center.
+                    val inset = if (old.hoverKey == entry.key) .02f else .06f
+                    Rect(rect.left + rect.width * inset, rect.top + rect.height * .1f,
+                        rect.right - rect.width * inset, rect.bottom)
+                } else {
+                    // Creating a new group remains deliberate; tolerate modest center jitter.
+                    val horizontalInset = if (old.hoverKey == entry.key) .18f else .23f
+                    val verticalInset = if (old.hoverKey == entry.key) .15f else .2f
+                    Rect(rect.left + rect.width * horizontalInset, rect.top + rect.height * verticalInset,
+                        rect.right - rect.width * horizontalInset, rect.bottom - rect.height * verticalInset)
+                }
             }
             val hover = target?.takeIf { groupable && center?.contains(pointer) == true }?.key
             next = next.copy(dropKey = target?.key)
@@ -107,14 +116,18 @@ internal class LibraryShelfGestureState {
 
     fun armHover(time: Long): Boolean {
         val current = drag ?: return false
-        if (current.hoverKey == null || current.armed || time - current.hoverStartedAt < GROUP_HOVER_MS) return false
+        if (current.hoverKey == null || current.armed || time - current.hoverStartedAt < hoverDelay(current.hoverKey)) return false
         drag = current.copy(armed = true)
         return true
     }
 
     fun release(): ShelfItemDrag? = drag.also { drag = null; lastDestination = null }
     fun cancel() { drag?.let { keys = it.originalKeys }; drag = null; lastDestination = null }
-    companion object { const val GROUP_HOVER_MS = 550L }
+    companion object {
+        const val GROUP_HOVER_MS = 550L
+        // Existing containers accept release immediately. Passing over one commits nothing.
+        fun hoverDelay(key: String): Long = if (key.startsWith("stack:")) 0L else GROUP_HOVER_MS
+    }
 }
 
 internal fun Modifier.libraryShelfInput(
@@ -157,7 +170,7 @@ internal fun Modifier.libraryShelfInput(
                 lastTime = state.clock.now()
                 val drag = state.drag
                 val holdRemaining = if (holdEligible && drag == null) (viewConfiguration.longPressTimeoutMillis - (lastTime - down.uptimeMillis)).coerceAtLeast(1) else Long.MAX_VALUE
-                val hoverRemaining = if (drag?.hoverKey != null && !drag.armed) (LibraryShelfGestureState.GROUP_HOVER_MS - (lastTime - drag.hoverStartedAt)).coerceAtLeast(1) else Long.MAX_VALUE
+                val hoverRemaining = if (drag?.hoverKey != null && !drag.armed) (LibraryShelfGestureState.hoverDelay(drag.hoverKey) - (lastTime - drag.hoverStartedAt)).coerceAtLeast(1) else Long.MAX_VALUE
                 val timeout = minOf(holdRemaining, hoverRemaining)
                 val event = if (timeout == Long.MAX_VALUE) awaitPointerEvent(PointerEventPass.Initial)
                     else withTimeoutOrNull(timeout) { awaitPointerEvent(PointerEventPass.Initial) }

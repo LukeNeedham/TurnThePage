@@ -166,6 +166,39 @@ class V12StackTrajectoryTest {
         assertNull(opened)
     }
 
+    @Test fun quickReleaseOnTheVisibleStackSpineAddsTheBookWithoutCenterDwell() {
+        val stackId = runBlocking { repository.createStack("Existing stack", listOf(ids[0], ids[1])) }
+        compose.waitUntil(10_000) { catalog.stacks.any { it.id == stackId } }
+        compose.waitForIdle()
+        val source = ids[2]
+        val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
+        val sourceCenter = bounds(source).center
+        val target = compose.onNodeWithTag("library_stack_$stackId").fetchSemanticsNode().boundsInRoot
+        // The lower spines are visible and inviting; rc2 excluded this part of the stack.
+        val spine = Offset(target.center.x, target.bottom - target.height * .04f)
+        compose.mainClock.autoAdvance = false
+        var released = false
+        try {
+            compose.onNodeWithTag("library_screen").performTouchInput { down(sourceCenter - screen.topLeft) }
+            pauseWithFingerDown(650)
+            moveAlong(sourceCenter, spine, screen) {
+                assertEquals(target, compose.onNodeWithTag("library_stack_$stackId").fetchSemanticsNode().boundsInRoot)
+            }
+            compose.onNodeWithTag("library_drop_hint").assertIsDisplayed()
+            assertTrue(commands.isEmpty())
+            compose.onNodeWithTag("library_screen").performTouchInput { up() }
+            released = true
+        } finally {
+            if (!released) runCatching { compose.onNodeWithTag("library_screen").performTouchInput { cancel() } }
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitUntil(10_000) { catalog.stacks.single().bookIds.contains(source) }
+        assertEquals(listOf(LibraryCommand.AddToStack(stackId, listOf(source))), commands)
+        assertEquals(stackId, catalog.books.single { it.id == source }.stackId)
+        assertNull(opened)
+        compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
+    }
+
     private fun bounds(id: BookId): Rect = compose.onNodeWithTag("library_book_${id.value}").fetchSemanticsNode().boundsInRoot
 
     private fun moveAlong(from: Offset, to: Offset, screen: Rect, check: () -> Unit) {

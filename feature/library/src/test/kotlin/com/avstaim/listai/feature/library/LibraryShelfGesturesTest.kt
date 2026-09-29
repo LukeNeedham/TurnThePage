@@ -56,7 +56,7 @@ class LibraryShelfGesturesTest {
         }
         assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
         assertEquals("stack:c", state.drag!!.hoverKey)
-        assertFalse(state.armHover(799)); assertTrue(state.armHover(800))
+        assertTrue(state.armHover(300))
     }
 
     @Test fun leavingAnArmedTargetOrCancellingCannotCreateAGroup() {
@@ -89,6 +89,33 @@ class LibraryShelfGesturesTest {
         elapsed += 32L
         assertEquals(2_232L, clock.now()) // same clock used by auto-scroll
         assertEquals(2_232L, clock.advanceTo(1_032))
+    }
+
+    @Test fun existingStackAcceptsItsVisibleBottomEdgeWithoutAStationaryDwell() {
+        val state = shelf()
+        state.move(Offset(290f, 148f), 8f, 100, { _, _ -> true })
+        assertEquals("stack:c", state.drag!!.hoverKey)
+        assertTrue(state.armHover(100))
+        assertTrue(state.release()!!.armed)
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
+    }
+
+    @Test fun crossingStackThenReleasingOutsideClearsTheImmediateDrop() {
+        val state = shelf()
+        state.move(Offset(290f, 145f), 8f, 100, { _, _ -> true })
+        assertTrue(state.armHover(100))
+        state.move(Offset(290f, 160f), 8f, 120, { _, _ -> true })
+        val released = state.release()!!
+        assertFalse(released.armed)
+        assertNull(released.hoverKey)
+        assertNull(released.dropKey)
+    }
+
+    @Test fun existingStackStillRequiresAGroupableSourceAndCannotNestAnotherStack() {
+        val state = shelf()
+        state.move(Offset(290f, 148f), 8f, 100, { _, _ -> false })
+        assertFalse(state.armHover(1000))
+        assertNull(state.drag!!.hoverKey)
     }
 
 }
