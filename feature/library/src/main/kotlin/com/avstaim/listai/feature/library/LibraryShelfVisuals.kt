@@ -9,15 +9,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -51,36 +51,32 @@ internal fun LibraryShelfBoard() {
     }
 }
 
-/** Covers lie flat: dark bindings surround fine paper edges and the lid recedes in perspective. */
+/** All faces use the same projected corners, so the printed lid is part of a bound book. */
 @Composable
 internal fun LibraryStackCover(tile: LibraryTile, coverContent: @Composable (LibraryBook) -> Unit) {
     val stack = tile.stack ?: return
     val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-    BoxWithConstraints(Modifier.fillMaxSize().semantics { contentDescription = "${stack.name}, ${stack.bookIds.size}" }) {
-        val layerHeight = maxHeight * .078f
-        val count = minOf(stack.bookIds.size, 4).coerceAtLeast(1)
-        val bindings = listOf(Color(0xFF27485E), Color(0xFF34586C), Color(0xFF203D53), Color(0xFF31536A))
-        repeat(count) { index ->
-            Canvas(Modifier.align(Alignment.BottomCenter).width(maxWidth * (.91f + .015f * (index % 2))).height(layerHeight)
-                .offset(x = if (index % 2 == 0) (-2).dp else 2.dp, y = -(layerHeight * index))
-                .shadow(2.dp, RoundedCornerShape(1.dp))) {
-                drawRect(bindings[index])
-                val edge = if (dark) Color(0xFFC4C9CA) else Color(0xFFEEF0EF)
-                drawRect(Brush.verticalGradient(listOf(edge, edge.copy(alpha = .9f))),
-                    Offset(4.dp.toPx(), size.height * .12f), Size(size.width - 7.dp.toPx(), size.height * .72f))
-                repeat(3) { line ->
-                    val y = size.height * (.3f + line * .16f)
-                    drawLine(Color(0xFF83939D).copy(alpha = .45f), Offset(5.dp.toPx(), y), Offset(size.width - 4.dp.toPx(), y), .4.dp.toPx())
+    Box(Modifier.fillMaxSize().semantics { contentDescription = "${stack.name}, ${stack.bookIds.size}" }
+        .drawWithCache {
+            val books = stackBookGeometry(size.width, size.height, stack.bookIds.size)
+            val lid = books.last()
+            val source = floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height)
+            val target = floatArrayOf(lid.backLeft.x, lid.backLeft.y, lid.backRight.x, lid.backRight.y,
+                lid.frontRight.x, lid.frontRight.y, lid.frontLeft.x, lid.frontLeft.y)
+            val projection = android.graphics.Matrix().apply { setPolyToPoly(source, 0, target, 0, 4) }
+            onDrawWithContent {
+                books.forEachIndexed { index, book -> drawStackBook(book, dark, index == books.lastIndex) }
+                // The artwork stays in its native upright coordinate system until this one
+                // projection. It is neither cropped into a trapezoid nor laid over another lid.
+                drawIntoCanvas { canvas ->
+                    canvas.save()
+                    canvas.nativeCanvas.concat(projection)
+                    this@onDrawWithContent.drawContent()
+                    canvas.restore()
                 }
+                drawStackLidRelief(lid)
             }
-        }
-        tile.book?.let { book ->
-            Box(Modifier.width(maxWidth * .94f).height(maxHeight * .86f).align(Alignment.BottomCenter)
-                .offset(y = -(layerHeight * count))
-                .graphicsLayer { transformOrigin = TransformOrigin(.5f, 1f); rotationX = 60f; rotationZ = -1f; cameraDistance = 24f * density }
-                .shadow(7.dp, RoundedCornerShape(2.dp))) { coverContent(book) }
-        }
-    }
+        }) { tile.book?.let { coverContent(it) } }
 }
 
 internal data class ShelfCaption(val title: String, val author: String, val separateCount: Boolean = false) {
