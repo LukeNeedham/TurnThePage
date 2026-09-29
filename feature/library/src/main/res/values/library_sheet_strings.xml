@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="library_stack_name_clear">Clear stack name</string>
     <string name="library_sheet_book_label">BOOK</string>
     <string name="library_sheet_stack_label">STACK</string>
     <string name="library_sheet_create_title">New stack</string>

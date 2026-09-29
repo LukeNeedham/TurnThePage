@@ -1,6 +1,11 @@
 package com.avstaim.listai.feature.library
 
+import android.os.Build
+import android.view.WindowManager
+
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -15,8 +20,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -197,26 +216,72 @@ internal fun metadataValues(book: LibraryBook, kind: Int): List<String> = when (
 
 @Composable
 internal fun LibraryStackNameDialog(initialName: String, renaming: Boolean,
-    onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    onDismiss: () -> Unit, onConfirm: (String) -> Unit, books: List<LibraryBook> = emptyList()) {
     var name by rememberSaveable(initialName) { mutableStateOf(initialName.take(120)) }
-    LibraryPaperSheet(onDismiss) {
-        Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
-            Text(stringResource(if (renaming) R.string.library_rename_stack else R.string.library_sheet_create_title),
-                style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(name, { name = it.take(120) }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("library_stack_name"),
-                label = { Text(stringResource(R.string.library_stack_name)) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
-            Spacer(Modifier.height(8.dp))
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onDismiss, Modifier.weight(1f)) { Text(stringResource(R.string.library_cancel)) }
-            Button(onClick = { onConfirm(name.trim()) }, enabled = name.trim().isNotEmpty(),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("library_name_confirm")) {
-                Text(stringResource(if (renaming) R.string.library_save else R.string.library_sheet_create))
+    val body: @Composable () -> Unit = {
+        Surface(Modifier.widthIn(max = 320.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surface, shadowElevation = 14.dp) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(if (renaming) R.string.library_rename_stack else R.string.library_sheet_create_title),
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                if (!renaming && books.isNotEmpty()) {
+                    Box(Modifier.fillMaxWidth().height(164.dp), contentAlignment = Alignment.Center) {
+                        books.take(2).forEachIndexed { index, book ->
+                            Box(Modifier.size(88.dp, 130.dp).offset(x = if (index == 0) (-35).dp else 35.dp,
+                                y = if (index == 0) (-2).dp else 3.dp)
+                                .graphicsLayer { rotationZ = if (index == 0) -7f else 6f }
+                                .shadow(5.dp, RoundedCornerShape(2.dp))) { LibraryCover(book) }
+                        }
+                    }
+                } else Spacer(Modifier.height(20.dp))
+                OutlinedTextField(name, { name = it.take(120) }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("library_stack_name"),
+                    label = { Text(stringResource(R.string.library_stack_name)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    trailingIcon = { if (name.isNotEmpty()) {
+                        val clearLabel = stringResource(R.string.library_stack_name_clear)
+                        IconButton({ name = "" }, Modifier.semantics { contentDescription = clearLabel }) {
+                            LibrarySheetIcon(LibraryMenuIcon.CLOSE, Modifier.size(16.dp))
+                        }
+                    } })
+                if (!renaming && books.isNotEmpty()) Text(
+                    androidx.compose.ui.res.pluralStringResource(R.plurals.library_sheet_book_count, books.size, books.size),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.Start).padding(top = 4.dp))
+                Spacer(Modifier.height(20.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(onDismiss, Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)) { Text(stringResource(R.string.library_cancel)) }
+                    Button(onClick = { onConfirm(name.trim()) }, enabled = name.trim().isNotEmpty(),
+                        shape = RoundedCornerShape(6.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("library_name_confirm")) {
+                        Text(stringResource(if (renaming) R.string.library_save else R.string.library_sheet_create))
+                    }
+                }
             }
         }
+    }
+    if (LocalInspectionMode.current) {
+        Box(Modifier.fillMaxSize().background(Color(0xFF102231).copy(alpha = .4f)).safeDrawingPadding().imePadding().padding(24.dp),
+            contentAlignment = Alignment.Center) { body() }
+    } else Dialog(onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false,
+        decorFitsSystemWindows = Build.VERSION.SDK_INT < 30)) {
+        val view = LocalView.current
+        SideEffect {
+            (view.parent as? DialogWindowProvider)?.window?.let { window ->
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                WindowCompat.getInsetsController(window, view).apply {
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    // Legacy fullscreen windows ignore ADJUST_RESIZE. Let Android 8–10
+                    // resize this temporary dialog so its actions stay above the IME.
+                    if (Build.VERSION.SDK_INT >= 30) hide(WindowInsetsCompat.Type.systemBars())
+                    else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                        show(WindowInsetsCompat.Type.systemBars())
+                    }
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().safeDrawingPadding().imePadding().padding(24.dp), contentAlignment = Alignment.Center) { body() }
     }
 }

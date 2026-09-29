@@ -86,13 +86,17 @@ class V12LibraryUiTest {
         val stack = runBlocking { repository.createStack("Космос", ids.take(2)) }
         showShelf(stack)
         compose.onNodeWithTag("library_book_${ids[0].value}").assertExists()
-        compose.onNodeWithTag("library_search").performClick()
+        // The open stack follows the compact prototype: one Add button below;
+        // the library-wide search remains available by pulling the shelf down.
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
         val field = compose.onNodeWithTag("library_search_field")
         field.performTextReplacement("еЛКа   АВТОР")
         compose.onNodeWithTag("library_book_${ids[0].value}").assertIsDisplayed()
         compose.onNodeWithTag("library_book_${ids[1].value}").assertDoesNotExist()
         val membership = compose.activity.getString(com.avstaim.listai.feature.library.R.string.library_in_stack, "Космос")
-        compose.onNodeWithText(membership).assertExists()
+        compose.onNodeWithContentDescription(membership, substring = true).assertExists()
+        compose.onNodeWithText(membership).assertDoesNotExist()
+        compose.onNodeWithText("Ёлка на орбите").assertDoesNotExist()
         compose.onNodeWithTag("library_book_${ids[0].value}").performClick()
         compose.runOnIdle { assertEquals(ids[0], opened); enabled.value = true }
         field.assertTextContains("еЛКа   АВТОР")

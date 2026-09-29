@@ -2,6 +2,7 @@ package com.avstaim.listai.feature.library
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -15,6 +16,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -33,8 +37,8 @@ internal fun LibraryShelfFab(label: String, enabled: Boolean, onClick: () -> Uni
     val colors = MaterialTheme.colorScheme
     Surface(onClick = onClick, enabled = enabled,
         modifier = modifier.size(52.dp).semantics { contentDescription = label },
-        shape = RoundedCornerShape(16.dp), color = colors.surface,
-        contentColor = colors.primary.copy(alpha = if (enabled) 1f else .38f),
+        shape = RoundedCornerShape(8.dp), color = Color(0xFFF3F3F0),
+        contentColor = Color(0xFF315A77).copy(alpha = if (enabled) 1f else .38f),
         shadowElevation = 6.dp, border = BorderStroke(.7.dp, colors.outlineVariant.copy(alpha = .65f))) {
         Box(contentAlignment = Alignment.Center) { content() }
     }
@@ -76,29 +80,35 @@ internal fun LibrarySearchStrip(query: String, onQueryChange: (String) -> Unit, 
 @Composable
 internal fun LibraryStackHeader(stack: LibraryStack, onBack: () -> Unit, onMenu: () -> Unit,
     enabled: Boolean, modifier: Modifier = Modifier) {
-    val colors = MaterialTheme.colorScheme
-    Surface(modifier, color = colors.surface, shape = RoundedCornerShape(3.dp), shadowElevation = 3.dp,
-        border = BorderStroke(.7.dp, colors.outlineVariant.copy(alpha = .65f))) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    val ink = Color(0xFFEDF2F5)
+    Box(modifier) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
             val backLabel = stringResource(R.string.library_to_shelf)
-            IconButton(onBack, enabled = enabled, modifier = Modifier.testTag("library_back").semantics { contentDescription = backLabel }) {
-                Canvas(Modifier.size(20.dp)) {
-                    val c = colors.onSurfaceVariant
-                    drawLine(c, Offset(size.width * .2f, size.height * .5f), Offset(size.width * .85f, size.height * .5f), 1.5.dp.toPx(), StrokeCap.Round)
-                    drawLine(c, Offset(size.width * .2f, size.height * .5f), Offset(size.width * .5f, size.height * .2f), 1.5.dp.toPx(), StrokeCap.Round)
-                    drawLine(c, Offset(size.width * .2f, size.height * .5f), Offset(size.width * .5f, size.height * .8f), 1.5.dp.toPx(), StrokeCap.Round)
+            Row(Modifier.width(86.dp).heightIn(min = 48.dp)
+                .clickable(enabled = enabled, onClick = onBack).testTag("library_back")
+                .padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(16.dp)) {
+                    drawLine(ink, Offset(size.width * .65f, size.height * .15f), Offset(size.width * .25f, size.height * .5f), 1.5.dp.toPx(), StrokeCap.Round)
+                    drawLine(ink, Offset(size.width * .25f, size.height * .5f), Offset(size.width * .65f, size.height * .85f), 1.5.dp.toPx(), StrokeCap.Round)
                 }
+                Spacer(Modifier.width(4.dp))
+                Text(backLabel, color = ink, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                Text(stack.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f).padding(vertical = 8.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stack.name, color = ink, style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
+                    textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(pluralStringResource(R.plurals.library_sheet_book_count, stack.bookIds.size, stack.bookIds.size),
-                    style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 3.dp))
+                    style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = .72f), textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp))
             }
             val actions = stringResource(R.string.library_stack_actions)
-            IconButton(onMenu, enabled = enabled, modifier = Modifier.testTag("library_stack_menu").semantics { contentDescription = actions }) {
-                Canvas(Modifier.size(20.dp)) {
-                    repeat(3) { drawCircle(colors.onSurfaceVariant, 1.6.dp.toPx(), Offset(size.width * (.15f + it * .35f), size.height * .5f)) }
+            Box(Modifier.width(86.dp), contentAlignment = Alignment.CenterEnd) {
+                IconButton(onMenu, enabled = enabled, modifier = Modifier.testTag("library_stack_menu").semantics { contentDescription = actions }) {
+                    Canvas(Modifier.size(20.dp)) {
+                        repeat(3) { drawCircle(ink, 1.5.dp.toPx(), Offset(size.width * .5f, size.height * (.2f + it * .3f))) }
+                    }
                 }
             }
         }

@@ -50,7 +50,7 @@ class V12SearchDismissalTest {
 
     @Test fun backFirstDismissesTheKeyboardThenReturnsToTheSameStack() {
         showShelf(stack = "north")
-        compose.onNodeWithTag("library_search").performTouchInput { click(center) }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
         compose.onNodeWithTag("library_search_field").performTextReplacement("Outside")
         awaitKeyboard(true)
         Espresso.pressBack()
@@ -66,7 +66,7 @@ class V12SearchDismissalTest {
     @Test fun bottomSearchButtonCanCloseRepeatedSearchVisitsWithoutLeavingTheStack() {
         showShelf(stack = "north")
         repeat(2) {
-            compose.onNodeWithTag("library_search").performTouchInput { click(center) }
+            compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
             compose.onNodeWithTag("library_search_field").performTextReplacement("Outside")
             compose.onNodeWithTag("library_search").performTouchInput { click(center) }
             compose.onNodeWithTag("library_search_field").assertDoesNotExist()
@@ -79,7 +79,7 @@ class V12SearchDismissalTest {
 
     @Test fun scrollingDownClosesEmptySearchAndReturnsToTheSameStackEvenOnAShortShelf() {
         showShelf(stack = "north")
-        compose.onNodeWithTag("library_search").performTouchInput { click(center) }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
         val field = compose.onNodeWithTag("library_search_field")
         awaitKeyboard(true)
         field.performImeAction()
@@ -100,6 +100,7 @@ class V12SearchDismissalTest {
         compose.onNodeWithTag("library_search").performTouchInput { click(center) }
         val field = compose.onNodeWithTag("library_search_field")
         field.performTextReplacement("Book")
+        awaitKeyboard(true)
         field.performImeAction()
         awaitKeyboard(false)
         compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }

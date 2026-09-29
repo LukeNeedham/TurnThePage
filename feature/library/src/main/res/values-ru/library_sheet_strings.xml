@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="library_stack_name_clear">Очистить название стопки</string>
     <string name="library_sheet_book_label">КНИГА</string>
     <string name="library_sheet_stack_label">СТОПКА</string>
     <string name="library_sheet_create_title">Новая стопка</string>
@@ -10,7 +11,7 @@
     <string name="library_sheet_select_all">Выбрать все</string>
     <string name="library_sheet_minimum">Выберите хотя бы две книги.</string>
     <string name="library_sheet_create_count">Создать · %1$d</string>
-    <string name="library_sheet_create">Создать</string>
+    <string name="library_sheet_create">Собрать</string>
     <string name="library_sheet_add_count">Добавить · %1$d</string>
     <plurals name="library_sheet_book_count">
         <item quantity="one">%1$d книга</item>
