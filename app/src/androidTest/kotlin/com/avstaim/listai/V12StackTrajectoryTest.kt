@@ -1,14 +1,21 @@
 package com.avstaim.listai
 
+import android.animation.ValueAnimator
+import android.graphics.Bitmap
 import android.os.SystemClock
+import android.view.Choreographer
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.avstaim.listai.core.database.AppPreferences
 import com.avstaim.listai.core.database.LibraryDatabase
 import com.avstaim.listai.core.designsystem.ListaiTheme
@@ -19,6 +26,8 @@ import com.avstaim.listai.feature.library.LibraryCommand
 import com.avstaim.listai.feature.library.LibraryScreen
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.After
@@ -43,6 +52,8 @@ class V12StackTrajectoryTest {
     @Volatile private var catalog = LibraryCatalog()
     private var opened: BookId? = null
     private var clock = 100L
+    private var darkTheme by mutableStateOf(false)
+    private val captureEvidence get() = InstrumentationRegistry.getArguments().getString("captureStackExtraction") == "true"
 
     @Before fun setup() = runBlocking {
         val controller = (compose.activity.application as ListaiApplication).controller
@@ -62,7 +73,7 @@ class V12StackTrajectoryTest {
             compose.activity.setContent {
                 val current = repository.catalog.collectAsState(initial, context = Dispatchers.Main.immediate).value
                 SideEffect { catalog = current }
-                ListaiTheme {
+                ListaiTheme(darkTheme = darkTheme) {
                     LibraryScreen(current.books, false, {}, {}, { opened = it }, {}, catalog = current,
                         shelfZoom = ShelfZoom.SMALL, onLibraryCommand = { command ->
                             commands += command
@@ -210,6 +221,8 @@ class V12StackTrajectoryTest {
     }
 
     private fun extractWithHeldFinger(members: List<BookId>) {
+        compose.runOnIdle { darkTheme = members.size == 1 }
+        val capturePrefix = if (members.size == 1) "dark-last-member" else "light-extraction"
         val stackId = runBlocking {
             val initialMembers = if (members.size == 1) members + ids.first { it !in members } else members
             repository.createStack("Extraction", initialMembers).also {
@@ -228,10 +241,29 @@ class V12StackTrajectoryTest {
             compose.onNodeWithTag("library_screen").performTouchInput { down(sourceCenter - screen.topLeft) }
             pauseWithFingerDown(650)
             val removeTarget = compose.onNodeWithTag("library_extract_target").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            capture("$capturePrefix-0-target")
             moveAlong(sourceCenter, removeTarget.center, screen) {}
+            capture("$capturePrefix-1-ready")
             assertTrue("Nothing durable before release", commands.isEmpty())
             compose.onNodeWithTag("library_screen").performTouchInput { up() }
             released = true
+            if (captureEvidence && ValueAnimator.areAnimatorsEnabled()) {
+                compose.waitUntil(10_000) {
+                    compose.mainClock.advanceTimeByFrame()
+                    catalog.books.single { it.id == source }.stackId == null &&
+                        compose.onAllNodesWithTag("library_stack_menu").fetchSemanticsNodes().isEmpty()
+                }
+                compose.mainClock.advanceTimeBy(64)
+                compose.waitForIdle()
+                compose.onNodeWithTag("library_extraction_flight").assertIsDisplayed()
+                capture("$capturePrefix-2-flight-start")
+                compose.mainClock.advanceTimeBy(128)
+                compose.waitForIdle()
+                capture("$capturePrefix-3-flight-middle")
+                compose.mainClock.advanceTimeBy(128)
+                compose.waitForIdle()
+                capture("$capturePrefix-4-flight-end")
+            }
         } finally {
             if (!released) runCatching { compose.onNodeWithTag("library_screen").performTouchInput { cancel() } }
             compose.mainClock.autoAdvance = true
@@ -242,11 +274,30 @@ class V12StackTrajectoryTest {
         compose.onNodeWithTag("library_stack_menu").assertDoesNotExist()
         compose.onNodeWithTag("library_extraction_flight").assertDoesNotExist()
         compose.onNodeWithTag("library_extract_target").assertDoesNotExist()
+        capture("$capturePrefix-5-landed")
         assertEquals(listOf(LibraryCommand.ExtractFromStack(listOf(source))), commands)
         assertEquals(3, catalog.books.size)
         if (members.size == 1) assertTrue(catalog.stacks.isEmpty())
         else assertEquals(members.drop(1), catalog.stacks.single().bookIds)
         assertNull(opened)
+    }
+
+    private fun capture(name: String) {
+        if (!captureEvidence) return
+        // Compose's clock is deliberately stopped for the intermediate motion frames. Let
+        // the rendered frame reach SurfaceFlinger before taking the diagnostic screenshot.
+        val frame = CountDownLatch(1)
+        compose.runOnUiThread {
+            compose.activity.window.decorView.invalidate()
+            Choreographer.getInstance().postFrameCallback {
+                Choreographer.getInstance().postFrameCallback { frame.countDown() }
+            }
+        }
+        assertTrue(frame.await(5, TimeUnit.SECONDS))
+        val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        val directory = requireNotNull(compose.activity.getExternalFilesDir("rc3-stack-extraction")).also { it.mkdirs() }
+        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
     }
 
     private fun bounds(id: BookId): Rect = compose.onNodeWithTag("library_book_${id.value}").fetchSemanticsNode().boundsInRoot
