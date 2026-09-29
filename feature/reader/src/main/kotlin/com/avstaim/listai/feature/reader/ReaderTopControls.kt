@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal data class ReaderCutoutInsets(val left: Float = 0f, val top: Float = 0f,
@@ -80,13 +81,33 @@ internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, de
     val buttons = if (slots.size >= 5) slots.take(2) + slots.takeLast(3) else emptyList()
     val contentTop = maxOf(top + touch, insets.top) + 14f * density
     val clockWidth = 82f * density
+    val minimumClockWidth = 64f * density
     val clockHeight = 12f * density
+    // Keep the clock in the printed controls' row, close to the paper edge. Anchoring it
+    // to contentTop put its lower edge directly against the book text. The clock never
+    // changes the text inset, including when a notch leaves no room for it in this row.
+    val clockTop = top + (touch - clockHeight) / 2
     val clock = paperBounds.sortedByDescending { it.width }.firstNotNullOfOrNull { paper ->
-        val center = paper.center.x
-        val candidate = Rect(center - clockWidth / 2, contentTop - clockHeight,
-            center + clockWidth / 2, contentTop)
-        candidate.takeIf { it.left >= paper.left && it.right <= paper.right && it.bottom <= paper.bottom &&
-            insets.cutouts.none { cutout -> cutout.overlaps(it) } && buttons.none { button -> button.overlaps(it) } }
+        if (clockTop < paper.top || clockTop + clockHeight > paper.bottom) return@firstNotNullOfOrNull null
+        var intervals = listOf(maxOf(paper.left + gap, insets.left + gap) to
+            minOf(paper.right - gap, width - insets.right - gap))
+        (buttons + insets.cutouts).filter { it.bottom > clockTop && it.top < clockTop + clockHeight }
+            .forEach { occupied ->
+                intervals = intervals.flatMap { (a, b) ->
+                    val start = occupied.left - gap
+                    val end = occupied.right + gap
+                    if (end <= a || start >= b) listOf(a to b)
+                    else buildList {
+                        if (start > a) add(a to minOf(start, b))
+                        if (end < b) add(maxOf(end, a) to b)
+                    }
+                }
+            }
+        intervals.filter { (a, b) -> b - a >= minimumClockWidth }.map { (a, b) ->
+            val availableWidth = minOf(clockWidth, b - a)
+            val center = paper.center.x.coerceIn(a + availableWidth / 2, b - availableWidth / 2)
+            Rect(center - availableWidth / 2, clockTop, center + availableWidth / 2, clockTop + clockHeight)
+        }.minByOrNull { abs(it.center.x - paper.center.x) }
     }
     return ReaderTopControlLayout(contentTop, buttons, clockBounds = clock)
 }

@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.avstaim.listai.core.designsystem.ListaiTheme
@@ -57,6 +59,21 @@ fun V12ChapterDarkFoldScreenshot() { V12BookPreview(russian = false, dark = true
 fun V12ChapterLargeFontScreenshot() { V12BookPreview(largeFont = true) }
 
 @PreviewTest
+@Preview(name = "1.2 — часы у камеры крупный шрифт", widthDp = 412, heightDp = 800, fontScale = 2f, locale = "ru")
+@Composable
+fun V12ClockNotchScreenshot() { V12BookPreview(dark = true, largeFont = true, notch = true) }
+
+@PreviewTest
+@Preview(name = "1.2 — clock beside bookmark and camera", widthDp = 412, heightDp = 800, locale = "en")
+@Composable
+fun V12ClockBookmarkNotchScreenshot() { V12BookPreview(russian = false, notch = true, text = true) }
+
+@PreviewTest
+@Preview(name = "1.2 — narrow bookmark takes priority over clock", widthDp = 320, heightDp = 640, locale = "ru")
+@Composable
+fun V12ClockBookmarkNarrowScreenshot() { V12BookPreview(dark = true, text = true) }
+
+@PreviewTest
 @Preview(name = "1.2 — title and vector ornament during curl", widthDp = 412, heightDp = 800, locale = "en")
 @Composable
 fun V12TitleCurlScreenshot() { V12BookPreview(russian = false, title = true, curl = true) }
@@ -68,7 +85,9 @@ fun V12LongTitleScreenshot() { V12BookPreview(russian = false, title = true, lon
 
 @Composable
 private fun V12BookPreview(russian: Boolean = true, dark: Boolean = false, title: Boolean = false,
-    description: Boolean = false, curl: Boolean = false, largeFont: Boolean = false, longTitle: Boolean = false) {
+    description: Boolean = false, curl: Boolean = false, largeFont: Boolean = false, longTitle: Boolean = false,
+    notch: Boolean = false, text: Boolean = false) {
+    val density = LocalDensity.current.density
     val source = remember(russian, longTitle) {
         val heading = BookBlock.Heading(BlockId("chapter-number"), 1,
             listOf(InlineNode.Text(if (russian) "Глава XI." else "Chapter XI.")))
@@ -88,9 +107,13 @@ private fun V12BookPreview(russian: Boolean = true, dark: Boolean = false, title
     ListaiTheme(darkTheme = dark) {
         PhysicalBookView(emptyList(), source.metadata.title, source.metadata.authors.first(), document = source,
             darkTheme = dark, fontSizeSp = if (largeFont) 26f else 18f,
+            initialLocation = if (text) BookLocation(BlockId("p0"), 0, 0) else null,
+            onAddBookmark = if (text) ({}) else null,
             initialTitleLocation = if (title) BookLocation(BlockId("listai:title:name"), 0, 0) else null,
             initialAnnotationLocation = if (description) BookLocation(BlockId("listai:annotation:heading"), 0, 0) else null,
             previewTurn = if (curl) DemoTurnPreview(TurnDirection.FORWARD, fraction = .35f) else null,
+            pageControlInsets = if (notch) ReaderCutoutInsets(top = 32f * density,
+                cutouts = listOf(Rect(192f * density, 0f, 220f * density, 32f * density))) else ReaderCutoutInsets(),
             pageControls = { layout -> ReaderTopControls(layout, dark, {}, {}, {}, {},
                 modifier = Modifier.fillMaxSize(), showClock = true) },
             insideCoverControls = { bookBounds, viewportBounds, onDescription ->

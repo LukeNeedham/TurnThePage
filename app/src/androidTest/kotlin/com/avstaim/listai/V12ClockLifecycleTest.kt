@@ -7,9 +7,11 @@ import android.text.format.DateFormat
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
@@ -64,8 +66,10 @@ class V12ClockLifecycleTest {
             awaitRest()
             awaitClock("Etc/UTC")
             assertFalse(DateFormat.is24HourFormat(compose.activity))
+            assertClockPlacementAndText()
             awaitReceiverCount(1)
             val before = readerSnapshot(progress.get())
+            val bookmarkBounds = compose.onNodeWithTag("reader_quick_bookmark").fetchSemanticsNode().boundsInRoot
             assertTrue("The fixture must have rasterized actual book pages", before.renders > 0)
 
             // A direct settings write need not broadcast TIME_SET. The next real minute tick
@@ -77,6 +81,7 @@ class V12ClockLifecycleTest {
                     DateFormat.is24HourFormat(compose.activity) && clockLabel() == expectedTime("Etc/UTC")
             }
             assertReaderUnchanged("natural minute tick and 12/24 change", before, progress.get())
+            assertClockPlacementAndText()
 
             val utcLabel = clockLabel()
             checkedShell("cmd alarm set-timezone Pacific/Honolulu")
@@ -87,6 +92,8 @@ class V12ClockLifecycleTest {
 
             compose.runOnUiThread { preferences.value = preferences.value.copy(showClock = false) }
             compose.onNodeWithTag("reader_clock", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals("Disabling the clock must not move the bookmark", bookmarkBounds,
+                compose.onNodeWithTag("reader_quick_bookmark").fetchSemanticsNode().boundsInRoot)
             awaitReceiverCount(0)
             assertReaderUnchanged("clock disabled", before, progress.get())
             checkedShell("cmd alarm set-timezone Asia/Tokyo")
@@ -164,6 +171,31 @@ class V12ClockLifecycleTest {
     private fun clockLabel(): String? = compose.onAllNodesWithTag("reader_clock", useUnmergedTree = true)
         .fetchSemanticsNodes().singleOrNull()?.config?.getOrElse(SemanticsProperties.Text) { emptyList() }
         ?.joinToString("") { it.text }
+
+    private fun assertClockPlacementAndText() {
+        val clock = compose.onNodeWithTag("reader_clock", useUnmergedTree = true).fetchSemanticsNode()
+        val book = compose.onNodeWithTag("book_view_demo").fetchSemanticsNode()
+        val paper = book.config[ReaderPaperBounds].map { it.translate(book.boundsInRoot.topLeft) }
+        val bounds = clock.boundsInRoot
+        assertTrue("The clock must be wholly printed on one leaf", paper.any {
+            bounds.left >= it.left && bounds.right <= it.right && bounds.top >= it.top && bounds.bottom <= it.bottom
+        })
+        val controls = listOf("close", "contents", "settings", "theme", "bookmarks").map {
+            compose.onNodeWithTag("reader_top_$it").fetchSemanticsNode().boundsInRoot
+        }
+        assertEquals("The clock belongs near the upper paper edge, aligned with the controls",
+            controls.first().center.y, bounds.center.y, 1f)
+        assertTrue("The clock must leave every action target clear", controls.none { it.overlaps(bounds) })
+        val bookmark = compose.onNodeWithTag("reader_quick_bookmark").fetchSemanticsNode().boundsInRoot
+        assertFalse("The bookmark ribbon and its tap target must leave the whole clock clear", bookmark.overlaps(bounds))
+        val textLayouts = mutableListOf<TextLayoutResult>()
+        compose.runOnIdle {
+            assertTrue(requireNotNull(clock.config[SemanticsActions.GetTextLayoutResult].action).invoke(textLayouts))
+        }
+        val text = textLayouts.single()
+        assertEquals("The localized clock must stay on one line", 1, text.lineCount)
+        assertFalse("The complete localized time including AM/PM must fit", text.hasVisualOverflow)
+    }
 
     private fun expectedTime(zone: String): String = DateFormat.getTimeFormat(compose.activity).apply {
         timeZone = TimeZone.getTimeZone(zone)

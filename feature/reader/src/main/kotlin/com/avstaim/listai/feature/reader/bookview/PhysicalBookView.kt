@@ -694,7 +694,7 @@ internal fun PhysicalBookView(
             if (idleSurfaces.right.isReadablePaperSurface())
                 add(layout.rightPage)
         }
-        val pageControlsLayout = readerTopControlLayout(canvasSize.width, pageControlInsets,
+        val initialPageControlsLayout = readerTopControlLayout(canvasSize.width, pageControlInsets,
             density.density, openPaperBounds).copy(onCoverMaterial =
                 (idleSurfaces.left as? BookVisualSurface.Cover)?.insideContent != null ||
                     (idleSurfaces.right as? BookVisualSurface.Cover)?.insideContent != null,
@@ -750,8 +750,10 @@ internal fun PhysicalBookView(
                         targetSize = targetSize,
                         topOverhang = with(density) { 3.dp.toPx() },
                         gap = with(density) { 4.dp.toPx() },
-                        controlBounds = pageControlsLayout.buttons,
+                        controlBounds = initialPageControlsLayout.buttons,
                         cutoutBounds = pageControlInsets.cutouts,
+                        clockBounds = initialPageControlsLayout.clockBounds,
+                        minimumTargetSize = minOf(targetSize, target32),
                     )
                 }
                 top?.let { geometry ->
@@ -766,6 +768,12 @@ internal fun PhysicalBookView(
                 }
             }
         }
+        // Slot reservation is independent of showClock, so toggling the preference never
+        // moves the bookmark. Give its action priority when both cannot fit at the edge.
+        val pageControlsLayout = initialPageControlsLayout.copy(clockBounds =
+            initialPageControlsLayout.clockBounds?.takeUnless { clock ->
+                quickBookmarkPlacement?.bounds?.overlaps(clock) == true
+            })
         val noteLinks = remember(ready, bookState, layout, presentation, density.density) {
             buildList {
                 if (bookState !is PhysicalBookState.Open || ready == null) return@buildList

@@ -20,7 +20,8 @@ class ReaderTopControlsTest {
         layout.buttons.zipWithNext().forEach { (a, b) -> assertFalse(a.overlaps(b)) }
         layout.clockBounds?.let { clock ->
             assertTrue(paper.any { clock.left >= it.left && clock.right <= it.right && clock.top >= it.top && clock.bottom <= it.bottom })
-            assertTrue(clock.bottom <= layout.contentTop)
+            assertTrue("Clock must preserve the gap above the text", clock.bottom + 14f * density <= layout.contentTop)
+            assertEquals("Clock belongs to the top control row", layout.buttons.first().center.y, clock.center.y, .001f)
             assertTrue(layout.buttons.none { it.overlaps(clock) })
             assertTrue(insets.cutouts.none { it.overlaps(clock) })
         }
@@ -52,6 +53,9 @@ class ReaderTopControlsTest {
         val result = verify(412f, ReaderCutoutInsets())
         assertTrue(result.buttons[2].left - result.buttons[1].right > 140f)
         assertEquals(54f, result.contentTop, 0f)
+        val clock = requireNotNull(result.clockBounds)
+        assertEquals(206f, clock.center.x, 0f)
+        assertEquals(18f, clock.top, 0f)
     }
 
     @Test fun `multiple cutouts and density keep all targets disjoint`() {
@@ -72,6 +76,47 @@ class ReaderTopControlsTest {
     }
 
     @Test fun `forced narrow spread keeps actions on its lone first leaf`() {
-        verify(320f, ReaderCutoutInsets(), paper = listOf(Rect(160f, 4f, 316f, 650f)))
+        val layout = verify(320f, ReaderCutoutInsets(), paper = listOf(Rect(160f, 4f, 316f, 650f)))
+        assertNull("An optional clock must not be squeezed between controls or pushed into text", layout.clockBounds)
+    }
+
+    @Test fun `clock stays near the edge beside a centered camera`() {
+        val layout = verify(412f, ReaderCutoutInsets(top = 32f,
+            cutouts = listOf(Rect(192f, 0f, 220f, 32f))))
+        val clock = requireNotNull(layout.clockBounds)
+        assertTrue("The clock uses free paper beside the camera", clock.right <= 188f)
+        assertEquals(18f, clock.top, 0f)
+    }
+
+    @Test fun `clock follows the safe upper row below a wide notch`() {
+        val layout = verify(320f, ReaderCutoutInsets(top = 36f,
+            cutouts = listOf(Rect(25f, 0f, 295f, 36f))))
+        val clock = requireNotNull(layout.clockBounds)
+        assertTrue(clock.top >= 36f)
+        assertEquals(layout.buttons.first().center.y, clock.center.y, 0f)
+    }
+
+    @Test fun `clock is centered on a complete page never across the Fold hinge`() {
+        val pages = listOf(Rect(4f, 4f, 490f, 650f), Rect(510f, 4f, 996f, 650f))
+        val spreadClock = requireNotNull(verify(1000f, ReaderCutoutInsets(), paper = pages).clockBounds)
+        assertEquals(pages.first().center.x, spreadClock.center.x, 0f)
+        val loneClock = requireNotNull(verify(1000f, ReaderCutoutInsets(), paper = listOf(pages.last())).clockBounds)
+        assertEquals(pages.last().center.x, loneClock.center.x, 0f)
+    }
+
+    @Test fun `clock size and top edge distance follow density not paragraph metrics`() {
+        listOf(1f, 1.5f, 2f, 3f).forEach { density ->
+            val clock = requireNotNull(verify(360f * density, ReaderCutoutInsets(), density).clockBounds)
+            assertEquals(82f * density, clock.width, .001f)
+            assertEquals(12f * density, clock.height, .001f)
+            assertEquals(18f * density, clock.top, .001f)
+        }
+    }
+
+    @Test fun `narrow phone keeps a clock in the remaining top row width`() {
+        val clock = requireNotNull(verify(320f, ReaderCutoutInsets(),
+            paper = listOf(Rect(14f, 14f, 306f, 626f))).clockBounds)
+        assertTrue(clock.width >= 64f)
+        assertTrue(clock.width < 82f)
     }
 }
