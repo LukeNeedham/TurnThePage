@@ -91,6 +91,64 @@ class LibraryStackDropTest {
         assertPoint(first.movingBook.backRight + delta, second.movingBook.backRight)
     }
 
+    @Test fun creationKeepsBothReleasedPosesAndLaysDownTheTargetBeforeLanding() {
+        val first = stackCreationFrame(from, destination, destination, 0f)
+        assertEquals(stackDropFrame(from, destination, 1, 0f).movingBook, first.movingBook)
+        assertPoint(destination.topLeft, first.previousTopBook.backLeft)
+        assertPoint(destination.bottomRight, first.previousTopBook.frontRight)
+        assertEquals(0f, first.previousTopBook.thickness)
+        val early = stackCreationFrame(from, destination, destination, .15f)
+        assertEquals(first.movingBook, early.movingBook)
+        assertTrue(early.previousTopBook.thickness > 0f)
+        assertTrue(early.previousTopBook.backLeft.y > first.previousTopBook.backLeft.y)
+        val settledBase = stackCreationFrame(from, destination, destination, .55f)
+        val last = stackCreationFrame(from, destination, destination, 1f)
+        assertEquals(last.previousTopBook, settledBase.previousTopBook)
+        assertNotEquals(last.movingBook, settledBase.movingBook)
+        assertEquals(stackDropFrame(from, destination, 1, 1f), last)
+    }
+
+    @Test fun bothCreationCoversStayConvexAcrossNarrowWideAndReflowedSlots() {
+        for (scale in listOf(.5f, 1f, 2.5f)) {
+            val target = Rect(20f, 30f, 20f + 100f * scale, 30f + 150f * scale)
+            for (step in 0..100) {
+                val frame = stackCreationFrame(from, target, target, step / 100f)
+                for (geometry in listOf(frame.movingBook, frame.previousTopBook)) {
+                    val corners = with(geometry) { listOf(backLeft, backRight, frontRight, frontLeft) }
+                    assertTrue(corners.all { it.x.isFinite() && it.y.isFinite() })
+                    assertTrue(corners.indices.all { index ->
+                        val a = corners[(index + 1) % 4] - corners[index]
+                        val b = corners[(index + 2) % 4] - corners[(index + 1) % 4]
+                        a.x * b.y - a.y * b.x > 0f
+                    })
+                }
+            }
+        }
+        val reflowed = Rect(420f, 330f, 520f, 480f)
+        val final = stackCreationFrame(from, destination, reflowed, 1f)
+        assertEquals(stackDropFrame(from, reflowed, 1, 1f), final)
+    }
+
+    @Test fun confirmedCreationWaitsForItsExactIdentityOrderAndBothAtomicMemberships() {
+        val incoming = book("incoming")
+        val target = book("target")
+        val original = LibraryCatalog(listOf(incoming, target), emptyList(),
+            listOf(LibraryShelfItem.Book(incoming.id), LibraryShelfItem.Book(target.id)))
+        val pending = PendingLibraryStackCreation(incoming, target, from, destination, original, Rect(0f, 0f, 500f, 800f))
+        val creation = pending.confirmed("New stack", "requested-id")
+        assertTrue(creation.creating)
+        assertEquals(760, creation.durationMillis)
+        assertEquals(original, creation.shelf)
+        val committed = original.copy(books = original.books.map { it.copy(stackId = "requested-id") },
+            stacks = listOf(LibraryStack("requested-id", "New stack", listOf(incoming.id, target.id))),
+            shelf = listOf(LibraryShelfItem.Stack("requested-id")))
+        assertFalse(creation.isCommittedIn(original))
+        assertFalse(creation.isCommittedIn(committed.copy(stacks = listOf(committed.stacks.single().copy(id = "different")))))
+        assertFalse(creation.isCommittedIn(committed.copy(books = listOf(incoming.copy(stackId = "requested-id"), target))))
+        assertFalse(creation.isCommittedIn(committed.copy(stacks = listOf(committed.stacks.single().copy(bookIds = listOf(target.id, incoming.id))))))
+        assertTrue(creation.isCommittedIn(committed))
+    }
+
     private fun assertPoint(expected: Offset, actual: Offset) {
         assertEquals(expected.x, actual.x, .0001f); assertEquals(expected.y, actual.y, .0001f)
     }

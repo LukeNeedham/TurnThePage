@@ -19,14 +19,34 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import com.avstaim.listai.core.model.LibraryBook
 import com.avstaim.listai.core.model.LibraryCatalog
+import com.avstaim.listai.core.model.LibraryShelfItem
+import com.avstaim.listai.core.model.LibraryStack
 import kotlin.math.sin
 
 /** Test telemetry does not become an accessibility announcement or visible product text. */
 val LibraryStackDropProgressKey = SemanticsPropertyKey<Float>("LibraryStackDropProgress")
 val LibraryStackShelfProgressKey = SemanticsPropertyKey<Float>("LibraryStackShelfProgress")
+val LibraryStackDropKindKey = SemanticsPropertyKey<String>("LibraryStackDropKind")
+/** Clockwise projected lid corners in root coordinates, used to inspect actual cover pixels. */
+val LibraryStackIncomingCornersKey = SemanticsPropertyKey<List<Float>>("LibraryStackIncomingCorners")
 
 internal const val LIBRARY_HELD_BOOK_SCALE = 1.04f
 internal const val LIBRARY_STACK_DROP_MILLIS = 560
+internal const val LIBRARY_STACK_CREATION_MILLIS = 760
+
+/** A naming dialog is a pause in the same gesture, not a return to the original shelf slot. */
+internal data class PendingLibraryStackCreation(
+    val book: LibraryBook,
+    val target: LibraryBook,
+    val from: Rect,
+    val destination: Rect,
+    val shelf: LibraryCatalog,
+    val viewport: Rect,
+) {
+    fun confirmed(name: String, id: String) = LibraryStackDrop(book,
+        LibraryTile(LibraryShelfItem.Stack(id), target, LibraryStack(id, name, listOf(target.id))),
+        from, destination, shelf, viewport, standingTarget = destination)
+}
 
 /** Own the cover and the pre-commit shelf until both the flight and Room commit have finished. */
 internal data class LibraryStackDrop(
@@ -38,11 +58,18 @@ internal data class LibraryStackDrop(
     val viewport: Rect = Rect.Zero,
     val releasingShelf: Boolean = false,
     val reflowTarget: Rect? = null,
+    val standingTarget: Rect? = null,
 ) {
     val stackId: String get() = requireNotNull(target.stack).id
-    fun isCommittedIn(catalog: LibraryCatalog): Boolean =
-        catalog.books.any { it.id == book.id && it.stackId == stackId } &&
-            catalog.stacks.any { it.id == stackId && it.bookIds.firstOrNull() == book.id }
+    val creating: Boolean get() = standingTarget != null
+    val durationMillis: Int get() = if (creating) LIBRARY_STACK_CREATION_MILLIS else LIBRARY_STACK_DROP_MILLIS
+    fun isCommittedIn(catalog: LibraryCatalog): Boolean {
+        val committed = catalog.stacks.firstOrNull { it.id == stackId } ?: return false
+        val expected = listOf(book.id) + requireNotNull(target.stack).bookIds
+        return committed.bookIds.firstOrNull() == book.id && expected.all { id ->
+            id in committed.bookIds && catalog.books.any { it.id == id && it.stackId == stackId }
+        }
+    }
 }
 
 internal data class StackDropFrame(
@@ -75,6 +102,22 @@ internal fun stackDropFrame(from: Rect, destination: Rect, count: Int, progress:
     return StackDropFrame(moving, settledSupports.dropLast(1), settledSupports.last())
 }
 
+/** The original target is laid flat before the held book settles on its new upper face. */
+internal fun stackCreationFrame(from: Rect, standingTarget: Rect, destination: Rect, progress: Float): StackDropFrame {
+    val p = progress.coerceIn(0f, 1f)
+    val final = stackBookGeometry(destination.width, destination.height, 2).map { it.translated(destination.topLeft) }
+    val baseProgress = (p / .55f).coerceIn(0f, 1f)
+    val base = standingTarget.uprightGeometry().between(final.first(), baseProgress)
+    val arrival = ((p - .18f) / .82f).coerceIn(0f, 1f)
+    val held = from.inflate(from.width * (LIBRARY_HELD_BOOK_SCALE - 1f) / 2f,
+        from.height * (LIBRARY_HELD_BOOK_SCALE - 1f) / 2f)
+    val lift = Offset(0f, -destination.height * .15f * sin(arrival * Math.PI).toFloat())
+    val moving = held.uprightGeometry().between(final.last(), arrival).translated(lift)
+    return StackDropFrame(moving, emptyList(), base)
+}
+
+private fun Rect.uprightGeometry() = StackBookGeometry(topLeft, topRight, bottomRight, bottomLeft, 0f)
+
 internal fun stackDropDestination(from: Rect, to: Rect, progress: Float): Rect {
     val p = progress.coerceIn(0f, 1f)
     return Rect(from.topLeft + (to.topLeft - from.topLeft) * p,
@@ -84,11 +127,16 @@ internal fun stackDropDestination(from: Rect, to: Rect, progress: Float): Rect {
 private fun Rect.inflate(x: Float, y: Float) = Rect(left - x, top - y, right + x, bottom + y)
 private fun StackBookGeometry.translated(delta: Offset) = copy(backLeft = backLeft + delta,
     backRight = backRight + delta, frontRight = frontRight + delta, frontLeft = frontLeft + delta)
-private fun StackBookGeometry.between(other: StackBookGeometry, p: Float) = StackBookGeometry(
-    backLeft + (other.backLeft - backLeft) * p, backRight + (other.backRight - backRight) * p,
-    frontRight + (other.frontRight - frontRight) * p, frontLeft + (other.frontLeft - frontLeft) * p,
-    thickness + (other.thickness - thickness) * p,
-)
+private fun StackBookGeometry.between(other: StackBookGeometry, p: Float): StackBookGeometry = when {
+    p <= 0f -> this
+    p >= 1f -> other
+    else -> StackBookGeometry(
+        backLeft + (other.backLeft - backLeft) * p, backRight + (other.backRight - backRight) * p,
+        frontRight + (other.frontRight - frontRight) * p, frontLeft + (other.frontLeft - frontLeft) * p,
+        thickness + (other.thickness - thickness) * p,
+    )
+}
+
 /** No artwork decode or layout per frame: the same measured cover is projected as a rigid lid. */
 @Composable
 internal fun LibraryStackDropFlight(
@@ -99,7 +147,10 @@ internal fun LibraryStackDropFlight(
     destination: Rect = drop.destination,
     shelfProgress: Float = 0f,
 ) {
-    val frame = stackDropFrame(drop.from.translate(-rootOrigin), destination.translate(-rootOrigin),
+    val frame = if (drop.standingTarget != null) {
+        stackCreationFrame(drop.from.translate(-rootOrigin), drop.standingTarget.translate(-rootOrigin),
+            destination.translate(-rootOrigin), progress)
+    } else stackDropFrame(drop.from.translate(-rootOrigin), destination.translate(-rootOrigin),
         requireNotNull(drop.target.stack).bookIds.size, progress)
     val density = LocalDensity.current
     val width = with(density) { drop.from.width.toDp() }
@@ -108,6 +159,12 @@ internal fun LibraryStackDropFlight(
     Box(Modifier.size(width, height).testTag("library_stack_drop_flight").semantics {
         this[LibraryStackDropProgressKey] = progress
         this[LibraryStackShelfProgressKey] = shelfProgress
+        this[LibraryStackDropKindKey] = if (drop.creating) "creation" else "addition"
+        this[LibraryStackIncomingCornersKey] = with(frame.movingBook) {
+            listOf(backLeft, backRight, frontRight, frontLeft).flatMap { point ->
+                listOf(point.x + rootOrigin.x, point.y + rootOrigin.y)
+            }
+        }
     }) {
         Canvas(Modifier.size(width, height)) { frame.supportingBooks.forEach { drawStackBook(it, dark, false) } }
         drop.target.book?.let { top ->
