@@ -71,7 +71,10 @@ internal class EpubXml(private val limits: EpubParserLimits) {
 internal fun elementName(local: String, qualified: String): String = local.ifEmpty { qualified.substringAfter(':') }.lowercase()
 internal fun Attributes.value(name: String): String? = getValue(name)?.trim()?.takeIf(String::isNotEmpty)
 internal fun Attributes.epubType(): Set<String> =
-    (getValue("http://www.idpf.org/2007/ops", "type") ?: getValue("epub:type")).orEmpty().split(Regex("\\s+")).toSet()
+    (getValue("http://www.idpf.org/2007/ops", "type") ?: getValue("epub:type")).orEmpty().split(Regex("\\s+")).toSet() +
+        value("role").orEmpty().split(Regex("\\s+")).mapNotNull {
+            when (it) { "doc-part" -> "part"; "doc-chapter" -> "chapter"; "doc-epigraph" -> "epigraph"; else -> null }
+        }
 internal fun String.normalizedText(): String = replace(Regex("[\\t\\r\\n ]+"), " ").trim()
 
 internal fun normalizeArchivePath(path: String): String {

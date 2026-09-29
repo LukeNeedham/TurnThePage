@@ -16,7 +16,7 @@ data class BookChapter(
     val startBlockId: BlockId get() = headingBlockIds.first()
 }
 
-enum class BookHeadingRole { UNSPECIFIED, CHAPTER, OTHER }
+enum class BookHeadingRole { UNSPECIFIED, CHAPTER, PART, OTHER }
 
 /** Parser-owned grouping; never combines or rewrites original blocks. */
 data class BookHeadingGroup(
@@ -42,9 +42,11 @@ fun chapterOpenings(blocks: List<BookBlock>, groups: List<BookHeadingGroup>): Li
     }
     val positions = flat.mapIndexed { index, block -> block.id to index }.toMap()
     val sources = flat.associateBy(BookBlock::id)
+    val partIds = partOpenings(blocks, groups).flatMapTo(mutableSetOf()) { it.blockIds }
     val eligible = groups.filter { group ->
         group.blockIds.isNotEmpty() && group.blockIds.all { sources[it] is BookBlock.Heading } &&
-            group.role != BookHeadingRole.OTHER && !otherOpening.containsMatchIn(sources.getValue(group.blockIds.first()).plainText().trim())
+            group.role !in setOf(BookHeadingRole.OTHER, BookHeadingRole.PART) &&
+            group.blockIds.none { it in partIds } && !otherOpening.containsMatchIn(sources.getValue(group.blockIds.first()).plainText().trim())
     }.sortedBy { positions[it.blockIds.first()] }
     val level = eligible.minOfOrNull(BookHeadingGroup::level) ?: return emptyList()
     val selected = eligible.filter { it.level == level || chapterWord.containsMatchIn(sources.getValue(it.blockIds.first()).plainText()) }

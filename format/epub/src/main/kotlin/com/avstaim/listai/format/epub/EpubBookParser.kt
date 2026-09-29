@@ -172,6 +172,7 @@ class EpubBookParser(
                     images = images,
                     locationsBySourceId = locations,
                     chapters = chapterOpenings(state.blocks, state.headingGroups),
+                    parts = partOpenings(state.blocks, state.headingGroups, state.epigraphBlockIds),
                     titlePageBlockIds = state.titlePageBlockIds.toList(),
                 )
             }

@@ -13,6 +13,7 @@ internal class EpubContentState(val limits: EpubParserLimits) {
     val firstImagesByPath = mutableMapOf<String, String>()
     val headingGroups = mutableListOf<BookHeadingGroup>()
     val titlePageBlockIds = mutableListOf<BlockId>()
+    val epigraphBlockIds = mutableSetOf<BlockId>()
     private var blockCount = 0
     private var globalOffset = 0L
     private var noteOffset = 0L
@@ -27,7 +28,11 @@ internal class EpubContentState(val limits: EpubParserLimits) {
 }
 
 private data class InlineStyle(val kind: String, val link: LinkTarget? = null)
-private data class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>)
+private class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>) {
+    var partHeadingGroup: Int? = null
+    var partHeadingContainer: HtmlFrame? = null
+    var lastHeadingGroup: Int? = null
+}
 private data class PendingAnchor(val key: String, val offset: Int)
 
 internal class XhtmlHandler(
@@ -212,14 +217,44 @@ internal class XhtmlHandler(
         val location = state.append(block, noteBlocks)
         if (noteBlocks == null) {
             val types = frames.flatMap { it.types }.toSet()
+            if ("epigraph" in types) state.epigraphBlockIds += block.id
             if (isTitlePage || "titlepage" in types) state.titlePageBlockIds += block.id
             else if (block is BookBlock.Heading) {
+                // The nearest division owns the heading: a nested chapter must not inherit PART.
+                val owner = frames.lastOrNull { frame -> frame.types.any { it in DIVISION_TYPES } }
+                val ownerTypes = owner?.types.orEmpty()
                 val role = when {
-                    "chapter" in types -> BookHeadingRole.CHAPTER
-                    types.any { it in setOf("part", "volume", "prologue", "epilogue", "preface", "foreword", "introduction") } -> BookHeadingRole.OTHER
+                    "epigraph" in types -> BookHeadingRole.OTHER
+                    "chapter" in ownerTypes -> BookHeadingRole.CHAPTER
+                    ownerTypes.any { it == "part" || it == "volume" } && owner?.partHeadingGroup == null -> BookHeadingRole.PART
+                    ownerTypes.any { it in setOf("prologue", "epilogue", "preface", "foreword", "introduction") } -> BookHeadingRole.OTHER
                     else -> BookHeadingRole.UNSPECIFIED
                 }
-                state.headingGroups += BookHeadingGroup(listOf(block.id), block.level, role)
+                val container = frames.dropLast(1).lastOrNull()
+                val lexicalPartIndex = container?.lastHeadingGroup?.takeIf { index ->
+                    val group = state.headingGroups[index]
+                    group.role == BookHeadingRole.UNSPECIFIED && group.blockIds.size == 1 &&
+                        state.blocks.getOrNull(state.blocks.lastIndex - 1)?.let { previous ->
+                            previous.id == group.blockIds.last() && isStandalonePartLabel(previous.plainText())
+                        } == true
+                }
+                val existingIndex = owner?.partHeadingGroup ?: lexicalPartIndex
+                val previous = existingIndex?.let(state.headingGroups::get)
+                val attachedSubtitle = previous != null && existingIndex == state.headingGroups.lastIndex &&
+                    (existingIndex == lexicalPartIndex || owner?.partHeadingContainer === container) && block.level > previous.level &&
+                    role == BookHeadingRole.UNSPECIFIED &&
+                    state.blocks.getOrNull(state.blocks.lastIndex - 1)?.id == previous.blockIds.last() &&
+                    !DIVISION_LABEL.containsMatchIn(block.plainText())
+                if (attachedSubtitle) {
+                    state.headingGroups[requireNotNull(existingIndex)] = requireNotNull(previous).copy(blockIds = previous.blockIds + block.id)
+                } else {
+                    state.headingGroups += BookHeadingGroup(listOf(block.id), block.level, role)
+                    container?.lastHeadingGroup = state.headingGroups.lastIndex
+                    if (role == BookHeadingRole.PART) {
+                        requireNotNull(owner).partHeadingGroup = state.headingGroups.lastIndex
+                        owner.partHeadingContainer = container
+                    }
+                }
             }
         }
         val length = block.plainText().length
@@ -300,3 +335,5 @@ private class InlineBuffer {
 }
 private val TEXT_BLOCK_TAGS = setOf("p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "li", "dt", "dd")
 private val BLOCK_TAGS = TEXT_BLOCK_TAGS + setOf("body", "section", "article", "div", "blockquote", "ul", "ol", "dl", "table", "tr", "td", "th", "figure", "figcaption", "aside", "header", "footer", "nav")
+private val DIVISION_TYPES = setOf("part", "volume", "chapter", "prologue", "epilogue", "preface", "foreword", "introduction")
+private val DIVISION_LABEL = Regex("^\\s*(?:chapter|глава|part|часть|volume|том|book|книга)(?:\\s|[.:—–-]|$)", RegexOption.IGNORE_CASE)

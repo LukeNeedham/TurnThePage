@@ -14,6 +14,7 @@ import com.avstaim.listai.core.model.BookSequence
 import com.avstaim.listai.core.model.BookTocEntry
 import com.avstaim.listai.core.model.BookHeadingGroup
 import com.avstaim.listai.core.model.chapterOpenings
+import com.avstaim.listai.core.model.partOpenings
 import com.avstaim.listai.core.model.ImageId
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -345,6 +346,7 @@ internal class Fb2SaxHandler(
             images = modelImages,
             locationsBySourceId = locationsBySourceId,
             chapters = chapterOpenings(modelBlocks, headingGroups),
+            parts = partOpenings(modelBlocks, headingGroups),
         )
     }
 

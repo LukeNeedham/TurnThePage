@@ -16,6 +16,8 @@ data class BookDocument(
     val pageBreakBefore: Set<BlockId> = emptySet(),
     /** A supplemental projection displays title blocks outside the main reading flow. */
     val isFrontmatter: Boolean = false,
+    /** Large divisions and their source-explicit epigraphs, separate from chapter numbering. */
+    val parts: List<BookPart> = emptyList(),
 ) {
     init {
         val mainBlocks = blocks.flattenedBlocks()
@@ -43,6 +45,8 @@ data class BookDocument(
         }
         val mainBlockIds = mainBlocks.mapTo(mutableSetOf(), BookBlock::id)
         require(chapters.flatMap { it.headingBlockIds }.all { it in mainBlockIds })
+        require(parts.flatMap { it.blockIds }.all { it in mainBlockIds })
+        require(parts.flatMap { it.blockIds }.let { it.distinct().size == it.size })
         require(titlePageBlockIds.distinct().size == titlePageBlockIds.size && titlePageBlockIds.all { it in mainBlockIds })
         require(pageBreakBefore.all { it in mainBlockIds })
         fun validateToc(entries: List<BookTocEntry>) {
