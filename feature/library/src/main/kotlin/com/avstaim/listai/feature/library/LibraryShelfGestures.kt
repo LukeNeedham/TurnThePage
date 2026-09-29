@@ -206,6 +206,12 @@ internal fun Modifier.libraryShelfInput(
                     continue
                 }
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                // Compose represents Android ACTION_CANCEL as an already-consumed release.
+                // Check before consuming our own drag event: cancellation must never commit
+                // membership, extraction, reorder or a long-press action.
+                if (!change.pressed && change.isConsumed) {
+                    state.cancel(); completed = true; break
+                }
                 // Event uptime also recognizes a hold when a delayed frame (or a test clock)
                 // delivers the first post-hold movement before the timeout coroutine resumes.
                 if (holdEligible && state.drag == null && lastTime - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) {
