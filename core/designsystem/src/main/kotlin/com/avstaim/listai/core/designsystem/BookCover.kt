@@ -56,6 +56,7 @@ val BookCoverSurface.bindingColor: Color?
     get() = if (image != null) PrintedCoverBoard else null
 
 private val PrintedCoverBoard = Color(0xff29313a)
+private val CompoundTitleHyphen = Regex("(?<=\\p{L})[-\\u2010](?=\\p{L})")
 
 /**
  * Prepares the title and author used by [drawBookCover].
@@ -99,10 +100,14 @@ private fun prepareBookCoverSurface(
     val authorSize = with(density) { (width * 0.042f).toSp() }
 
     val titleLayout = title.trim().takeIf(String::isNotEmpty)?.let { displayTitle ->
+        // Some Android line breakers keep Cyrillic compounds together and then split off
+        // the last letter. Permit a wrap after a normal hyphen on the prepared cover only;
+        // metadata, accessibility labels and intentionally non-breaking hyphens stay intact.
+        val printableTitle = CompoundTitleHyphen.replace(displayTitle) { "${it.value}\u200B" }
         fun measure(sizePx: Float): TextLayoutResult {
             val titleSize = with(density) { sizePx.toSp() }
             return textMeasurer.measure(
-            text = AnnotatedString(displayTitle),
+            text = AnnotatedString(printableTitle),
             style = TextStyle(
                 color = CoverLettering,
                 fontFamily = PlyosFontFamily,
