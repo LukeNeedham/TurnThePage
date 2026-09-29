@@ -335,7 +335,7 @@ internal class PaginationSession(
     private val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key, typefaces) }
     private val annotationRasterizer = annotation?.let {
         AndroidPageRasterizer(it.document,
-            key.forWhitePaperAnnotation(),
+            key.forAnnotation(),
             missingImage, MEASUREMENT_CACHE_BYTES, typefaces)
     }
     private val notesRasterizer = notes?.let {
@@ -546,11 +546,11 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                 val annotationSnapshot = annotation?.let {
                     IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
                         typefaces = typefaces))
-                        .paginate(it.document, position.titleLocation ?: position.annotationLocation, key.forWhitePaperAnnotation()).last()
+                        .paginate(it.document, position.titleLocation ?: position.annotationLocation, key.forAnnotation()).last()
                 }
                 val annotationRasterizer = annotation?.let {
                     AndroidPageRasterizer(it.document,
-                        key.forWhitePaperAnnotation(),
+                        key.forAnnotation(),
                         missingImage, typefaces = typefaces)
                 }
                 val annotationCount = annotationSnapshot.annotationPaperCount
@@ -613,7 +613,7 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                 kotlinx.coroutines.withContext(Dispatchers.Default) {
                     IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
                         typefaces = typefaces))
-                        .paginate(it.document, position.titleLocation ?: position.annotationLocation, key.forWhitePaperAnnotation()).last()
+                        .paginate(it.document, position.titleLocation ?: position.annotationLocation, key.forAnnotation()).last()
                 }
             }
             val tocSnapshot = contents?.let {

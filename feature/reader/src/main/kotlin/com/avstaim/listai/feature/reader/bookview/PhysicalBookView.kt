@@ -383,7 +383,7 @@ internal fun PhysicalBookView(
         }
         val coverSurface = displayedCoverSurface
         val insideFront = ready?.insideFront
-        // A narrow/single-leaf book opens onto a separate white front-matter leaf. Its FB2
+        // A narrow/single-leaf book opens onto a separate front-matter leaf. Its FB2
         // annotation is paper content, never ink attached to the moving hard cover.
         val hasFrontEndpaper = presentation == BookPresentation.SINGLE &&
             (document == null || document.blocks.any { it is com.avstaim.listai.core.model.BookBlock.FixedPage })

@@ -1,7 +1,16 @@
 package com.avstaim.listai.feature.reader.bookview
 
+import android.graphics.Bitmap
 import android.text.Spanned
 import android.text.style.StyleSpan
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.reader.pagination.*
@@ -13,14 +22,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PhysicalAnnotationTest {
-    @Test fun descriptionAndTitleAreWhitePaperInBothModesAndThemesWithOriginalSourceStyles() = runBlocking {
+    @Test fun descriptionAndTitleFollowReadingThemeInBothModesWithOriginalSourceStyles() = runBlocking {
         for (mode in PageMode.entries) for (dark in listOf(false, true)) {
             val key = LayoutKey(360, 640, mode, fontSizeSp = 22f, darkTheme = dark,
                 pageWidthPx = 360, topContentInsetDp = 72f)
             val source = source()
             val frontmatter = requireNotNull(PhysicalAnnotation.create(source, "Описание"))
             assertTrue(frontmatter.hasDescription)
-            val paperKey = key.forWhitePaperAnnotation()
+            val paperKey = key.forAnnotation()
             val front = IncrementalPaginationEngine(AndroidBookMeasurer(frontmatter.document, "Missing"))
                 .paginate(frontmatter.document, null, paperKey).last()
             assertTrue(front.pages.size > 2)
@@ -31,9 +40,10 @@ class PhysicalAnnotationTest {
             val rasterizer = AndroidPageRasterizer(frontmatter.document, paperKey, "Missing")
             for (page in listOf(front.pages.first(), front.pages[1], front.pages[titlePage])) {
                 val surface = rasterizer.render(page)
-                assertFalse("Frontmatter remains white on Fold and in dark theme", surface.darkTheme)
+                assertEquals("Frontmatter follows the selected reading theme", dark, surface.darkTheme)
                 assertNull(surface.footerText)
                 assertTrue(surface.byteCount > 0)
+                assertThemedPaperAndReadableInk(surface, dark)
             }
             assertTrue(rasterizer.render(front.pages.first()).accessibleText.startsWith("Описание"))
             assertTrue(rasterizer.render(front.pages[titlePage]).accessibleText.contains(source.metadata.title))
@@ -58,6 +68,27 @@ class PhysicalAnnotationTest {
             assertEquals(before.fraction, position.progress(source.readingLength()).fraction)
             assertEquals(PhysicalBookState.Open(titlePage), position.initialState(main, annotationSnapshot = front))
         }
+    }
+
+    private fun assertThemedPaperAndReadableInk(surface: PaginatedPageSurface, dark: Boolean) {
+        val width = surface.bitmap.width
+        val height = surface.bitmap.height
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(result.asImageBitmap()),
+            Size(width.toFloat(), height.toFloat())) {
+            drawDemoPageSurface(surface.asBookSurface(1), Rect(0f, 0f, size.width, size.height), PageSide.SINGLE)
+        }
+        assertEquals("Description and title substrate follows the theme",
+            if (dark) DarkPaper.toArgb() else WhitePaper.toArgb(), result.getPixel(width / 2, height - 20))
+        var readableInk = 0
+        for (y in 0 until height) for (x in 0 until width) {
+            val pixel = surface.bitmap.getPixel(x, y)
+            if (android.graphics.Color.alpha(pixel) < 240) continue
+            val red = android.graphics.Color.red(pixel)
+            if (if (dark) red > 150 else red < 100) readableInk++
+        }
+        assertTrue("Prepared title and description ink must contrast with their paper", readableInk > 50)
+        result.recycle()
     }
 
     @Test fun absentDescriptionCreatesOnlyTitleWhilePdfRemainsUnchanged() {
@@ -93,7 +124,7 @@ class PhysicalAnnotationTest {
 
     @Test fun longTitleSpendsWhitespaceBeforeOverflowAndKeepsAllTitleAndAuthorText() = runBlocking {
         val key = LayoutKey(320, 640, PageMode.SINGLE, fontSizeSp = 18f, textScale = 1.5f,
-            topContentInsetDp = 72f).forWhitePaperAnnotation()
+            topContentInsetDp = 72f).forAnnotation()
         val short = requireNotNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata("Short title", listOf("An Author")))))
         val long = requireNotNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata(
             "A journey through the distant islands and quiet libraries of the northern seas ".repeat(3),

@@ -11,7 +11,7 @@ import com.avstaim.listai.core.model.readingBlocks
 import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.PaginationSnapshot
 
-/** White-paper frontmatter. Description and title retain independent durable anchors. */
+/** Frontmatter uses the reading theme; description and title retain independent durable anchors. */
 internal class PhysicalAnnotation private constructor(val document: BookDocument,
     val titleBlockIds: Set<BlockId>, val hasDescription: Boolean) {
     companion object {
@@ -49,9 +49,6 @@ internal fun LayoutKey.forAnnotation() = copy(
     horizontalMarginsDp = maxOf(horizontalMarginsDp, 32f),
     verticalMarginsDp = maxOf(verticalMarginsDp, 40f),
 )
-
-/** All frontmatter uses white paper, including a Fold spread in the dark reader theme. */
-internal fun LayoutKey.forWhitePaperAnnotation() = forAnnotation().copy(darkTheme = false)
 
 internal val PaginationSnapshot?.annotationPaperCount: Int
     get() = this?.pages?.size ?: 0

@@ -21,12 +21,12 @@ class PhysicalAnnotationPositionTest {
         }, layout.contentWidth.toFloat())
     })
 
-    @Test fun `native title-only book restores one white projection and can close its back cover`() = runBlocking {
+    @Test fun `native title-only book restores one title projection and can close its back cover`() = runBlocking {
         val title = BookBlock.Heading(BlockId("native-title-only"), 1, listOf(InlineNode.Text("Title 😀")))
         val source = BookDocument(BookId("only-title"), BookMetadata("Title"), listOf(title), titlePageBlockIds = listOf(title.id))
         val matter = requireNotNull(PhysicalAnnotation.create(source))
         val main = engine.paginate(source, null, key).last()
-        val front = engine.paginate(matter.document, null, key.forWhitePaperAnnotation()).last()
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
         assertTrue(main.pages.isEmpty())
         assertEquals(1, front.pages.flatMap { it.blocks }.count { it.blockId == title.id })
         val legacy = BookLocation(title.id, 2, 2)
@@ -97,12 +97,12 @@ class PhysicalAnnotationPositionTest {
             position.initialState(main, annotationSnapshot = front))
     }
 
-    @Test fun `absent description still has independent white title and no empty endpaper`() = runBlocking {
+    @Test fun `absent description still has independent title and no empty endpaper`() = runBlocking {
         val source = document().copy(metadata = BookMetadata("Book"))
         val main = engine.paginate(source, null, key).last()
         val matter = requireNotNull(PhysicalAnnotation.create(source))
         assertFalse(matter.hasDescription)
-        val front = engine.paginate(matter.document, null, key.forWhitePaperAnnotation()).last()
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
         assertEquals(front.pages.size, front.annotationPaperCount)
         val original = main.pages.last().start
         val title = BookLocation(BlockId("listai:title:name"), 2, 2)
@@ -123,7 +123,7 @@ class PhysicalAnnotationPositionTest {
         val source = document().copy(metadata = BookMetadata("A very long title ".repeat(60), listOf("Author"), annotation = "Description text"))
         val matter = requireNotNull(PhysicalAnnotation.create(source))
         val main = engine.paginate(source, null, key).last()
-        val front = engine.paginate(matter.document, null, key.forWhitePaperAnnotation()).last()
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
         val mainLocation = main.pages.last().start
         val title = BookLocation(BlockId("listai:title:name"), 123, 0)
         val position = ReaderPosition(mainLocation)
@@ -132,7 +132,7 @@ class PhysicalAnnotationPositionTest {
         assertNull(before.annotationLocation)
         assertEquals(title, before.titleLocation)
         val resizedKey = key.copy(pageMode = PageMode.SPREAD, pageWidthPx = 220, fontSizeSp = 32f)
-        val resized = engine.paginate(matter.document, title, resizedKey.forWhitePaperAnnotation()).last()
+        val resized = engine.paginate(matter.document, title, resizedKey.forAnnotation()).last()
         val sourceResized = engine.paginate(source, mainLocation, resizedKey).last()
         assertEquals(PhysicalBookState.Open(resized.pages.pageIndexContaining(title)), position.initialState(sourceResized, annotationSnapshot = resized))
         position.commitJump(before.copy(annotationLocation = front.pages.first().start, titleLocation = null))
@@ -176,7 +176,7 @@ class PhysicalAnnotationPositionTest {
         val restored = requireNotNull(ReaderPosition.Saver.restore((saved as List<*>).take(20)))
         val before = restored.progress(source.readingLength())
         restored.restoreNativeTitle(source.titlePageBlockIds.toSet())
-        val front = engine.paginate(matter.document, restored.titleLocation, key.forWhitePaperAnnotation()).last()
+        val front = engine.paginate(matter.document, restored.titleLocation, key.forAnnotation()).last()
         val main = engine.paginate(source, restored.location, key).last()
         assertEquals(nativeLocation, restored.titleLocation)
         assertEquals(before.location, restored.location)

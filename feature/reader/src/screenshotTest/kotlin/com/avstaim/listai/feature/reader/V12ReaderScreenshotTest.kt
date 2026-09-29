@@ -12,9 +12,14 @@ import com.avstaim.listai.feature.reader.bookview.*
 import com.avstaim.listai.reader.rendering.turn.TurnDirection
 
 @PreviewTest
-@Preview(name = "1.2 — белый титул в тёмной теме", widthDp = 412, heightDp = 800, locale = "ru")
+@Preview(name = "1.2 — титул в тёмной теме", widthDp = 412, heightDp = 800, locale = "ru")
 @Composable
-fun V12WhiteTitleDarkScreenshot() { V12BookPreview(dark = true, title = true) }
+fun V12TitleDarkScreenshot() { V12BookPreview(dark = true, title = true) }
+
+@PreviewTest
+@Preview(name = "1.2 — title on graphite Fold", widthDp = 840, heightDp = 700, locale = "en")
+@Composable
+fun V12TitleDarkFoldScreenshot() { V12BookPreview(russian = false, dark = true, title = true) }
 
 @PreviewTest
 @Preview(name = "1.2 — title on Fold", widthDp = 840, heightDp = 700, locale = "en")
@@ -27,9 +32,14 @@ fun V12TitleFoldScreenshot() { V12BookPreview(russian = false, title = true) }
 fun V12DescriptionFoldScreenshot() { V12BookPreview(description = true) }
 
 @PreviewTest
-@Preview(name = "1.2 — description on white paper in dark Fold", widthDp = 840, heightDp = 700, locale = "en")
+@Preview(name = "1.2 — description on graphite paper in dark Fold", widthDp = 840, heightDp = 700, locale = "en")
 @Composable
 fun V12DescriptionDarkFoldScreenshot() { V12BookPreview(russian = false, dark = true, description = true) }
+
+@PreviewTest
+@Preview(name = "1.2 — описание в тёмной теме телефона", widthDp = 412, heightDp = 800, locale = "ru")
+@Composable
+fun V12DescriptionDarkPhoneScreenshot() { V12BookPreview(dark = true, description = true) }
 
 @PreviewTest
 @Preview(name = "1.2 — начало главы", widthDp = 412, heightDp = 800, locale = "ru")
