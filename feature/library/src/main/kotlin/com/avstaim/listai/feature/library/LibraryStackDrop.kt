@@ -10,8 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
@@ -44,14 +42,13 @@ internal data class LibraryStackDrop(
     val stackId: String get() = requireNotNull(target.stack).id
     fun isCommittedIn(catalog: LibraryCatalog): Boolean =
         catalog.books.any { it.id == book.id && it.stackId == stackId } &&
-            catalog.stacks.any { it.id == stackId && book.id in it.bookIds }
+            catalog.stacks.any { it.id == stackId && it.bookIds.firstOrNull() == book.id }
 }
 
 internal data class StackDropFrame(
     val movingBook: StackBookGeometry,
     val supportingBooks: List<StackBookGeometry>,
-    val topBook: StackBookGeometry,
-    val tuckedFraction: Float,
+    val previousTopBook: StackBookGeometry,
 )
 
 /** Pure geometry; its first frame is exactly the held cover and its last uses the RC6 binding. */
@@ -59,16 +56,23 @@ internal fun stackDropFrame(from: Rect, destination: Rect, count: Int, progress:
     val p = progress.coerceIn(0f, 1f)
     val current = stackBookGeometry(destination.width, destination.height, count).map { it.translated(destination.topLeft) }
     val final = stackBookGeometry(destination.width, destination.height, count + 1).map { it.translated(destination.topLeft) }
-    val landing = final[final.lastIndex - 1]
+    val landing = final.last()
     val held = from.inflate(from.width * (LIBRARY_HELD_BOOK_SCALE - 1f) / 2f,
         from.height * (LIBRARY_HELD_BOOK_SCALE - 1f) / 2f)
     val start = StackBookGeometry(held.topLeft, held.topRight, held.bottomRight, held.bottomLeft, 0f)
-    // A shallow lifting arc settles onto the exposed fore-edge beneath the retained top book.
-    val arc = Offset(0f, -destination.height * .09f * sin(p * Math.PI).toFloat())
+    // The incoming book stays above every existing lid for the whole flight. It settles
+    // onto the top plane, never changes its drawing order or passes through a cover.
+    val arc = Offset(0f, -destination.height * .12f * sin(p * Math.PI).toFloat())
     val moving = start.between(landing, p).translated(arc)
-    val lift = (p / .72f).coerceIn(0f, 1f)
-    val top = current.last().between(final.last(), lift)
-    return StackDropFrame(moving, current.dropLast(1), top, ((p - .48f) / .52f).coerceIn(0f, 1f))
+    val supports = final.dropLast(1)
+    // Four is the visual cap. For a larger stack the lower books compress beneath the
+    // new top; overlapping the two lowest bindings keeps that reduction occluded.
+    val shift = (current.size - supports.size).coerceAtLeast(0)
+    val compression = ((p - .45f) / .55f).coerceIn(0f, 1f)
+    val settledSupports = current.mapIndexed { index, book ->
+        book.between(supports[(index - shift).coerceAtLeast(0)], compression)
+    }
+    return StackDropFrame(moving, settledSupports.dropLast(1), settledSupports.last())
 }
 
 internal fun stackDropDestination(from: Rect, to: Rect, progress: Float): Rect {
@@ -85,16 +89,6 @@ private fun StackBookGeometry.between(other: StackBookGeometry, p: Float) = Stac
     frontRight + (other.frontRight - frontRight) * p, frontLeft + (other.frontLeft - frontLeft) * p,
     thickness + (other.thickness - thickness) * p,
 )
-private fun StackBookGeometry.backPortion(fraction: Float) = Path().apply {
-    // Include the upper book's fore-edge too: its page block physically hides the
-    // incoming printed lid. Stopping at the lid would leave a visible artwork strip.
-    val down = Offset(0f, thickness)
-    val left = backLeft + (frontLeft + down - backLeft) * fraction
-    val right = backRight + (frontRight + down - backRight) * fraction
-    moveTo(backLeft.x, backLeft.y); lineTo(backRight.x, backRight.y)
-    lineTo(right.x, right.y); lineTo(left.x, left.y); close()
-}
-
 /** No artwork decode or layout per frame: the same measured cover is projected as a rigid lid. */
 @Composable
 internal fun LibraryStackDropFlight(
@@ -116,16 +110,12 @@ internal fun LibraryStackDropFlight(
         this[LibraryStackShelfProgressKey] = shelfProgress
     }) {
         Canvas(Modifier.size(width, height)) { frame.supportingBooks.forEach { drawStackBook(it, dark, false) } }
-        // Keep the existing first member as the stack's cover. AddToStack appends membership;
-        // the incoming book slides under this lid, rather than changing the order for animation.
         drop.target.book?.let { top ->
-            StackDropProjectedBook(top, frame.topBook, dark, coverContent)
+            StackDropProjectedBook(top, frame.previousTopBook, dark, coverContent, top = false)
         }
-        StackDropProjectedBook(drop.book, frame.movingBook, dark, coverContent, top = false)
-        if (frame.tuckedFraction > 0f) drop.target.book?.let { top ->
-            StackDropProjectedBook(top, frame.topBook, dark, coverContent,
-                occlusion = frame.topBook.backPortion(frame.tuckedFraction))
-        }
+        // A stable topmost layer keeps the complete arriving cover visible. Room uses the
+        // same first member, so the final rigid lid and the settled shelf have one identity.
+        StackDropProjectedBook(drop.book, frame.movingBook, dark, coverContent)
     }
 }
 
@@ -135,7 +125,6 @@ private fun StackDropProjectedBook(
     geometry: StackBookGeometry,
     dark: Boolean,
     coverContent: @Composable (LibraryBook) -> Unit,
-    occlusion: Path? = null,
     top: Boolean = true,
 ) {
     Box(Modifier.fillMaxSize().drawWithCache {
@@ -144,16 +133,13 @@ private fun StackDropProjectedBook(
             geometry.frontRight.x, geometry.frontRight.y, geometry.frontLeft.x, geometry.frontLeft.y)
         val projection = android.graphics.Matrix().apply { setPolyToPoly(source, 0, target, 0, 4) }
         onDrawWithContent {
-            fun drawBook() {
-                if (geometry.thickness > .01f) drawStackBook(geometry, dark, top)
-                drawIntoCanvas { canvas ->
-                    canvas.save(); canvas.nativeCanvas.concat(projection)
-                    this@onDrawWithContent.drawContent()
-                    canvas.restore()
-                }
-                if (top && geometry.thickness > .01f) drawStackLidRelief(geometry)
+            if (geometry.thickness > .01f) drawStackBook(geometry, dark, top)
+            drawIntoCanvas { canvas ->
+                canvas.save(); canvas.nativeCanvas.concat(projection)
+                this@onDrawWithContent.drawContent()
+                canvas.restore()
             }
-            if (occlusion == null) drawBook() else clipPath(occlusion) { drawBook() }
+            if (top && geometry.thickness > .01f) drawStackLidRelief(geometry)
         }
     }) { coverContent(book) }
 }

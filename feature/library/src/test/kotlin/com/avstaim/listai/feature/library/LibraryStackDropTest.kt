@@ -16,30 +16,27 @@ class LibraryStackDropTest {
         assertEquals(Offset(352f, 137f), frame.movingBook.backRight)
         assertEquals(Offset(352f, 293f), frame.movingBook.frontRight)
         assertEquals(Offset(248f, 293f), frame.movingBook.frontLeft)
-        assertEquals(0f, frame.tuckedFraction)
         assertEquals(0f, frame.movingBook.thickness)
     }
 
-    @Test fun addedBookLandsBelowTheOriginalTopCoverAtEveryStackSizeAndShelfScale() {
+    @Test fun addedBookIsTheTopCoverAtEveryStackSizeAndShelfScale() {
         for (count in 1..8) for (scale in listOf(.5f, 1f, 2.5f)) {
             val target = Rect(20f, 30f, 20f + 100f * scale, 30f + 150f * scale)
             val frame = stackDropFrame(from, target, count, 1f)
             val settled = stackBookGeometry(target.width, target.height, count + 1)
-            val expectedTop = settled.last()
-            val expectedAdded = settled[settled.lastIndex - 1]
-            assertPoint(expectedTop.backLeft + target.topLeft, frame.topBook.backLeft)
-            assertPoint(expectedTop.frontRight + target.topLeft, frame.topBook.frontRight)
+            val expectedPreviousTop = settled[settled.lastIndex - 1]
+            val expectedAdded = settled.last()
+            assertPoint(expectedPreviousTop.backLeft + target.topLeft, frame.previousTopBook.backLeft)
+            assertPoint(expectedPreviousTop.frontRight + target.topLeft, frame.previousTopBook.frontRight)
             assertPoint(expectedAdded.backLeft + target.topLeft, frame.movingBook.backLeft)
             assertPoint(expectedAdded.frontRight + target.topLeft, frame.movingBook.frontRight)
-            assertEquals(1f, frame.tuckedFraction)
         }
     }
 
-    @Test fun flightStaysConvexAndContinuousWhileTheLidGraduallyOccludesIt() {
+    @Test fun flightStaysConvexAndContinuousAboveTheStack() {
         var previous = stackDropFrame(from, destination, 2, 0f)
         for (step in 1..100) {
             val next = stackDropFrame(from, destination, 2, step / 100f)
-            assertTrue(next.tuckedFraction >= previous.tuckedFraction)
             val corners = with(next.movingBook) { listOf(backLeft, backRight, frontRight, frontLeft) }
             assertTrue(corners.all { it.x.isFinite() && it.y.isFinite() })
             assertTrue(corners.zip(corners.drop(1) + corners.first()).all { (a, b) -> (b - a).getDistance() > 0f })
@@ -62,11 +59,12 @@ class LibraryStackDropTest {
         val drop = LibraryStackDrop(incoming, LibraryTile(LibraryShelfItem.Stack("stack"), top, original.stacks.single()),
             from, destination, original)
         val committed = original.copy(books = listOf(incoming.copy(stackId = "stack"), top),
-            stacks = listOf(original.stacks.single().copy(bookIds = listOf(top.id, incoming.id))),
+            stacks = listOf(original.stacks.single().copy(bookIds = listOf(incoming.id, top.id))),
             shelf = listOf(LibraryShelfItem.Stack("stack")))
         assertFalse(drop.isCommittedIn(original))
         assertFalse(drop.isCommittedIn(committed.copy(stacks = original.stacks)))
         assertFalse(drop.isCommittedIn(committed.copy(books = original.books)))
+        assertFalse(drop.isCommittedIn(committed.copy(stacks = listOf(committed.stacks.single().copy(bookIds = listOf(top.id, incoming.id))))))
         assertTrue(drop.isCommittedIn(committed))
         assertEquals(incoming, drop.book)
         assertEquals(original.shelf, drop.shelf.shelf)
@@ -89,7 +87,7 @@ class LibraryStackDropTest {
         val first = stackDropFrame(from, oldSlot, 2, 1f)
         val second = stackDropFrame(from, middle, 2, 1f)
         val delta = middle.topLeft - oldSlot.topLeft
-        assertPoint(first.topBook.frontLeft + delta, second.topBook.frontLeft)
+        assertPoint(first.previousTopBook.frontLeft + delta, second.previousTopBook.frontLeft)
         assertPoint(first.movingBook.backRight + delta, second.movingBook.backRight)
     }
 

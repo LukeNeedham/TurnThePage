@@ -491,7 +491,7 @@ fun LibraryScreen(
                             stackDrop = LibraryStackDrop(source.book, target,
                                 Rect(drag.topLeft, drag.bounds.size), targetBounds, latestCatalog, shelfBounds)
                         }
-                        try { latestCommand(LibraryCommand.AddToStack(target.stack.id, listOf(source.book.id))) }
+                        try { latestCommand(LibraryCommand.AddToStack(target.stack.id, listOf(source.book.id), onTop = true)) }
                         catch (failure: Throwable) { stackDrop = null; throw failure }
                     }
                     else target.book?.let { namingIds = listOf(it.id, source.book.id) }
