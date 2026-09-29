@@ -345,12 +345,10 @@ fun LibraryScreen(
         val textMeasurer = rememberTextMeasurer()
         val titleStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
         val authorStyle = MaterialTheme.typography.labelSmall
-        val captions = ordered.associate { tile ->
-            val membership = if (searchOpen) effectiveCatalog.stacks.firstOrNull { tile.book?.id in it.bookIds } else null
-            tile.key to ShelfCaption(tile.stack?.name ?: tile.book?.title.orEmpty(),
-                tile.stack?.let { pluralStringResource(R.plurals.library_sheet_book_count, it.bookIds.size, it.bookIds.size) } ?: tile.book?.authors.orEmpty(),
-                membership?.let { stringResource(R.string.library_in_stack, it.name) }.orEmpty(), tile.stack != null)
-        }
+        val captions = ordered.mapNotNull { tile -> tile.stack?.let { value ->
+            tile.key to ShelfCaption(value.name,
+                pluralStringResource(R.plurals.library_sheet_book_count, value.bookIds.size, value.bookIds.size), stack = true)
+        } }.toMap()
         val captionHeights = remember(captions, bookWidth, density.density, density.fontScale, titleStyle, authorStyle) {
             captions.mapValues { (_, caption) ->
                 val width = with(density) { (bookWidth - 14.dp).roundToPx() }.coerceAtLeast(1)
@@ -755,7 +753,11 @@ private fun LibraryShelfRow(
                     }
                     .then(if (tile.stack == null) Modifier.shadow(7.dp, RoundedCornerShape(2.dp), ambientColor = Color(0xFF142A3D), spotColor = Color(0xFF142A3D)) else Modifier)
                     .clickable(enabled = interactionEnabled, role = Role.Button, onClick = { onOpen(tile) })
-                    .semantics { if (interactionEnabled) {
+                    .semantics(mergeDescendants = true) {
+                        if (tile.stack == null) tile.book?.let { book ->
+                            contentDescription = listOf(book.title, book.authors).filter(String::isNotBlank).joinToString(", ")
+                        }
+                        if (interactionEnabled) {
                         onLongClick(if (tile.stack != null) stackActionsLabel else bookActionsLabel) { onActions(tile); true }
                         customActions = accessibilityActions(tile)
                     } }) {
@@ -768,7 +770,9 @@ private fun LibraryShelfRow(
         if (labelHeight > 0.dp) Row(Modifier.fillMaxWidth().height(labelHeight).padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
             rowTiles.forEach { tile ->
-                captions[tile.key]?.let { LibraryShelfCaption(it, Modifier.width(bookWidth).graphicsLayer { alpha = revealProgress() }) }
+                Box(Modifier.width(bookWidth)) {
+                    captions[tile.key]?.let { LibraryShelfCaption(it, Modifier.fillMaxWidth().graphicsLayer { alpha = revealProgress() }) }
+                }
             }
         }
         if (empty && rowIndex == 0) Text(stringResource(if (search) R.string.library_search_empty else R.string.library_empty),
