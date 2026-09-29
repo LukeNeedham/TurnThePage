@@ -292,16 +292,33 @@ class Stage721AcceptanceTest {
 
     private fun captureBook(name: String): ImageBitmap {
         compose.waitForIdle()
-        if (Build.VERSION.SDK_INT >= 29) {
-            val submitted = CountDownLatch(1)
-            compose.runOnUiThread {
-                val view = compose.activity.window.decorView
+        val submitted = CountDownLatch(1)
+        compose.runOnUiThread {
+            val view = compose.activity.window.decorView
+            if (Build.VERSION.SDK_INT >= 29) {
                 view.viewTreeObserver.registerFrameCommitCallback { submitted.countDown() }
-                view.invalidate()
+            } else {
+                // Semantics can advance before Android presents the corresponding paused
+                // Compose frame. API 26 has no frame-commit callback: request a draw and
+                // wait through the following presentation frames before reading compositor
+                // pixels. The Compose clock stays frozen throughout this synchronization.
+                val drawn = object : android.view.ViewTreeObserver.OnDrawListener {
+                    var queued = false
+                    override fun onDraw() {
+                        if (queued) return
+                        queued = true
+                        view.post {
+                            view.viewTreeObserver.removeOnDrawListener(this)
+                            view.postOnAnimation { view.postOnAnimation { submitted.countDown() } }
+                        }
+                    }
+                }
+                view.viewTreeObserver.addOnDrawListener(drawn)
             }
-            assertTrue("The Android renderer must submit the paused Compose frame before capture",
-                submitted.await(5, TimeUnit.SECONDS))
+            view.invalidate()
         }
+        assertTrue("The Android renderer must submit the paused Compose frame before capture",
+            submitted.await(5, TimeUnit.SECONDS))
         val bounds = book().fetchSemanticsNode().boundsInWindow
         // Read the composed display directly: PixelCopy's window callback can time out on
         // the software GPU emulator even when its already-presented frame is available.
