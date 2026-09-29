@@ -48,5 +48,6 @@ fun List<PageLayout>.pageIndexContaining(location: BookLocation): Int {
         it.blockId == location.blockId && it.endCharOffsetExclusive == location.charOffset
     } }
     if (terminal >= 0) return terminal
-    return indexOfLast { it.start.fallbackGlobalOffset <= location.fallbackGlobalOffset }.coerceAtLeast(0)
+    return indexOfLast { it.kind != PageKind.BLANK && it.start.fallbackGlobalOffset <= location.fallbackGlobalOffset }
+        .takeIf { it >= 0 } ?: indexOfFirst { it.kind != PageKind.BLANK }.coerceAtLeast(0)
 }

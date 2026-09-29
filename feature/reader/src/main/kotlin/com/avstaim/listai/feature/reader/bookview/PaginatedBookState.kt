@@ -30,6 +30,7 @@ import com.avstaim.listai.reader.pagination.IncrementalPaginationEngine
 import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.PaginationSnapshot
 import com.avstaim.listai.reader.pagination.PageMode
+import com.avstaim.listai.reader.pagination.PageKind
 import com.avstaim.listai.reader.pagination.pageIndexContaining
 import com.avstaim.listai.reader.pagination.readingFlow
 import com.avstaim.listai.reader.pagination.resolveLocation
@@ -168,7 +169,15 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
             PhysicalBookState.FrontBoundary -> Unit
             PhysicalBookState.ClosedBack -> { cover = "back"; location = snapshot.pages.lastOrNull()?.endExclusive ?: location }
             PhysicalBookState.BackBoundary -> { cover = "boundary"; location = snapshot.pages.lastOrNull()?.endExclusive ?: location }
-            is PhysicalBookState.Open -> { cover = "open"; location = snapshot.pages[state.semanticPageIndex - annotationCount - tocCount].start }
+            is PhysicalBookState.Open -> {
+                cover = "open"
+                val index = state.semanticPageIndex - annotationCount - tocCount
+                val page = snapshot.pages[index]
+                // A blank left leaf must not make a Fold resize return to the previous part.
+                location = if (page.kind == PageKind.BLANK && snapshot.key.pageMode == PageMode.SPREAD &&
+                    state.semanticPageIndex % 2 == 1) snapshot.pages.getOrNull(index + 1)?.start ?: page.start
+                    else page.start
+            }
         }
     }
 
@@ -497,7 +506,7 @@ internal class PaginationSession(
             val page = snapshot.pages.getOrNull(pageIndex - annotationCount - tocCount)
             val footer = if (notesPage != null) PageReadingFooter(notesPage.displayNumber, notesCount, null, notes?.title)
                 else if (page == null) PageReadingFooter((pageIndex - annotationCount + 1).coerceAtLeast(1), tocCount.coerceAtLeast(1), null, contentsLabel)
-                else sourcePageFooter(page.displayNumber, snapshot.pages.size.takeIf { snapshot.complete },
+                else sourcePageFooter(page.displayNumber, snapshot.pages.lastOrNull()?.displayNumber?.takeIf { snapshot.complete },
                     page.start.fallbackGlobalOffset, sourceLength)
             // Reuse source pixels when the complete page count arrives. Displayed snapshots pin
             // their immutable footer wrapper through a drag/settle, just like the page bitmap.
@@ -546,9 +555,6 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
             annotation, typefaces).also { created ->
             if (inspection) runBlocking {
                 // Tooling has no loading lifecycle. Initialize a new, not-yet-published session.
-                val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage,
-                    typefaces = typefaces))
-                    .paginate(document, position.location, key).last()
                 val rasterizer = AndroidPageRasterizer(document, key, missingImage,
                     typefaces = typefaces)
                 val annotationSnapshot = annotation?.let {
@@ -566,6 +572,9 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                     paginatePhysicalContents(it, key, AndroidContentsMeasurer(typefaces))
                 }
                 val tocRasterizer = contents?.let { AndroidContentsRasterizer(it, key, typefaces) }
+                val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage,
+                    typefaces = typefaces)).paginate(document, position.location,
+                        key.copy(leadingPageCount = annotationCount + (tocSnapshot?.pages?.size ?: 0))).last()
                 val notesSnapshot = notes?.let {
                     IncrementalPaginationEngine(AndroidBookMeasurer(it.document, missingImage,
                         typefaces = typefaces))
@@ -639,7 +648,8 @@ internal fun rememberPaginationSession(document: BookDocument, key: LayoutKey, p
                 }
                 IncrementalPaginationEngine(AndroidBookMeasurer(document, missingImage,
                     typefaces = typefaces))
-                    .paginate(document, position.location, key)
+                    .paginate(document, position.location, key.copy(leadingPageCount =
+                        annotationSnapshot.annotationPaperCount + (tocSnapshot?.pages?.size ?: 0)))
                     .flowOn(Dispatchers.Default)
                     .collect { snapshot ->
                         if (snapshot.complete && notes != null) {

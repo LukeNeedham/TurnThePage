@@ -195,6 +195,9 @@ fun PaperReaderInsert(
                             navigationDraft = navigationDraft?.editPage(value, navigation)
                         }
                     }
+                    if (navigation.firstAvailablePage > 1) Text(stringResource(R.string.insert_source_page_range,
+                        navigation.firstAvailablePage, navigation.availablePages),
+                        style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     if (!navigation.complete) Text(stringResource(R.string.insert_pagination_pending, navigation.availablePages),
                         style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     if (confirmationLocation == null) Text(stringResource(R.string.insert_invalid_position),

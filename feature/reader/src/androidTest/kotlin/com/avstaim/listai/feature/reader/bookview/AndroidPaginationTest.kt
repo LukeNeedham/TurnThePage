@@ -20,8 +20,67 @@ import java.io.ByteArrayOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class AndroidPaginationTest {
+    private fun bookTypefaces() = com.avstaim.listai.core.designsystem.PlyosTypefaceFamily.load(
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources)
     private val key = LayoutKey(412, 600, PageMode.SINGLE, localeTag = "ru")
     private fun doc(vararg blocks: BookBlock) = BookDocument(BookId("android"), BookMetadata("Книга", language = "ru"), blocks.toList())
+
+    @Test fun partTitleKeepsEpigraphOnOneAiryLeafAndBlankVersoHasNoInkOrFooter() = runBlocking {
+        val part = BookBlock.Heading(BlockId("part"), 1, listOf(InlineNode.Text("Часть вторая")))
+        val title = BookBlock.Heading(BlockId("part-title"), 1, listOf(InlineNode.Text("Карта прилива")))
+        val epigraph = BookBlock.Paragraph(BlockId("epigraph"), listOf(InlineNode.Text("На сухой карте глубины неподвижны. На живой они дышат.")))
+        val author = BookBlock.Paragraph(BlockId("author"), listOf(InlineNode.Text("Семён Ракитин, полевой дневник")), ParagraphRole.TEXT_AUTHOR)
+        val chapter = BookBlock.Heading(BlockId("chapter"), 2, listOf(InlineNode.Text("Глава четвёртая")))
+        val body = BookBlock.Paragraph(BlockId("body"), listOf(InlineNode.Text("К Сухому Камню можно было подойти только в сизигийный отлив.")))
+        val document = doc(part, title, BookBlock.Quote(BlockId("quote"), listOf(epigraph, author), QuoteRole.EPIGRAPH), chapter, body)
+            .copy(parts = listOf(BookPart(listOf(part.id, title.id), listOf(epigraph.id, author.id))),
+                chapters = listOf(BookChapter(listOf(chapter.id), 4, "четвёртая", chapter.plainText().length)))
+        for (dark in listOf(false, true)) for (mode in PageMode.entries) {
+            val layout = key.copy(pageMode = mode, pageWidthPx = 570, pageHeightPx = 1100,
+                fontSizeSp = 26f, darkTheme = dark, leadingPageCount = 3)
+            val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(document, "Нет изображения", typefaces = bookTypefaces()))
+                .paginate(document, BookLocation(part.id, 0, 0), layout).last()
+            val pages = snapshot.pages
+            val dividerIndex = pages.indexOfFirst { it.kind == PageKind.PART_TITLE }
+            val divider = pages[dividerIndex]
+            assertEquals(0, (dividerIndex + layout.leadingPageCount) % 2)
+            assertEquals(listOf(part.id, title.id, epigraph.id, author.id), divider.blocks.map { it.blockId })
+            assertTrue(divider.blocks.first().y > layout.contentTop)
+            val rasterizer = AndroidPageRasterizer(document, layout, "Нет изображения", typefaces = bookTypefaces())
+            val rendered = rasterizer.render(divider).withFooter(PageReadingFooter(2, pages.size, .2f))
+            assertNull(rendered.footerText)
+            assertTrue(rendered.accessibleText.contains("На живой они дышат."))
+            val blank = rasterizer.render(pages[dividerIndex + 1]).withFooter(PageReadingFooter(3, pages.size, .3f))
+            assertEquals(PageKind.BLANK, blank.kind)
+            assertEquals("", blank.accessibleText)
+            assertNull(blank.footerText)
+            val pixels = IntArray(blank.bitmap.width * blank.bitmap.height)
+            blank.bitmap.getPixels(pixels, 0, blank.bitmap.width, 0, 0, blank.bitmap.width, blank.bitmap.height)
+            assertTrue(pixels.all { it == 0 })
+            val chapterIndex = pages.indexOfFirst { it.blocks.firstOrNull()?.blockId == chapter.id }
+            assertEquals(0, (chapterIndex + layout.leadingPageCount) % 2)
+            val measurement = AndroidBookMeasurer(document, "Нет изображения", typefaces = bookTypefaces())
+                .measure(document.readingFlow().first(), layout) as AndroidTextMeasurement
+            assertTrue(measurement.layout.paint.textSize > layout.fontSizeSp * 1.45f)
+        }
+    }
+
+    @Test fun moderatePartTitleUsesCompactDecorativeTypeAtLargeAccessibilityScale() = runBlocking {
+        val number = BookBlock.Heading(BlockId("number"), 1, listOf(InlineNode.Text("Часть вторая")))
+        val title = BookBlock.Heading(BlockId("title"), 1, listOf(InlineNode.Text("Карта прилива и обратная сторона далёкого берега")))
+        val epigraph = BookBlock.Paragraph(BlockId("epigraph"), listOf(InlineNode.Text("На сухой карте глубины неподвижны. На живой они дышат.")))
+        val source = doc(number, title, epigraph).copy(parts = listOf(BookPart(listOf(number.id, title.id), listOf(epigraph.id))))
+        val layout = key.copy(pageWidthPx = 360, pageHeightPx = 760, textScale = 1.5f)
+        val measurer = AndroidBookMeasurer(source, "Нет изображения", typefaces = bookTypefaces())
+        val snapshot = IncrementalPaginationEngine(measurer).paginate(source, null, layout).last()
+        val titlePage = snapshot.pages.single { it.kind == PageKind.PART_TITLE }
+        assertEquals(listOf(number.id, title.id, epigraph.id), titlePage.blocks.map { it.blockId })
+        assertFalse(snapshot.pages.any { it.kind == PageKind.PART_CONTINUATION })
+        val measuredHeading = measurer.measure(source.readingFlow().first(), layout) as AndroidTextMeasurement
+        val measuredEpigraph = measurer.measure(source.readingFlow().last(), layout) as AndroidTextMeasurement
+        assertTrue(measuredHeading.layout.paint.textSize >= layout.fontSizeSp * layout.textScale * 1.1f)
+        assertEquals(layout.fontSizeSp * layout.textScale, measuredEpigraph.layout.paint.textSize, .01f)
+    }
 
     @Test fun realAndroidLinesCoverCyrillicEmojiAndStyledTextWithoutGaps() = runBlocking {
         val source = BookBlock.Paragraph(BlockId("p"), listOf(

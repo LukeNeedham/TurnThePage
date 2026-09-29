@@ -10,6 +10,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.yield
 import kotlin.math.min
 
@@ -20,7 +21,13 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
         return snapshot.pages[snapshot.anchorPageIndex]
     }
 
-    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =
+    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> {
+        if (document.parts.isEmpty()) return paginateSource(document, location, layoutKey)
+        val parts = PartLeafProjector(document, location)
+        return paginateSource(document.withPartBreaks(), location, layoutKey).map(parts::project)
+    }
+
+    private fun paginateSource(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =
         if (document.noteIndex.referencesByBlock.isNotEmpty()) paginateWithFootnotes(document, location, layoutKey, measurer)
         else flow {
         val flow = document.readingFlow()

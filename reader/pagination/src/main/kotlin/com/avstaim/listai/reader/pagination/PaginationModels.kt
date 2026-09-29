@@ -38,6 +38,8 @@ data class LayoutKey(
     // The book reaches the screen edge; camera/actions reserve paper, not an external toolbar.
     val topContentInsetDp: Float = 0f,
     val bottomContentInsetDp: Float = 0f,
+    /** Real paper leaves before this flow; zero-based even physical indices are rectos. */
+    val leadingPageCount: Int = 0,
 ) {
     init {
         require(viewportWidthPx > 0 && viewportHeightPx > 0 && pageWidthPx > 0 && pageHeightPx > 0) {
@@ -45,6 +47,7 @@ data class LayoutKey(
         }
         require(listOf(fontSizeSp, lineHeightMultiplier, textScale, density).all { it.isFinite() && it > 0 })
         require(listOf(paragraphSpacingDp, horizontalMarginsDp, verticalMarginsDp, topContentInsetDp, bottomContentInsetDp).all { it.isFinite() && it >= 0 })
+        require(leadingPageCount >= 0)
         require(fontFamilyId.isNotBlank() && densityKey.isNotBlank() && localeTag.isNotBlank())
     }
 
@@ -102,6 +105,8 @@ data class PageBlockLayout(
     }
 }
 
+enum class PageKind { TEXT, PART_TITLE, PART_CONTINUATION, BLANK }
+
 data class PageLayout(
     val id: PageId,
     val start: BookLocation,
@@ -110,6 +115,7 @@ data class PageLayout(
     val displayNumber: Int,
     val chapterId: BlockId? = null,
     val footnotes: List<PageFootnoteLayout> = emptyList(),
+    val kind: PageKind = PageKind.TEXT,
 )
 
 /** Page-native text bounds. Exact inline hit rectangles are prepared by the surface rasterizer. */
