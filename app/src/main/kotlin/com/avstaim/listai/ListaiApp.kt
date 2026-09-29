@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,10 +63,15 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 enum class ShelfReaderPhase { SHELF, PREPARING, LIFTING, OPENING, READING, CLOSING, LOWERING }
 val ShelfTransitionPhase = SemanticsPropertyKey<String>("ShelfTransitionPhase")
 val ShelfTransitionProgress = SemanticsPropertyKey<Float>("ShelfTransitionProgress")
+
+private data class ShelfReturnFlight(val source: Rect, val target: Rect, val viewport: Rect)
 
 @Composable
 fun ListaiApp(
@@ -112,6 +118,7 @@ fun ListaiApp(
     var viewport by remember { mutableStateOf(Rect.Zero) }
     val shelfBounds = remember { mutableStateMapOf<BookId, Rect>() }
     var positionedReturnBook by remember { mutableStateOf<Pair<BookId, Rect?>?>(null) }
+    var returnFlight by remember { mutableStateOf<ShelfReturnFlight?>(null) }
     val lift = remember { Animatable(0f) }
     val coverOpen = remember { Animatable(0f) }
     val selectedId = selection?.opened?.book?.id
@@ -126,6 +133,7 @@ fun ListaiApp(
             flightBook = null
         } else {
             positionedReturnBook = null
+            returnFlight = null
             returnBookId = selectedId.value
         }
     }
@@ -136,6 +144,7 @@ fun ListaiApp(
             flightBook = null
             returnBookId = null
             positionedReturnBook = null
+            returnFlight = null
             readerCoverBounds.clear()
             readerCoverFaces.clear()
             readerArtwork.clear()
@@ -167,12 +176,44 @@ fun ListaiApp(
             // Resizing, an external open, or restored reading can leave the book's row offscreen.
             // The shelf scrolls under the closed reader and acknowledges a freshly measured slot.
             val returnSlot = withTimeoutOrNull(2_000) {
-                snapshotFlow { positionedReturnBook?.takeIf { it.first == selectedId } }
+                snapshotFlow { positionedReturnBook?.takeIf { it.first == selectedId && it.second != null } }
                     .filterNotNull().first().second
             }
             if (returnSlot != null) {
+                val returnViewport = viewport
+                val returnReaderBounds = readerCoverBounds[selectedId]
+                returnFlight = ShelfReturnFlight(returnSlot,
+                    returnReaderBounds ?: Rect(0f, 0f, viewport.width, viewport.height), returnViewport)
                 phase = ShelfReaderPhase.LOWERING
-                lift.animateTo(0f, tween((460 * lift.value).toInt(), easing = FastOutSlowInEasing))
+                val interrupted = coroutineScope {
+                    val lowering = launch(start = CoroutineStart.LAZY) {
+                        lift.animateTo(0f, tween((460 * lift.value).toInt(), easing = FastOutSlowInEasing))
+                    }
+                    val placementWatch = launch {
+                        snapshotFlow {
+                            positionedReturnBook != (selectedId to returnSlot) || viewport != returnViewport ||
+                                readerCoverBounds[selectedId] != returnReaderBounds
+                        }.first { it }
+                        // Resize during flight has no continuous safe trajectory. Settle on
+                        // the new shelf instead of moving an endpoint underneath the cover.
+                        lowering.cancel()
+                    }
+                    lowering.start()
+                    lowering.join()
+                    placementWatch.cancel()
+                    lowering.isCancelled
+                }
+                if (interrupted) {
+                    // Keep the closed book over the shelf while the new layout finds its
+                    // slot. Do not cancel positioning by dropping the reader immediately.
+                    phase = ShelfReaderPhase.CLOSING
+                    repeat(2) { withFrameNanos { } }
+                    withTimeoutOrNull(2_000) {
+                        snapshotFlow { positionedReturnBook?.takeIf { it.first == selectedId && it.second != null } }
+                            .filterNotNull().first()
+                    }
+                }
+                lift.snapTo(0f)
             } else {
                 // A deleted book or a viewport too small for a cover has no safe flight target.
                 // Settle directly instead of inventing an endpoint below the visible shelf.
@@ -185,6 +226,7 @@ fun ListaiApp(
             phase = ShelfReaderPhase.SHELF
             returnBookId = null
             positionedReturnBook = null
+            returnFlight = null
         } else {
             if (phase == ShelfReaderPhase.READING && !changedBook) return@LaunchedEffect
             flightBook = selection?.opened?.book
@@ -312,12 +354,10 @@ fun ListaiApp(
         }
         if (inFlight) {
             flightBook?.let { book ->
-                val measuredSource = if (phase == ShelfReaderPhase.LOWERING) {
-                    positionedReturnBook?.takeIf { it.first == book.id }?.second
-                } else shelfBounds[book.id]
-                val source = shelfBookSourceRect(measuredSource?.translate(-viewport.topLeft),
-                    viewport.size, density.density)
-                val target = readerCoverBounds[book.id] ?: Rect(0f, 0f, viewport.width, viewport.height)
+                val loweringGeometry = returnFlight.takeIf { phase == ShelfReaderPhase.LOWERING }
+                val source = loweringGeometry?.let { it.source.translate(-it.viewport.topLeft) } ?:
+                    shelfBookSourceRect(shelfBounds[book.id]?.translate(-viewport.topLeft), viewport.size, density.density)
+                val target = loweringGeometry?.target ?: readerCoverBounds[book.id] ?: Rect(0f, 0f, viewport.width, viewport.height)
                 ShelfBookFlight(book, source, target, lift.value,
                     backCover = readerCoverFaces[book.id] == CoverPosition.BACK,
                     previewImage = readerArtwork[book.id])

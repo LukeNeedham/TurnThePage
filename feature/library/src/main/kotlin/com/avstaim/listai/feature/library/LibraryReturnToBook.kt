@@ -9,8 +9,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Rect
 import com.avstaim.listai.core.model.BookId
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 
 internal fun visibleReturnBookBounds(bounds: Rect?, viewport: Rect): Rect? = bounds?.takeIf {
     it.width > 0f && it.height > 0f && viewport.width > 0f && viewport.height > 0f &&
@@ -33,17 +31,24 @@ internal fun PositionReturningLibraryBook(
     val latestOnPositioned by rememberUpdatedState(onPositioned)
     LaunchedEffect(bookId, keys, columns, listState, scrollable, viewport) {
         val id = bookId ?: return@LaunchedEffect
+        // A previous acknowledgement belongs to the previous layout. Do not let a Fold
+        // resize start (or continue) lowering toward that obsolete slot.
+        latestOnPositioned(id, null)
         if (viewport.width <= 0f || viewport.height <= 0f) return@LaunchedEffect
         val key = "book:${id.value}"
         val index = keys.indexOf(key)
         if (index < 0) return@LaunchedEffect // The containing stack may still be opening.
+        // Layout callbacks may still describe the old column count at composition time.
+        // Let that layout finish before deciding whether the row needs to move.
+        repeat(2) { withFrameNanos { } }
         if (visibleReturnBookBounds(bounds[key], viewport) == null && scrollable) {
             listState.scrollToItem(index / columns.coerceAtLeast(1))
         }
         // Let placement publish the new coordinates, including a newly composed lazy row.
         withFrameNanos { }
-        val measured = snapshotFlow { visibleReturnBookBounds(bounds[key], viewport) }
-            .filterNotNull().first()
-        latestOnPositioned(id, measured)
+        // Keep the acknowledgement live until the return ends: a late scroll restoration
+        // or placement must invalidate it rather than leaving a stale successful result.
+        snapshotFlow { visibleReturnBookBounds(bounds[key], viewport) }
+            .collect { measured -> latestOnPositioned(id, measured) }
     }
 }
