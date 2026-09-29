@@ -354,7 +354,7 @@ fun LibraryScreen(
                 val active = gestures.drag
                 if (active?.moved == true) {
                     val y = active.pointer.y - inputBounds.top
-                    val lowerEdge = inputBounds.height
+                    val lowerEdge = (inputBounds.height - bottomControls).coerceAtLeast(edgeSize)
                     val speed = when { y < edgeSize -> -((edgeSize - y) / edgeSize).coerceIn(0f, 1f)
                         y > lowerEdge - edgeSize -> ((y - lowerEdge + edgeSize) / edgeSize).coerceIn(0f, 1f); else -> 0f }
                     val canScroll = (speed < 0f && listState.canScrollBackward) || (speed > 0f && listState.canScrollForward)
@@ -442,73 +442,66 @@ fun LibraryScreen(
                 Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top)).height(16.dp))
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                // Header and footer are measured before this weighted shelf in the same layout pass.
-                // A first frame, enlarged font or IME resize can never put a cover behind controls.
+                // The shelf extends behind the floating actions. Its scroll padding lets the
+                // last book and caption rise above them instead of reserving an opaque strip.
                 val fittedRows = calculateLibraryLayout(maxHeight.value, rows.size, rowBookHeight.value,
-                    hasEmptyMessage = ordered.isEmpty(), topPaddingDp = 16f, bottomPaddingDp = 12f,
+                    hasEmptyMessage = ordered.isEmpty(), topPaddingDp = 16f, bottomPaddingDp = bottomPadding.value + 12f,
                     shelfHeightDp = 12f, rowCaptionHeightsDp = rowCaptionHeights)
-            if (fittedRows.scrollable) {
-                LazyColumn(shelfModifier, state = listState, userScrollEnabled = shelfEnabled && gestures.drag == null,
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp)) {
-                    items(fittedRows.rowCount) { rowContent(it) }
-                }
-            } else {
-                Column(shelfModifier.padding(top = 16.dp, bottom = 12.dp)) {
-                    repeat(fittedRows.rowCount) { rowContent(it) }
-                    repeat(if (searchOpen && ordered.isEmpty()) 0 else fittedRows.decorativeRowCount) { index ->
-                        LibraryShelfRow(fittedRows.rowCount + index, emptyList(), bookWidth, bookHeight, 0.dp, false, false,
-                            shelfEnabled, null, null, {}, { _, _ -> }, coverContent, {}, bookActionsLabel, stackActionsLabel, { emptyList() }, emptyMap())
+                if (fittedRows.scrollable) {
+                    LazyColumn(shelfModifier, state = listState, userScrollEnabled = shelfEnabled && gestures.drag == null,
+                        contentPadding = PaddingValues(top = 16.dp, bottom = bottomPadding + 12.dp)) {
+                        items(fittedRows.rowCount) { rowContent(it) }
                     }
-                }
-            }
-            }
-            Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }
-                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)).padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (stack != null && !searchOpen) {
-                    OutlinedButton(onClick = { hideCat(); picker = LibraryBookPickerRequest(emptyList(), stack.id) }, enabled = shelfEnabled,
-                        modifier = Modifier.align(Alignment.CenterHorizontally).testTag("library_stack_add_books"), shape = RoundedCornerShape(3.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = colors.surface.copy(alpha = .92f))) {
-                        LibrarySheetIcon(LibraryMenuIcon.ADD, Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.library_add_books))
-                    }
-                }
-                if (importing) {
-                    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
-                        .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(stringResource(R.string.library_importing), Modifier.weight(1f), color = colors.onSurface, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { hideCat(); onCancelImport() }, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.weight(1f)) {
-                        versionLabel?.takeIf(String::isNotBlank)?.let { version -> Text(version, Modifier.testTag("library_version"),
-                            color = colors.onBackground.copy(alpha = .48f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    }
-                    val searchLabel = stringResource(R.string.library_search)
-                    Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
-                        .clickable(enabled = shelfEnabled, role = Role.Button, onClick = { if (searchOpen) closeSearch() else openSearch() }).testTag("library_search")
-                        .semantics { contentDescription = searchLabel }, contentAlignment = Alignment.Center) { PaperSearchIcon() }
-                    val settingsLabel = stringResource(R.string.library_settings)
-                    Box(Modifier.size(48.dp).shadow(2.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .82f), RoundedCornerShape(8.dp))
-                        .clickable(enabled = shelfEnabled, role = Role.Button, onClick = { hideCat(); onSettings() }).testTag("library_settings")
-                        .semantics { contentDescription = settingsLabel }, contentAlignment = Alignment.Center) { PaperSettingsIcon() }
-                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        if (!importing) SmallFloatingActionButton(onClick = { if (shelfEnabled) { hideCat(); importMenu = true } },
-                            modifier = Modifier.fillMaxSize().testTag("library_import").semantics { contentDescription = importLabel },
-                            containerColor = colors.surface.copy(alpha = .72f), contentColor = colors.primary) {
-                            Text("+", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 8.dp))
+                } else {
+                    val backgroundRows = calculateLibraryLayout(maxHeight.value, rows.size, rowBookHeight.value,
+                        hasEmptyMessage = ordered.isEmpty(), topPaddingDp = 16f, bottomPaddingDp = 0f,
+                        shelfHeightDp = 12f, rowCaptionHeightsDp = rowCaptionHeights)
+                    Column(shelfModifier.padding(top = 16.dp)) {
+                        repeat(fittedRows.rowCount) { rowContent(it) }
+                        repeat(if (searchOpen && ordered.isEmpty()) 0 else backgroundRows.decorativeRowCount) { index ->
+                            LibraryShelfRow(fittedRows.rowCount + index, emptyList(), bookWidth, bookHeight, 0.dp, false, false,
+                                shelfEnabled, null, null, {}, { _, _ -> }, coverContent, {}, bookActionsLabel, stackActionsLabel, { emptyList() }, emptyMap())
                         }
-                        DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.library_import_files)) }, modifier = Modifier.testTag("library_import_files"),
-                                onClick = { importMenu = false; onImport() })
-                            DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) }, modifier = Modifier.testTag("library_import_folder"),
-                                onClick = { importMenu = false; onImportFolder() })
-                            if (canUndo) {
-                                HorizontalDivider()
-                                DropdownMenuItem(text = { Text(stringResource(R.string.library_undo)) }, modifier = Modifier.testTag("library_undo"),
-                                    onClick = { importMenu = false; hideCat(); onUndo() })
-                            }
+                    }
+                }
+            }
+        }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { footerHeight = it.height }
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .padding(horizontal = 24.dp, vertical = 20.dp).testTag("library_floating_controls"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (importing) {
+                Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
+                    .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(stringResource(R.string.library_importing), Modifier.weight(1f), color = colors.onSurface, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { hideCat(); onCancelImport() }, modifier = Modifier.testTag("library_cancel_import")) { Text(stringResource(R.string.library_cancel)) }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f)) {
+                    versionLabel?.takeIf(String::isNotBlank)?.let { version -> Text(version, Modifier.testTag("library_version"),
+                        color = colors.onBackground.copy(alpha = .48f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                val searchLabel = stringResource(R.string.library_search)
+                LibraryShelfFab(searchLabel, shelfEnabled, { if (searchOpen) closeSearch() else openSearch() },
+                    Modifier.testTag("library_search")) { PaperSearchIcon() }
+                val settingsLabel = stringResource(R.string.library_settings)
+                LibraryShelfFab(settingsLabel, shelfEnabled, { hideCat(); onSettings() },
+                    Modifier.testTag("library_settings")) { PaperSettingsIcon() }
+                Box(contentAlignment = Alignment.Center) {
+                    LibraryShelfFab(importLabel, shelfEnabled && !importing, { hideCat(); importMenu = true },
+                        Modifier.testTag("library_import")) {
+                        Text("+", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 8.dp))
+                    }
+                    DropdownMenu(expanded = importMenu, onDismissRequest = { importMenu = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_files)) }, modifier = Modifier.testTag("library_import_files"),
+                            onClick = { importMenu = false; onImport() })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) }, modifier = Modifier.testTag("library_import_folder"),
+                            onClick = { importMenu = false; onImportFolder() })
+                        if (canUndo) {
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text(stringResource(R.string.library_undo)) }, modifier = Modifier.testTag("library_undo"),
+                                onClick = { importMenu = false; hideCat(); onUndo() })
                         }
                     }
                 }

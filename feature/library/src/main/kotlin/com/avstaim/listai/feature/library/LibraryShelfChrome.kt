@@ -26,6 +26,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.avstaim.listai.core.model.LibraryStack
 
+/** Each action owns its touch surface; the space around the buttons remains live shelf. */
+@Composable
+internal fun LibraryShelfFab(label: String, enabled: Boolean, onClick: () -> Unit,
+    modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(onClick = onClick, enabled = enabled,
+        modifier = modifier.size(52.dp).semantics { contentDescription = label },
+        shape = RoundedCornerShape(16.dp), color = colors.surface,
+        contentColor = colors.primary.copy(alpha = if (enabled) 1f else .38f),
+        shadowElevation = 6.dp, border = BorderStroke(.7.dp, colors.outlineVariant.copy(alpha = .65f))) {
+        Box(contentAlignment = Alignment.Center) { content() }
+    }
+}
+
 /** Paper controls stay outside the shelf gesture host, including their full touch targets. */
 @Composable
 internal fun LibrarySearchStrip(query: String, onQueryChange: (String) -> Unit, onClose: () -> Unit,

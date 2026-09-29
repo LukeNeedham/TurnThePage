@@ -13,6 +13,8 @@ import com.avstaim.listai.core.designsystem.ListaiTheme
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.feature.library.LibraryScreen
 import org.junit.Rule
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -108,6 +110,22 @@ class V12SearchDismissalTest {
         compose.onNodeWithTag("library_search_clear").performTouchInput { click(center) }
         compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
         field.assertDoesNotExist()
+    }
+
+    @Test fun bottomButtonsFloatWithinTheShelfInsteadOfReservingAPanel() {
+        showShelf(extraBooks = 24)
+        val shelf = compose.onNodeWithTag("library_shelf").fetchSemanticsNode().boundsInRoot
+        val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
+        assertEquals("The shelf continues to the bottom of the screen", screen.bottom, shelf.bottom, 1f)
+        val buttons = listOf("library_search", "library_settings", "library_import").map { tag ->
+            compose.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction().fetchSemanticsNode().boundsInRoot
+        }
+        buttons.forEach { button ->
+            assertTrue("Every FAB floats over the shelf", button.top >= shelf.top && button.bottom <= shelf.bottom)
+        }
+        assertTrue("Separate buttons leave shelf visible between them", buttons.zipWithNext().all { (a, b) -> a.right < b.left })
+        compose.onNodeWithTag("library_import").performTouchInput { click(center) }
+        compose.onNodeWithTag("library_import_files").assertIsDisplayed()
     }
 
     private fun awaitKeyboard(visible: Boolean) = compose.waitUntil(10_000) {
