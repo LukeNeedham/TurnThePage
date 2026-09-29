@@ -145,6 +145,9 @@ class V12LibraryUiTest {
         compose.waitUntil(10_000) { latestCatalog.stacks.isEmpty() }
         val newBook = runBlocking { add("Импорт после разбора") }
         compose.waitUntil(10_000) { latestCatalog.books.size == 5 }
+        // Shelf changes stay silent; undo remains available from the floating action menu.
+        compose.onNodeWithTag("library_undo").assertDoesNotExist()
+        compose.onNodeWithTag("library_import").performClick()
         compose.onNodeWithTag("library_undo").performClick()
         compose.waitUntil(10_000) { latestCatalog.stacks.singleOrNull()?.id == stack }
         assertEquals(listOf(first, second), latestCatalog.stacks.single().bookIds)

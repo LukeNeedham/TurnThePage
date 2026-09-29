@@ -51,7 +51,6 @@
     <string name="library_select_filtered">Select all shown</string>
     <string name="library_selected_count">Selected: %1$d</string>
     <string name="library_undo">Undo</string>
-    <string name="library_changed">Shelf updated</string>
     <string name="library_group_drop">Release to gather into a stack</string>
     <string name="library_stack_drop">Release to add to the stack</string>
 </resources>

@@ -51,7 +51,6 @@
     <string name="library_select_filtered">Выбрать все показанные</string>
     <string name="library_selected_count">Выбрано: %1$d</string>
     <string name="library_undo">Отменить</string>
-    <string name="library_changed">Полка изменена</string>
     <string name="library_group_drop">Отпустите, чтобы собрать в стопку</string>
     <string name="library_stack_drop">Отпустите, чтобы добавить в стопку</string>
 </resources>

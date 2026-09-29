@@ -470,14 +470,6 @@ fun LibraryScreen(
                         Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.library_add_books))
                     }
                 }
-                if (canUndo) {
-                    Surface(color = colors.surface.copy(alpha = .97f), shape = RoundedCornerShape(8.dp), shadowElevation = 3.dp) {
-                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.library_changed), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { hideCat(); onUndo() }, modifier = Modifier.testTag("library_undo")) { Text(stringResource(R.string.library_undo)) }
-                        }
-                    }
-                }
                 if (importing) {
                     Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(8.dp)).background(colors.surface.copy(alpha = .94f), RoundedCornerShape(8.dp))
                         .padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -510,6 +502,11 @@ fun LibraryScreen(
                                 onClick = { importMenu = false; onImport() })
                             DropdownMenuItem(text = { Text(stringResource(R.string.library_import_folder)) }, modifier = Modifier.testTag("library_import_folder"),
                                 onClick = { importMenu = false; onImportFolder() })
+                            if (canUndo) {
+                                HorizontalDivider()
+                                DropdownMenuItem(text = { Text(stringResource(R.string.library_undo)) }, modifier = Modifier.testTag("library_undo"),
+                                    onClick = { importMenu = false; hideCat(); onUndo() })
+                            }
                         }
                     }
                 }
