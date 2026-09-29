@@ -140,6 +140,8 @@ internal fun Modifier.libraryShelfInput(
     canGroup: (String, String) -> Boolean,
     onZoom: (ShelfZoom) -> Unit,
     onSearch: () -> Unit,
+    canCloseSearch: () -> Boolean,
+    onCloseSearch: () -> Unit,
     onHold: () -> Unit,
     onGroupReady: () -> Unit,
     onDrop: (ShelfItemDrag, List<String>) -> Unit,
@@ -222,6 +224,13 @@ internal fun Modifier.libraryShelfInput(
                     }
                 } else {
                     if (searchOpened) change.consume()
+                    else if (canCloseSearch() && delta.y < -slop && kotlin.math.abs(delta.x) < -delta.y * .55f) {
+                        // Scrolling toward later books folds an unused search away, including
+                        // short shelves that do not need a scrollable list. Keep this gesture
+                        // claimed until up so changing the surface cannot open a book or search.
+                        change.consume(); searchOpened = true; holdEligible = false
+                        onActivity(); onCloseSearch()
+                    }
                     else if (!isSearch() && shouldOpenPullSearch(atTop, false, delta.x, delta.y, 72f * density)) {
                         change.consume(); searchOpened = true; holdEligible = false
                         onActivity(); onSearch()

@@ -75,22 +75,58 @@ class V12SearchDismissalTest {
         }
     }
 
+    @Test fun scrollingDownClosesEmptySearchAndReturnsToTheSameStackEvenOnAShortShelf() {
+        showShelf(stack = "north")
+        compose.onNodeWithTag("library_search").performTouchInput { click(center) }
+        val field = compose.onNodeWithTag("library_search_field")
+        awaitKeyboard(true)
+        field.performImeAction()
+        awaitKeyboard(false)
+        // A pull toward the top is the opening gesture, never a dismissal.
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeDown() }
+        field.assertIsDisplayed()
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
+        field.assertDoesNotExist()
+        awaitKeyboard(false)
+        compose.onNodeWithTag("library_stack_menu").assertIsDisplayed()
+        compose.onNodeWithTag("library_book_north-1").assertIsDisplayed()
+        compose.onNodeWithTag("library_book_outside").assertDoesNotExist()
+    }
+
+    @Test fun scrollingSearchResultsPreservesANonemptyQueryButDismissesAfterClearing() {
+        showShelf(extraBooks = 24)
+        compose.onNodeWithTag("library_search").performTouchInput { click(center) }
+        val field = compose.onNodeWithTag("library_search_field")
+        field.performTextReplacement("Book")
+        field.performImeAction()
+        awaitKeyboard(false)
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
+        field.assertIsDisplayed().assertTextContains("Book")
+        compose.onNodeWithTag("library_shelf").assert(SemanticsMatcher("Search results really scrolled") {
+            it.config[SemanticsProperties.VerticalScrollAxisRange].value() > 0f
+        })
+        compose.onNodeWithTag("library_search_clear").performTouchInput { click(center) }
+        compose.onNodeWithTag("library_shelf").performTouchInput { swipeUp() }
+        field.assertDoesNotExist()
+    }
+
     private fun awaitKeyboard(visible: Boolean) = compose.waitUntil(10_000) {
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
             ?.isVisible(WindowInsetsCompat.Type.ime()) == visible
     }
 
-    private fun showShelf(stack: String? = null) {
+    private fun showShelf(stack: String? = null, extraBooks: Int = 0) {
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value }
         fun book(id: String, title: String, stackId: String? = null) = LibraryBook(
             BookId(id), title, "An Author", "$id.fb2", null, 1, null, 100,
             ReadingProgress(), authorNames = listOf("An Author"), stackId = stackId)
         val books = listOf(book("north-1", "First North", "north"),
-            book("north-2", "Second North", "north"), book("outside", "Outside Book"))
+            book("north-2", "Second North", "north"), book("outside", "Outside Book")) +
+            List(extraBooks) { book("book-$it", "Book $it") }
         val catalog = LibraryCatalog(books,
             listOf(LibraryStack("north", "Northern Books", books.take(2).map { it.id })),
-            listOf(LibraryShelfItem.Stack("north"), LibraryShelfItem.Book(BookId("outside"))))
+            listOf(LibraryShelfItem.Stack("north")) + books.drop(2).map { LibraryShelfItem.Book(it.id) })
         compose.runOnUiThread { compose.activity.setContent { ListaiTheme {
             LibraryScreen(books, false, {}, {}, {}, {}, catalog = catalog, initialStackId = stack)
         } } }

@@ -189,6 +189,7 @@ fun LibraryScreen(
     val latestTiles by rememberUpdatedState(tiles)
     val latestStack by rememberUpdatedState(stack)
     val latestSearch by rememberUpdatedState(searchOpen)
+    val latestQuery by rememberUpdatedState(query)
     val latestZoom by rememberUpdatedState(shelfZoom)
     val latestList by rememberUpdatedState(listState)
     val latestCommand by rememberUpdatedState(onLibraryCommand)
@@ -374,6 +375,7 @@ fun LibraryScreen(
             origin = { inputBounds.topLeft }, zoom = { latestZoom },
             isAtTop = { latestList.firstVisibleItemIndex == 0 && latestList.firstVisibleItemScrollOffset == 0 },
             isSearch = { latestSearch }, canGroup = canGroup, onZoom = ::changeZoom, onSearch = ::openSearch,
+            canCloseSearch = { latestSearch && latestQuery.isBlank() }, onCloseSearch = ::closeSearch,
             onHold = { hideCat(); haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             onGroupReady = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             onDrop = { drag, reordered ->
