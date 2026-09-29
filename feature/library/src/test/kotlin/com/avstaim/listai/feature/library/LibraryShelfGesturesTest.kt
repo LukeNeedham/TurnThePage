@@ -26,13 +26,15 @@ class LibraryShelfGesturesTest {
     }
     @Test fun secondFingerCancellationRestoresOriginalOrderingAndCannotCommitGroup() {
         val state = shelf(); state.move(Offset(126f, 75f), 8f, 100, { _, _ -> false })
-        assertEquals(listOf("book:b", "book:a", "stack:c"), state.keys)
+        assertEquals("book:b", state.drag!!.dropKey)
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
         state.cancel()
         assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys); assertNull(state.release())
     }
     @Test fun disallowedNestedStacksCanOnlyReorder() {
         val state = shelf(); state.move(Offset(290f, 75f), 8f, 100, { _, _ -> false })
         assertFalse(state.armHover(1000)); assertNull(state.drag!!.hoverKey)
+        state.release()
         assertEquals(listOf("book:b", "stack:c", "book:a"), state.keys)
     }
     @Test fun gradualTrajectoryThroughTargetEdgeLeavesItsSlotStableAndArmsTheIntendedBook() {
@@ -63,7 +65,8 @@ class LibraryShelfGesturesTest {
         val state = shelf()
         state.move(Offset(170f, 75f), 8f, 100, { _, _ -> true }); state.armHover(650)
         state.move(Offset(230f, 75f), 8f, 700, { _, _ -> true })
-        assertFalse(state.drag!!.armed); assertNull(state.drag!!.hoverKey); assertNull(state.drag!!.dropKey)
+        assertFalse(state.drag!!.armed); assertNull(state.drag!!.hoverKey)
+        assertEquals("book:b", state.drag!!.dropKey)
         state.cancel()
         assertNull(state.release())
         assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
@@ -75,7 +78,7 @@ class LibraryShelfGesturesTest {
         assertFalse(state.armHover(2000))
         val drop = state.release()!!
         assertEquals("book:b", drop.dropKey); assertNull(drop.hoverKey); assertFalse(drop.armed)
-        assertEquals(drop.originalKeys, state.keys)
+        assertEquals(listOf("book:b", "book:a", "stack:c"), state.keys)
     }
 
     @Test fun eventTimeoutAndScrollClockNeverRewindsAfterARealStationaryPause() {
@@ -108,7 +111,7 @@ class LibraryShelfGesturesTest {
         val released = state.release()!!
         assertFalse(released.armed)
         assertNull(released.hoverKey)
-        assertNull(released.dropKey)
+        assertEquals("stack:c", released.dropKey) // outside the stack is an ordinary shelf insertion
     }
 
     @Test fun existingStackStillRequiresAGroupableSourceAndCannotNestAnotherStack() {

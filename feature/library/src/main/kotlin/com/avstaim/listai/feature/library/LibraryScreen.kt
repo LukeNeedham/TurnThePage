@@ -415,7 +415,8 @@ fun LibraryScreen(
         }
         val shelfModifier = Modifier.fillMaxSize()
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
-            .onGloballyPositioned { inputBounds = it.boundsInRoot() }.testTag("library_shelf").libraryShelfInput(shelfEnabled, gestures,
+            .onGloballyPositioned { inputBounds = it.boundsInRoot(); gestures.viewportBounds = inputBounds }
+            .testTag("library_shelf").libraryShelfInput(shelfEnabled, gestures,
             origin = { inputBounds.topLeft }, zoom = { latestZoom },
             isAtTop = { latestList.firstVisibleItemIndex == 0 && latestList.firstVisibleItemScrollOffset == 0 },
             isSearch = { latestSearch }, canGroup = canGroup, onZoom = ::changeZoom, onSearch = ::openSearch,
@@ -589,6 +590,27 @@ fun LibraryScreen(
             if (drag.armed) Surface(Modifier.align(Alignment.TopCenter).padding(top = topPadding), shape = RoundedCornerShape(6.dp), shadowElevation = 4.dp) {
                 Text(stringResource(if (latestTiles[drag.hoverKey]?.stack != null) R.string.library_stack_drop else R.string.library_group_drop),
                     Modifier.padding(12.dp).testTag("library_drop_hint"), style = MaterialTheme.typography.labelMedium)
+            }
+            if (!drag.armed && !drag.extractReady) drag.insertionMarker?.let { marker ->
+                val markerTop = marker.top.coerceAtLeast(inputBounds.top)
+                val markerBottom = marker.bottom.coerceAtMost(inputBounds.bottom)
+                if (markerBottom > markerTop) Canvas(Modifier
+                    .offset { IntOffset((marker.left - shelfBounds.left - 6.dp.toPx()).roundToInt(), (markerTop - shelfBounds.top).roundToInt()) }
+                    .size(12.dp, with(density) { (markerBottom - markerTop).toDp() })
+                    .testTag("library_insertion_marker")) {
+                    val x = size.width / 2f
+                    val radius = 3.dp.toPx()
+                    // The dragged cover can cross this gap. A paper-coloured outline keeps
+                    // the insertion visible on both a blue cover and the shelf backdrop.
+                    drawLine(colors.surface, Offset(x, radius), Offset(x, size.height - radius),
+                        strokeWidth = 7.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawCircle(colors.surface, radius + 2.dp.toPx(), Offset(x, radius))
+                    drawCircle(colors.surface, radius + 2.dp.toPx(), Offset(x, size.height - radius))
+                    drawLine(colors.primary, Offset(x, radius), Offset(x, size.height - radius),
+                        strokeWidth = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    drawCircle(colors.primary, radius, Offset(x, radius))
+                    drawCircle(colors.primary, radius, Offset(x, size.height - radius))
+                }
             }
         }
         extraction?.let { LibraryExtractedBookFlight(it, extractionProgress.value, shelfBounds.topLeft, coverContent) }

@@ -21,6 +21,7 @@ internal data class ShelfItemDrag(
     val pointer: Offset = start,
     val moved: Boolean = false,
     val dropKey: String? = null,
+    val insertionMarker: Rect? = null,
     val hoverKey: String? = null,
     val hoverStartedAt: Long = 0,
     val armed: Boolean = false,
@@ -60,12 +61,11 @@ internal class LibraryShelfGestureState {
     var keys by mutableStateOf(emptyList<String>())
     val bounds = mutableStateMapOf<String, Rect>()
     var extractionBounds: Rect? = null
+    var viewportBounds: Rect? = null
     var drag by mutableStateOf<ShelfItemDrag?>(null)
-    private var lastDestination: Pair<String, Rect>? = null
 
     fun start(key: String, pointer: Offset) {
         val rect = bounds[key] ?: return
-        lastDestination = null
         drag = ShelfItemDrag(key, keys, rect, pointer)
     }
 
@@ -75,8 +75,7 @@ internal class LibraryShelfGestureState {
         var next = old.copy(pointer = pointer, moved = moved, extractReady = false)
         if (moved && extractionBounds?.contains(pointer) == true) {
             // An explicit destination takes priority over any shelf card under its overlay.
-            drag = next.copy(dropKey = null, hoverKey = null, armed = false, extractReady = true)
-            lastDestination = null
+            drag = next.copy(dropKey = null, insertionMarker = null, hoverKey = null, armed = false, extractReady = true)
             return
         }
         if (moved) {
@@ -99,21 +98,13 @@ internal class LibraryShelfGestureState {
                 }
             }
             val hover = target?.takeIf { groupable && center?.contains(pointer) == true }?.key
-            next = next.copy(dropKey = target?.key)
+            val insertion = shelfInsertion(old.originalKeys, bounds, old.key, pointer, viewportBounds)
+            next = next.copy(dropKey = insertion?.targetKey, insertionMarker = insertion?.marker)
             next = if (hover != old.hoverKey) next.copy(hoverKey = hover, hoverStartedAt = time, armed = false) else next
-            if (!groupable) {
-                val destination = target?.let { it.key to it.value }
-                if (destination != null && destination != lastDestination) {
-                    val from = keys.indexOf(old.key); val to = keys.indexOf(destination.first)
-                    if (from >= 0 && to >= 0) keys = keys.toMutableList().apply { add(to, removeAt(from)) }
-                }
-                lastDestination = destination
-            } else {
-                // Do not move a possible grouping target when entering its outer edge. A real
-                // finger crosses that edge before reaching the center; moving it here makes
-                // the target escape before the dwell can start. Quick drops still reorder.
-                lastDestination = null
-            }
+            // Keep every card in its original slot until release. Moving it while the
+            // finger crosses an edge breaks grouping; moving it under a held pointer also
+            // makes the next sample/up undo an ordinary reorder. The insertion marker
+            // previews the durable destination without changing the hit-test geometry.
         }
         drag = next
     }
@@ -129,8 +120,15 @@ internal class LibraryShelfGestureState {
         return true
     }
 
-    fun release(): ShelfItemDrag? = drag.also { drag = null; lastDestination = null }
-    fun cancel() { drag?.let { keys = it.originalKeys }; drag = null; lastDestination = null }
+    fun release(): ShelfItemDrag? = drag.also { released ->
+        if (released?.moved == true && !released.armed && !released.extractReady) {
+            val from = released.originalKeys.indexOf(released.key)
+            val to = released.originalKeys.indexOf(released.dropKey)
+            if (from >= 0 && to >= 0) keys = released.originalKeys.toMutableList().apply { add(to, removeAt(from)) }
+        }
+        drag = null
+    }
+    fun cancel() { drag?.let { keys = it.originalKeys }; drag = null }
     companion object {
         const val GROUP_HOVER_MS = 550L
         // Existing containers accept release immediately. Passing over one commits nothing.
