@@ -79,9 +79,9 @@ class V12StackTrajectoryTest {
                             commands += command
                             operations.launch {
                                 when (command) {
-                                    is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
+                                    is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds, command.requestedId)
                                     is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)
-                                    is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+                                    is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds, command.onTop)
                                     is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
                                     is LibraryCommand.MoveStackBook -> repository.moveStackBook(command.stackId, command.bookId, command.targetBookId)
                                     else -> error("Unexpected trajectory command: $command")
@@ -137,8 +137,11 @@ class V12StackTrajectoryTest {
         compose.onNodeWithTag("library_stack_name").assertIsDisplayed().performTextReplacement("Real trajectory")
         compose.onNodeWithTag("library_name_confirm").performClick()
         compose.waitUntil(10_000) { catalog.stacks.size == 1 }
-        assertEquals(listOf(target, source), catalog.stacks.single().bookIds)
-        assertEquals(listOf(LibraryCommand.CreateStack("Real trajectory", listOf(target, source))), commands)
+        assertEquals(listOf(source, target), catalog.stacks.single().bookIds)
+        val creation = commands.single() as LibraryCommand.CreateStack
+        assertEquals("Real trajectory", creation.name)
+        assertEquals(listOf(source, target), creation.bookIds)
+        assertEquals(catalog.stacks.single().id, creation.requestedId)
         assertNull(opened)
         assertEquals(3, catalog.books.size)
         assertNull(catalog.books.single { it.id == neighbour }.stackId)
@@ -206,7 +209,7 @@ class V12StackTrajectoryTest {
             compose.mainClock.autoAdvance = true
         }
         compose.waitUntil(10_000) { catalog.stacks.single().bookIds.contains(source) }
-        assertEquals(listOf(LibraryCommand.AddToStack(stackId, listOf(source))), commands)
+        assertEquals(listOf(LibraryCommand.AddToStack(stackId, listOf(source), onTop = true)), commands)
         assertEquals(stackId, catalog.books.single { it.id == source }.stackId)
         assertNull(opened)
         compose.onNodeWithTag("library_stack_name").assertDoesNotExist()

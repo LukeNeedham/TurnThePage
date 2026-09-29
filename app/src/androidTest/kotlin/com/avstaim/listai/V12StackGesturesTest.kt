@@ -88,22 +88,24 @@ class V12StackGesturesTest {
         compose.onNodeWithTag("library_stack_name").performTextReplacement("Journeys together")
         compose.onNodeWithTag("library_name_confirm").performClick()
         compose.waitUntil(10_000) { catalog.stacks.size == 1 }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("library_stack_drop_flight").fetchSemanticsNodes().isEmpty() }
         val stackId = catalog.stacks.single().id
-        assertEquals(listOf(target, source), catalog.stacks.single().bookIds)
+        assertEquals(listOf(source, target), catalog.stacks.single().bookIds)
         assertEquals("Journeys together", runBlocking { database.library().allStacks().single().name })
 
         val third = ids[3]
         holdAndDrop("library_book_${third.value}", "library_stack_$stackId", dwell = 650)
         compose.waitUntil(10_000) { catalog.stacks.single().bookIds.size == 3 }
-        assertEquals(listOf(target, source, third), catalog.stacks.single().bookIds)
+        assertEquals(listOf(third, source, target), catalog.stacks.single().bookIds)
         assertEquals(stackId, catalog.books.single { it.id == third }.stackId)
         compose.runOnIdle { assertNull(opened); assertEquals(1, commands.count { it is LibraryCommand.AddToStack }) }
 
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("library_stack_drop_flight").fetchSemanticsNodes().isEmpty() }
         // Inside a stack, the same center drop only changes internal order; nesting is absent.
         compose.onNodeWithTag("library_stack_$stackId").performClick()
-        holdAndDrop("library_book_${target.value}", "library_book_${source.value}", dwell = 100)
+        holdAndDrop("library_book_${third.value}", "library_book_${source.value}", dwell = 100)
         compose.waitUntil(10_000) { catalog.stacks.single().bookIds.first() == source }
-        assertEquals(listOf(source, target, third), catalog.stacks.single().bookIds)
+        assertEquals(listOf(source, third, target), catalog.stacks.single().bookIds)
         compose.onNodeWithTag("library_back").performClick()
         compose.onNodeWithTag("library_stack_$stackId").assertIsDisplayed()
         compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
@@ -199,9 +201,9 @@ class V12StackGesturesTest {
     }
 
     private suspend fun apply(command: LibraryCommand) { when (command) {
-        is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
+        is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds, command.requestedId)
         is LibraryCommand.RenameStack -> repository.renameStack(command.stackId, command.name)
-        is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+        is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds, command.onTop)
         is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
         is LibraryCommand.DissolveStack -> repository.dissolveStack(command.stackId)
         is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)

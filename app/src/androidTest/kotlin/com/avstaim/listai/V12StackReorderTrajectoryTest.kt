@@ -74,9 +74,9 @@ class V12StackReorderTrajectoryTest {
                             commands += command
                             operations.launch {
                                 when (command) {
-                                    is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
+                                    is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds, command.requestedId)
                                     is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)
-                                    is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+                                    is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds, command.onTop)
                                     is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
                                     is LibraryCommand.MoveStackBook -> repository.moveStackBook(command.stackId, command.bookId, command.targetBookId)
                                     else -> error("Unexpected trajectory command: $command")

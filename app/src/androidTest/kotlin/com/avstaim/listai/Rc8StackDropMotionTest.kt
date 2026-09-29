@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Choreographer
@@ -29,6 +30,8 @@ import com.avstaim.listai.feature.library.LibraryCommand
 import com.avstaim.listai.feature.library.LibraryScreen
 import com.avstaim.listai.feature.library.LibraryStackDropProgressKey
 import com.avstaim.listai.feature.library.LibraryStackShelfProgressKey
+import com.avstaim.listai.feature.library.LibraryStackIncomingCornersKey
+import com.avstaim.listai.feature.library.LibraryStackDropKindKey
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -45,9 +48,9 @@ import org.junit.runner.RunWith
 
 /** Real finger + real Room; the clock can stop between release and the durable catalog emission. */
 @RunWith(AndroidJUnit4::class)
-class Rc7StackDropMotionTest {
+class Rc8StackDropMotionTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
-    private val databaseName = "rc7-stack-motion-${UUID.randomUUID()}.db"
+    private val databaseName = "rc8-stack-motion-${UUID.randomUUID()}.db"
     private lateinit var database: LibraryDatabase
     private lateinit var storage: PrivateBookStorage
     private lateinit var repository: LibraryRepository
@@ -68,7 +71,7 @@ class Rc7StackDropMotionTest {
         compose.waitUntil(30_000) { !controller.busy.value }
         val context = compose.activity.applicationContext
         database = LibraryDatabase.open(context, databaseName)
-        storage = PrivateBookStorage(File(context.cacheDir, "rc7-stack-motion-${UUID.randomUUID()}"))
+        storage = PrivateBookStorage(File(context.cacheDir, "rc8-stack-motion-${UUID.randomUUID()}"))
         repository = LibraryRepository(context, database.library(), storage, AppPreferences(context), clock = { ++clock })
         repository.initialize()
         ids = (1..4).map { index -> repository.import("motion-$index.fb2") {
@@ -91,7 +94,8 @@ class Rc7StackDropMotionTest {
                         operations.launch {
                             commit.await()
                             when (command) {
-                                is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+                                is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds, command.onTop)
+                                is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds, command.requestedId)
                                 else -> error("Unexpected drop command: $command")
                             }
                         }
@@ -123,7 +127,7 @@ class Rc7StackDropMotionTest {
             compose.onNodeWithTag("library_screen").performTouchInput { up() }
             compose.mainClock.advanceTimeByFrame()
             compose.waitForIdle()
-            assertEquals(listOf(LibraryCommand.AddToStack(stackId, listOf(source))), commands)
+            assertEquals(listOf(LibraryCommand.AddToStack(stackId, listOf(source), onTop = true)), commands)
             assertEquals(targetBefore, stackBounds())
             assertEquals(sourceBefore, bookBounds(source))
             compose.onNodeWithTag("library_dragging_book").assertDoesNotExist()
@@ -136,14 +140,14 @@ class Rc7StackDropMotionTest {
                 samples += flightProgress()
                 assertEquals("Room latency must not move the destination slot", targetBefore, stackBounds())
                 assertNull(catalog.books.single { it.id == source }.stackId)
-                capture("0${index + 3}-moving")
+                capture("0${index + 3}-moving", incomingMarkers = true)
             }
             assertTrue("The same flight must publish distinct intermediate poses: $samples",
                 samples.zipWithNext().all { (a, b) -> b > a } && samples.first() > 0f && samples.last() < 1f)
             compose.mainClock.advanceTimeBy(300)
             compose.waitForIdle()
             assertEquals(1f, flightProgress(), .0001f)
-            capture("07-waiting-for-room")
+            capture("07-waiting-for-room", incomingMarkers = true)
             assertEquals(2, catalog.stacks.single().bookIds.size)
             commit.complete(Unit)
             compose.waitUntil(10_000) {
@@ -165,8 +169,8 @@ class Rc7StackDropMotionTest {
             compose.onNodeWithTag("library_stack_drop_flight").assertDoesNotExist()
         } finally { compose.mainClock.autoAdvance = true }
         compose.waitForIdle()
-        assertEquals(ids.take(2) + source, catalog.stacks.single().bookIds)
-        assertEquals(ids.first(), catalog.stacks.single().bookIds.first())
+        assertEquals(listOf(source) + ids.take(2), catalog.stacks.single().bookIds)
+        assertEquals(source, catalog.stacks.single().bookIds.first())
         compose.onNodeWithTag("library_book_${source.value}").assertDoesNotExist()
         assertNull(opened)
         capture("10-landed")
@@ -190,9 +194,9 @@ class Rc7StackDropMotionTest {
             assertEquals(targetBefore, stackBounds())
             // The presentation snapshot still owns the book even though Room removed its slot.
             compose.onNodeWithTag("library_book_${source.value}").assertExists()
-            capture("dark-committed-in-flight")
+            capture("dark-committed-in-flight", incomingMarkers = true)
             compose.mainClock.advanceTimeBy(160)
-            capture("dark-committed-later")
+            capture("dark-committed-later", incomingMarkers = true)
         } finally { compose.mainClock.autoAdvance = true }
         compose.waitUntil(10_000) {
             compose.onAllNodesWithTag("library_stack_drop_flight").fetchSemanticsNodes().isEmpty()
@@ -213,6 +217,109 @@ class Rc7StackDropMotionTest {
         }
         assertEquals(2, commands.size)
         assertNull(opened)
+    }
+
+    @Test fun confirmingDraggedBooksAnimatesBothCoversBeforeDelayedCreationCommit() {
+        val source = ids.last()
+        val target = ids[2]
+        compose.mainClock.autoAdvance = false
+        try {
+            showCreationDialog(source, target)
+            capture("create-01-dialog")
+            assertTrue(commands.isEmpty())
+            compose.onNodeWithTag("library_name_confirm").performClick()
+            repeat(3) { compose.mainClock.advanceTimeByFrame() }
+            compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
+            compose.onNodeWithTag("library_stack_drop_flight").assertIsDisplayed()
+            assertEquals("creation", compose.onNodeWithTag("library_stack_drop_flight").fetchSemanticsNode().config[LibraryStackDropKindKey])
+            val command = commands.single() as LibraryCommand.CreateStack
+            assertEquals(listOf(source, target), command.bookIds)
+            assertFalse(command.requestedId.isNullOrBlank())
+            capture("create-02-release", incomingMarkers = true)
+            val samples = mutableListOf<Float>()
+            for ((index, millis) in listOf(96L, 144L, 144L, 160L).withIndex()) {
+                compose.mainClock.advanceTimeBy(millis)
+                samples += flightProgress()
+                assertEquals("Creation must retain the pre-commit shelf", 1, catalog.stacks.size)
+                capture("create-0${index + 3}-moving", incomingMarkers = true)
+            }
+            assertTrue(samples.zipWithNext().all { (a, b) -> b > a } && samples.last() < 1f)
+            compose.mainClock.advanceTimeBy(400)
+            assertEquals(1f, flightProgress(), .0001f)
+            capture("create-07-waiting-for-room", incomingMarkers = true)
+            assertEquals(1, catalog.stacks.size)
+            commit.complete(Unit)
+            compose.waitUntil(10_000) {
+                compose.mainClock.advanceTimeByFrame()
+                catalog.stacks.any { it.id == command.requestedId } &&
+                    compose.onAllNodesWithTag("library_stack_drop_flight").fetchSemanticsNodes().isEmpty()
+            }
+            assertEquals(listOf(source, target), catalog.stacks.single { it.id == command.requestedId }.bookIds)
+            compose.onNodeWithTag("library_stack_${command.requestedId}").assertIsDisplayed()
+            capture("create-08-landed")
+        } finally { compose.mainClock.autoAdvance = true }
+        assertNull(opened)
+    }
+
+    @Test fun immediateCreationCommitKeepsItsIncomingCoverWholeAndOnTopInDarkTheme() {
+        compose.runOnIdle { dark = true }
+        commit.complete(Unit)
+        compose.mainClock.autoAdvance = false
+        try {
+            showCreationDialog(ids.last(), ids[2])
+            compose.onNodeWithTag("library_name_confirm").performClick()
+            compose.waitUntil(10_000) {
+                compose.mainClock.advanceTimeByFrame()
+                catalog.stacks.size == 2
+            }
+            assertTrue("Fast Room cannot finish the visual assembly", flightProgress() < 1f)
+            capture("create-dark-early-commit", incomingMarkers = true)
+            compose.mainClock.advanceTimeBy(320)
+            capture("create-dark-middle", incomingMarkers = true)
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("library_stack_drop_flight").fetchSemanticsNodes().isEmpty()
+        }
+        val created = catalog.stacks.single { it.id != stackId }
+        assertEquals(listOf(ids.last(), ids[2]), created.bookIds)
+        assertEquals(1, commands.size)
+        capture("create-dark-landed")
+    }
+
+    @Test fun cancellingCreationRestoresBothBooksWithoutAnAnimationOrDurableCommand() {
+        val before = catalog
+        compose.mainClock.autoAdvance = false
+        try {
+            showCreationDialog(ids.last(), ids[2])
+            compose.onNodeWithText(compose.activity.getString(com.avstaim.listai.feature.library.R.string.library_cancel)).performClick()
+            compose.mainClock.advanceTimeBy(400)
+            compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
+            compose.onNodeWithTag("library_stack_drop_flight").assertDoesNotExist()
+            compose.onNodeWithTag("library_book_${ids.last().value}").assertIsDisplayed()
+            compose.onNodeWithTag("library_book_${ids[2].value}").assertIsDisplayed()
+            assertTrue(commands.isEmpty())
+            assertEquals(before, catalog)
+        } finally { compose.mainClock.autoAdvance = true }
+    }
+
+    private fun showCreationDialog(source: BookId, target: BookId) {
+        val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
+        val start = bookBounds(source).center
+        val end = bookBounds(target).center
+        compose.onNodeWithTag("library_screen").performTouchInput { down(start - screen.topLeft) }
+        SystemClock.sleep(650); compose.mainClock.advanceTimeBy(650)
+        repeat(12) { index ->
+            val point = start + (end - start) * ((index + 1) / 12f)
+            compose.onNodeWithTag("library_screen").performTouchInput { moveTo(point - screen.topLeft, delayMillis = 32) }
+            compose.mainClock.advanceTimeBy(32)
+        }
+        SystemClock.sleep(650); compose.mainClock.advanceTimeBy(650)
+        compose.onNodeWithTag("library_drop_hint").assertIsDisplayed()
+        compose.onNodeWithTag("library_screen").performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithTag("library_stack_name").assertIsDisplayed().performTextReplacement("New motion")
+        compose.onNodeWithTag("library_stack_drop_flight").assertDoesNotExist()
+        compose.onNodeWithTag("library_pending_stack_book").assertIsDisplayed()
     }
 
     @Test fun firstVisibleStackMovingIntoThePreviousLazyRowIsPositionedBeforeHandoff() {
@@ -254,6 +361,9 @@ class Rc7StackDropMotionTest {
                 compose.mainClock.advanceTimeBy(32)
                 val target = compose.onAllNodesWithTag("library_stack_$stackId").fetchSemanticsNodes().singleOrNull()?.boundsInRoot
                 target != null && target.width > 0f && target.height >= sourceRect.height * .99f &&
+                    // Prefetch can expose an unplaced Lazy node at x=0. The real target
+                    // belongs to the same measured first column as the source in this fixture.
+                    kotlin.math.abs(target.left - sourceRect.left) < 1f &&
                     target.top >= viewport.top && target.top <= viewport.top + 48f * density
             }
             // The first column is now at the top; removing an earlier source moves its new
@@ -266,7 +376,7 @@ class Rc7StackDropMotionTest {
             val destination = Offset(before.center.x, before.top + before.height * .7f)
             compose.onNodeWithTag("library_screen").performTouchInput { moveTo(destination - screen.topLeft, delayMillis = 32) }
             compose.mainClock.advanceTimeBy(32)
-            val directory = requireNotNull(compose.activity.getExternalFilesDir("rc7-stack-drop")).also { it.mkdirs() }
+            val directory = requireNotNull(compose.activity.getExternalFilesDir("rc8-stack-drop")).also { it.mkdirs() }
             File(directory, "lazy-coordinates.txt").writeText("source=$sourceRect\nscreen=$screen\nviewport=$viewport\nedge=$edge\nbefore=$before\ndestination=$destination\n")
             capture("lazy-before-hint")
             try {
@@ -369,7 +479,7 @@ class Rc7StackDropMotionTest {
     private fun flightProgress() = compose.onNodeWithTag("library_stack_drop_flight").fetchSemanticsNode()
         .config[LibraryStackDropProgressKey]
 
-    private fun capture(name: String) {
+    private fun capture(name: String, incomingMarkers: Boolean = false) {
         compose.waitForIdle()
         val frame = CountDownLatch(1)
         compose.runOnUiThread {
@@ -381,11 +491,43 @@ class Rc7StackDropMotionTest {
         automation.waitForIdle(150, 5_000)
         SystemClock.sleep(200)
         val bitmap = requireNotNull(automation.takeScreenshot())
-        val directory = requireNotNull(compose.activity.getExternalFilesDir("rc7-stack-drop")).also { it.mkdirs() }
+        val directory = requireNotNull(compose.activity.getExternalFilesDir("rc8-stack-drop")).also { it.mkdirs() }
         File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        File(directory, "$name.txt").writeText(compose.onRoot(useUnmergedTree = true).printToString())
-        bitmap.recycle()
+        val roots = compose.onAllNodes(isRoot(), useUnmergedTree = true)
+        File(directory, "$name.txt").writeText(roots.fetchSemanticsNodes().indices.joinToString("\n\n") { roots[it].printToString() })
+        try {
+            if (incomingMarkers) assertUnbrokenIncomingCover(bitmap, name)
+        } finally { bitmap.recycle() }
     }
+
+    /** The old mask cut these upper markers out while all progress-only assertions passed. */
+    private fun assertUnbrokenIncomingCover(bitmap: Bitmap, frame: String) {
+        val corners = compose.onNodeWithTag("library_stack_drop_flight").fetchSemanticsNode()
+            .config[LibraryStackIncomingCornersKey].toFloatArray()
+        val projection = Matrix().apply {
+            assertTrue(setPolyToPoly(floatArrayOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f), 0, corners, 0, 4))
+        }
+        markers.forEach { (position, expected) ->
+            val point = floatArrayOf(position.x, position.y)
+            projection.mapPoints(point)
+            val x = point[0].toInt(); val y = point[1].toInt()
+            assertTrue("$frame incoming marker must be on screen: $x,$y", x in 5 until bitmap.width - 5 && y in 5 until bitmap.height - 5)
+            val matches = (-4..4).sumOf { dx -> (-4..4).count { dy ->
+                val pixel = bitmap.getPixel(x + dx, y + dy)
+                kotlin.math.abs(Color.red(pixel) - Color.red(expected)) < 55 &&
+                    kotlin.math.abs(Color.green(pixel) - Color.green(expected)) < 55 &&
+                    kotlin.math.abs(Color.blue(pixel) - Color.blue(expected)) < 55
+            } }
+            assertTrue("$frame must retain the incoming artwork at $position ($x,$y); matching pixels=$matches", matches >= 9)
+        }
+    }
+
+    private val markers = listOf(
+        Offset(.22f, .16f) to Color.rgb(239, 43, 65),
+        Offset(.78f, .16f) to Color.rgb(29, 212, 65),
+        Offset(.22f, .84f) to Color.rgb(38, 98, 238),
+        Offset(.78f, .84f) to Color.rgb(246, 191, 32),
+    )
 
     private fun coverPng(index: Int): String {
         val bitmap = Bitmap.createBitmap(240, 360, Bitmap.Config.ARGB_8888)
@@ -400,6 +542,11 @@ class Rc7StackDropMotionTest {
         canvas.drawText("BOOK $index", 120f, 100f, paint)
         canvas.drawRect(40f, 175f, 200f, 185f, paint)
         canvas.drawCircle(120f, 230f, 30f, paint)
+        if (index == 4) markers.forEach { (position, color) ->
+            paint.color = color
+            canvas.drawRect(position.x * 240f - 18f, position.y * 360f - 22f,
+                position.x * 240f + 18f, position.y * 360f + 22f, paint)
+        }
         val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
         bitmap.recycle()
         return Base64.encodeToString(bytes, Base64.NO_WRAP)
