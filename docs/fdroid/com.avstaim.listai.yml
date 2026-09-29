@@ -34,7 +34,7 @@ MaintainerNotes: |-
   byte-reproducible from a clean build, so no binary/signing-key constraint
   is included. F-Droid and upstream installations use different signers.
 
-AutoUpdateMode: Version v%v
+AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+(?:\.[0-9]+)?$
 UpdateCheckData: gradle.properties|listai\.versionCode=(\d+)|.|listai\.versionName=(.+)
 CurrentVersion: '1.1'
