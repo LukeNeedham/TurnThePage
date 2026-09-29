@@ -1,6 +1,7 @@
 package com.avstaim.listai.reader.pagination
 
 import com.avstaim.listai.core.model.BookDocument
+import com.avstaim.listai.core.model.BookChapterKind
 import com.avstaim.listai.core.model.BookLocation
 import com.avstaim.listai.core.model.PageId
 import com.avstaim.listai.core.model.plainText
@@ -30,6 +31,10 @@ internal class PartLeafProjector(document: BookDocument, location: BookLocation?
         val nextPart = document.parts.mapNotNull { positions[it.startBlockId] }.firstOrNull { it > start } ?: Int.MAX_VALUE
         chapterStarts.firstOrNull { (positions[it] ?: -1) in (start + 1) until nextPart }
     }.toSet()
+    // In a book divided into parts, the concluding unnumbered chapter also starts recto.
+    // Its text continues normally: unlike a part title it does not get an empty reverse.
+    private val epilogueStarts = document.chapters.filter { it.kind == BookChapterKind.EPILOGUE }
+        .mapTo(hashSetOf()) { it.startBlockId }
     private val anchor = source.takeIf { it.isNotEmpty() }?.resolveLocation(location)
 
     fun project(snapshot: PaginationSnapshot): PaginationSnapshot = with(snapshot) {
@@ -43,7 +48,9 @@ internal class PartLeafProjector(document: BookDocument, location: BookLocation?
         for (page in pages) {
             val part = page.blocks.firstOrNull()?.blockId?.let(partByBlock::get)
             if (part == null) {
-                if (page.blocks.firstOrNull()?.let { it.blockId in firstChapters && it.startCharOffset == 0 } == true &&
+                if (page.blocks.firstOrNull()?.let {
+                        (it.blockId in firstChapters || it.blockId in epilogueStarts) && it.startCharOffset == 0
+                    } == true &&
                     (key.leadingPageCount + leaves.size) % 2 != 0) blank(page.start)
                 append(page)
                 continue

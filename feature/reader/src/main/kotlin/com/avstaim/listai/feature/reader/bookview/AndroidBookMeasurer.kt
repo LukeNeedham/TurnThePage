@@ -25,6 +25,7 @@ import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
 import com.avstaim.listai.core.designsystem.BookOrnament
 import com.avstaim.listai.core.model.BlockId
 import com.avstaim.listai.core.model.BookBlock
+import com.avstaim.listai.core.model.BookChapterKind
 import com.avstaim.listai.core.model.BookPart
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.InlineNode
@@ -82,6 +83,25 @@ internal class PreparedChapterHeading(number: String, key: LayoutKey, typefaces:
         val left = (layout.width - ornamentWidth) / 2f
         ornament.draw(canvas, RectF(left, top + layout.height + gap,
             left + ornamentWidth, top + layout.height + gap + ornamentHeight))
+    }
+}
+
+/** An unnumbered opening prints its real source heading, with only whitespace before it. */
+internal class PreparedEpilogueOpening(key: LayoutKey, textHeight: Int) : PreparedBlockDecoration {
+    override val height = minOf(key.contentHeight * .065f, 32f * key.density,
+        (key.contentHeight - textHeight - key.fontSizeSp * key.density * key.textScale * 4f).coerceAtLeast(0f) * .2f)
+    override fun draw(canvas: Canvas) = Unit
+}
+
+internal class PreparedEpilogueOrnament(key: LayoutKey) : PreparedBlockDecoration {
+    private val gap = minOf(key.contentHeight * .04f, 24f * key.density)
+    private val markHeight = minOf(12f * key.density, key.contentHeight * .03f)
+    private val width = minOf(96f * key.density, key.contentWidth * .35f)
+    private val left = (key.contentWidth - width) / 2f
+    private val ornament = BookOrnament(if (key.darkTheme) 0xFFADBBC7.toInt() else 0xFF64717C.toInt())
+    override val height = gap * 2 + markHeight
+    override fun draw(canvas: Canvas) {
+        ornament.draw(canvas, RectF(left, gap, left + width, gap + markHeight))
     }
 }
 
@@ -146,6 +166,8 @@ internal class AndroidBookMeasurer(
     override fun measure(block: FlowBlock, key: LayoutKey): BlockMeasurement {
         val source = block.source
         val chapter = chapterByBlockId[source.id]
+        val epilogue = chapter?.kind == BookChapterKind.EPILOGUE
+        val epilogueOpening = epilogue && chapter?.startBlockId == source.id
         val part = partByBlockId[source.id]
         val partHeading = part != null && source.id in part.headingBlockIds
         val title = source.id in titleIds
@@ -160,7 +182,7 @@ internal class AndroidBookMeasurer(
         }
         val paragraph = source as? BookBlock.Paragraph
         val heading = source is BookBlock.Heading || paragraph?.role == ParagraphRole.SUBTITLE
-        val italic = !partHeading && (part != null || chapter != null || title && !firstTitle || block.quoteDepth > 0 || source is BookBlock.Poem || paragraph?.role == ParagraphRole.TEXT_AUTHOR)
+        val italic = !partHeading && !epilogueOpening && (part != null || chapter != null || title && !firstTitle || block.quoteDepth > 0 || source is BookBlock.Poem || paragraph?.role == ParagraphRole.TEXT_AUTHOR)
         val style = when {
             heading && italic -> Typeface.BOLD_ITALIC
             heading -> Typeface.BOLD
@@ -169,6 +191,7 @@ internal class AndroidBookMeasurer(
         }
         val paint = textPaint(key, style, when {
             partHeading -> partHeadingSizes(requireNotNull(part), key).getValue(source.id)
+            epilogueOpening -> 1.45f
             firstTitle -> 1.65f
             heading -> 1.25f
             title -> 1.15f
@@ -198,7 +221,7 @@ internal class AndroidBookMeasurer(
             .setLineSpacing(0f, if (partHeading) PART_HEADING_LINE_HEIGHT else key.lineHeightMultiplier)
             .setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
             .setHyphenationFrequency(when {
-                part != null -> Layout.HYPHENATION_FREQUENCY_NONE
+                part != null || epilogue -> Layout.HYPHENATION_FREQUENCY_NONE
                 else -> when (key.hyphenationMode) {
                 HyphenationMode.NONE -> Layout.HYPHENATION_FREQUENCY_NONE
                 HyphenationMode.NORMAL -> Layout.HYPHENATION_FREQUENCY_NORMAL
@@ -211,12 +234,16 @@ internal class AndroidBookMeasurer(
         return AndroidTextMeasurement(layout, when {
             firstTitle -> PreparedTitleDecoration(key, opening = true, textHeight = layout.height)
             title && source.id == document.titlePageBlockIds.getOrNull(1) -> PreparedTitleDecoration(key, opening = false, textHeight = layout.height)
-            chapter?.startBlockId == source.id -> PreparedChapterHeading(chapter.number ?: chapter.ordinal.toString(), key, typefaces)
+            epilogueOpening -> PreparedEpilogueOpening(key, layout.height)
+            chapter?.startBlockId == source.id -> PreparedChapterHeading(chapter.number ?: requireNotNull(chapter.ordinal).toString(), key, typefaces)
             else -> null
         }, trailingSpace = if (chapter != null && chapter.headingBlockIds.last() == source.id)
             minOf(key.contentHeight * .035f, 22f * key.density) else 0f,
-            followingDecoration = if (partHeading && source.id == part?.headingBlockIds?.last())
-                PreparedPartOrnament(key) else null)
+            followingDecoration = when {
+                epilogueOpening -> PreparedEpilogueOrnament(key)
+                partHeading && source.id == part?.headingBlockIds?.last() -> PreparedPartOrnament(key)
+                else -> null
+            })
     }
 
     /** Reduce decorative enlargement before allowing a moderate title to span several leaves.
