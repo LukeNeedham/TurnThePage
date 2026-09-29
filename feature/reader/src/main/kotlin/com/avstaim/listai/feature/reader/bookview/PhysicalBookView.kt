@@ -149,6 +149,23 @@ private data class ResolvedTurn(
     val progress: Float = frame.geometry.progress.toFloat(),
 )
 
+/** Only the visible immutable leaves survive a supplementary-contents session replacement. */
+private data class RetainedBookScene(
+    val surfaces: VisibleBookSurfaces,
+    val cover: ExternalBookCoverSurface,
+    val pose: PhysicalBookPose,
+    val logicalProgress: Float,
+    val paperBounds: List<Rect>,
+    val controls: ReaderTopControlLayout,
+    val bookmark: QuickBookmarkPlacement?,
+    val semanticLocation: String,
+    val contentsLocation: String,
+)
+
+private class RetainedBookSceneHolder {
+    var scene: RetainedBookScene? = null
+}
+
 @Composable
 internal fun PhysicalBookView(
     pages: List<DemoPageUiModel>,
@@ -305,22 +322,26 @@ internal fun PhysicalBookView(
                 readerTopControlLayout(canvasSize.width, pageControlInsets, density.density, bounds).contentTop
             } - layout.rightPage.top
         }
+        val paginationKey = LayoutKey(
+            viewportWidthPx = canvasSize.width.roundToInt().coerceAtLeast(1),
+            viewportHeightPx = canvasSize.height.roundToInt().coerceAtLeast(1),
+            pageWidthPx = layout.pageWidth.roundToInt().coerceAtLeast(1),
+            pageHeightPx = layout.pageHeight.roundToInt().coerceAtLeast(1),
+            pageMode = if (presentation == BookPresentation.SPREAD) PageMode.SPREAD else PageMode.SINGLE,
+            fontFamilyId = PLYOS_FONT_FAMILY_ID,
+            density = density.density,
+            densityKey = density.density.toString(),
+            textScale = density.fontScale,
+            fontSizeSp = fontSizeSp,
+            darkTheme = darkTheme,
+            localeTag = document?.metadata?.language ?: "en",
+            topContentInsetDp = paperContentTop.coerceAtLeast(0f) / density.density,
+        )
+        val retainedScene = remember(document, readingPosition, readerSession, paginationKey, layout) {
+            RetainedBookSceneHolder()
+        }
         val pagination = document?.let {
-            rememberPaginationSession(it, LayoutKey(
-                viewportWidthPx = canvasSize.width.roundToInt().coerceAtLeast(1),
-                viewportHeightPx = canvasSize.height.roundToInt().coerceAtLeast(1),
-                pageWidthPx = layout.pageWidth.roundToInt().coerceAtLeast(1),
-                pageHeightPx = layout.pageHeight.roundToInt().coerceAtLeast(1),
-                pageMode = if (presentation == BookPresentation.SPREAD) PageMode.SPREAD else PageMode.SINGLE,
-                fontFamilyId = PLYOS_FONT_FAMILY_ID,
-                density = density.density,
-                densityKey = density.density.toString(),
-                textScale = density.fontScale,
-                fontSizeSp = fontSizeSp,
-                darkTheme = darkTheme,
-                localeTag = it.metadata.language ?: "en",
-                topContentInsetDp = paperContentTop.coerceAtLeast(0f) / density.density,
-            ), requireNotNull(readingPosition), includeContents &&
+            rememberPaginationSession(it, paginationKey, requireNotNull(readingPosition), includeContents &&
                 (contentsVisit || readingPosition.tocEntryIndex != null || navigationRequest?.progress?.tocEntryIndex != null))
         }
         // Read during composition even while a displayed snapshot is pinned. Reading only in
@@ -350,10 +371,31 @@ internal fun PhysicalBookView(
             } else {
                 Modifier.fillMaxSize()
             }
-            Box(loadingModifier,
-                contentAlignment = Alignment.Center) {
-                Text(stringResource(if (pagination.failed) R.string.reader_pagination_failed else R.string.reader_paginating),
-                    color = MaterialTheme.colorScheme.onBackground)
+            val retained = retainedScene.scene
+            Box(loadingModifier) {
+                if (retained != null) {
+                    Canvas(Modifier.fillMaxSize().testTag("book_view_demo").semantics {
+                        this[ReaderPaperBounds] = retained.paperBounds
+                        this[ReaderPaginationComplete] = false
+                        this[ReaderJumpInProgress] = true
+                        this[ReaderTurnDirection] = ""
+                        this[ReaderTurnProgress] = 0f
+                        this[ReaderSemanticLocation] = retained.semanticLocation
+                        this[ReaderContentsLocation] = retained.contentsLocation
+                        this[ReaderLayoutIdentity] = paginationKey.toString()
+                    }) {
+                        drawPhysicalBook(layout, retained.surfaces, retained.logicalProgress,
+                            retained.pose, coverSurface = retained.cover)
+                    }
+                    if (retained.paperBounds.isNotEmpty()) pageControls?.invoke(retained.controls.copy(enabled = false))
+                    retained.bookmark?.let {
+                        QuickBookmarkTab(it, darkTheme, enabled = false, onAdd = {}, onRemove = {})
+                    }
+                }
+                if (retained == null || pagination.failed) {
+                    Text(stringResource(if (pagination.failed) R.string.reader_pagination_failed else R.string.reader_paginating),
+                        color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.align(Alignment.Center))
+                }
             }
             // Resize can dispose the previous gesture before its settle job clears these fields.
             LaunchedEffect(pagination) {
@@ -442,6 +484,23 @@ internal fun PhysicalBookView(
         val physicsConfig = remember { PageTurnPhysicsConfig() }
         val scope = rememberCoroutineScope()
         var settleJob by remember { mutableStateOf<Job?>(null) }
+        fun retainRestingScene(snapshot: PreparedPagination, state: PhysicalBookState,
+            bookmark: QuickBookmarkPlacement? = null, controls: ReaderTopControlLayout? = null) {
+            val surfaces = visibleBookSurfaces(snapshot.surfaces, coverSurface, state, presentation,
+                PhysicalBookNavigator(snapshot.surfaces.size, hasFrontEndpaper), snapshot.insideFront)
+            val paper = if (state.isClosedCover()) emptyList() else buildList {
+                if (surfaces.left.isReadablePaperSurface()) layout.leftPage?.let(::add)
+                if (surfaces.right.isReadablePaperSurface()) add(layout.rightPage)
+            }
+            val ink = controls ?: readerTopControlLayout(canvasSize.width, pageControlInsets, density.density, paper)
+                .copy(onCoverMaterial = (surfaces.left as? BookVisualSurface.Cover)?.insideContent != null ||
+                    (surfaces.right as? BookVisualSurface.Cover)?.insideContent != null,
+                    onWhitePaper = surfaces.left.isWhitePaperSurface() || surfaces.right.isWhitePaperSurface())
+            retainedScene.scene = RetainedBookScene(surfaces, coverSurface, state.toPhysicalBookPose(),
+                state.logicalProgress(snapshot.surfaces.size), paper, ink, bookmark,
+                readingPosition?.location?.let { "${it.blockId.value}:${it.charOffset}:${it.fallbackGlobalOffset}" }.orEmpty(),
+                readingPosition?.tocEntryIndex?.let { "$it:${readingPosition.tocCharOffset}" }.orEmpty())
+        }
         fun cancelUncommittedTurn() {
             settleJob?.cancel()
             settleJob = null
@@ -564,6 +623,10 @@ internal fun PhysicalBookView(
                     destination?.let {
                         if (finished.jumpDestination != null) {
                             readingPosition?.commitJump(requireNotNull(it.jump).request, it.notes)
+                            // Leaving contents removes its supplementary pages and creates a
+                            // new session below. Preserve the committed destination now, before
+                            // contentsVisit changes, rather than briefly restoring the old TOC.
+                            retainRestingScene(it, finished.completedState)
                             displayedPagination = it
                             jumpPreparing = null
                             pagination?.cancelJump(finished.completedState, presentation)
@@ -1112,12 +1175,10 @@ internal fun PhysicalBookView(
                 insideFront = insideFront,
             )
         }
-        val logicalProgress = when (bookState) {
-            PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> 0f
-            PhysicalBookState.BackBoundary -> 1f
-            PhysicalBookState.ClosedBack -> 1f
-            is PhysicalBookState.Open -> {
-                bookState.semanticPageIndex.toFloat() / preparedPages.lastIndex.coerceAtLeast(1)
+        val logicalProgress = bookState.logicalProgress(preparedPages.size)
+        SideEffect {
+            if (ready != null && activeTurn == null && jumpPreparing == null && transitionCoverProgress == null) {
+                retainRestingScene(ready, bookState, quickBookmarkPlacement, pageControlsLayout)
             }
         }
 
@@ -1569,6 +1630,12 @@ private fun Int.toPhysicalBookState(pageCount: Int): PhysicalBookState = when {
     this == -3 -> PhysicalBookState.ClosedBack
     this == -4 -> PhysicalBookState.FrontBoundary
     else -> PhysicalBookState.Open(semanticPageIndex = coerceIn(0, pageCount - 1))
+}
+
+private fun PhysicalBookState.logicalProgress(pageCount: Int): Float = when (this) {
+    PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> 0f
+    PhysicalBookState.BackBoundary, PhysicalBookState.ClosedBack -> 1f
+    is PhysicalBookState.Open -> semanticPageIndex.toFloat() / (pageCount - 1).coerceAtLeast(1)
 }
 
 private fun PhysicalBookState.toPhysicalBookPose(): PhysicalBookPose = when (this) {
