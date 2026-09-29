@@ -74,6 +74,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -141,6 +144,8 @@ fun LibraryScreen(
     val inspection = LocalInspectionMode.current
     var stackTransition by remember { mutableStateOf(false) }
     var stackOrigin by remember { mutableStateOf<Rect?>(null) }
+    var extraction by remember { mutableStateOf<LibraryBookExtraction?>(null) }
+    val extractionProgress = remember { Animatable(0f) }
     val incoming = when {
         searchOpen -> searchLibrary(effectiveCatalog, query).map { LibraryTile(LibraryShelfItem.Book(it.id), it) }
         stack != null -> stack.bookIds.mapNotNull { id -> byId[id]?.let { LibraryTile(LibraryShelfItem.Book(id), it) } }
@@ -159,6 +164,7 @@ fun LibraryScreen(
         }
     }
     val gestures = remember { LibraryShelfGestureState() }
+    val extractionRootBounds = remember { mutableStateMapOf<String, Rect>() }
     val surfaceKey = if (searchOpen) "search" else stackId ?: "root"
     LaunchedEffect(incomingKeys, surfaceKey) {
         if (gestures.drag != null && gestures.drag?.originalKeys != incomingKeys) gestures.cancel()
@@ -195,6 +201,7 @@ fun LibraryScreen(
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
     val shelfEnabled = interactionEnabled && !stackTransition
+    val latestCatalog by rememberUpdatedState(effectiveCatalog)
     val latestTiles by rememberUpdatedState(tiles)
     val latestStack by rememberUpdatedState(stack)
     val latestSearch by rememberUpdatedState(searchOpen)
@@ -268,6 +275,30 @@ fun LibraryScreen(
         } else if (catalog != null) latestCommand(LibraryCommand.MoveShelfItem(source, target))
         else if (sourceBook != null && targetBook != null) latestMove(sourceBook.id, targetBook.id)
     }
+    LaunchedEffect(extraction?.book?.id) {
+        val departing = extraction ?: return@LaunchedEffect
+        try {
+            extractionProgress.snapTo(0f)
+            val committed = withTimeoutOrNull(3_000) {
+                snapshotFlow { latestCatalog.books.firstOrNull { it.id == departing.book.id }?.let { it.stackId == null } == true }
+                    .first { it }
+            } == true
+            if (!committed) return@LaunchedEffect
+            // The Room update may also remove the final, now empty stack. Both paths land
+            // on the root shelf before measuring the destination; stale stack bounds never fly.
+            stackId = null
+            stackReveal.snapTo(1f)
+            val destination = withTimeoutOrNull(2_000) {
+                snapshotFlow { extraction?.target }.filterNotNull().first()
+            }
+            if (destination != null && !inspection && ValueAnimator.areAnimatorsEnabled()) {
+                extractionProgress.animateTo(1f, tween(480, easing = FastOutSlowInEasing))
+            }
+        } finally {
+            extraction = null
+            stackTransition = false
+        }
+    }
     BackHandler(enabled = interactionEnabled && (searchOpen || stack != null || stackTransition)) {
         // The IME consumes its own first Back. Once Back reaches this handler, close
         // the search even if a pre-30 IME inset still describes the previous frame.
@@ -294,6 +325,9 @@ fun LibraryScreen(
     }
     val reportBounds: (LibraryTile, Rect?) -> Unit = { tile, bounds ->
         if (bounds == null) gestures.bounds.remove(tile.key) else gestures.bounds[tile.key] = bounds
+        if (stack == null && !searchOpen) {
+            if (bounds == null) extractionRootBounds.remove(tile.key) else extractionRootBounds[tile.key] = bounds
+        }
         if (tile.stack == null) tile.book?.let { latestBoundsChanged(it.id, bounds) }
     }
     BoxWithConstraints(modifier.fillMaxSize().imePadding().drawBehind { drawListaiBackdrop(useDarkBackdrop) }
@@ -361,7 +395,7 @@ fun LibraryScreen(
         LaunchedEffect(gestures.drag?.key, shelfRows.scrollable) {
             while (isActive && gestures.drag != null && shelfRows.scrollable) {
                 val active = gestures.drag
-                if (active?.moved == true) {
+                if (active?.moved == true && !active.extractReady) {
                     val y = active.pointer.y - inputBounds.top
                     val lowerEdge = (inputBounds.height - bottomControls).coerceAtLeast(edgeSize)
                     val speed = when { y < edgeSize -> -((edgeSize - y) / edgeSize).coerceIn(0f, 1f)
@@ -390,12 +424,19 @@ fun LibraryScreen(
             onDrop = { drag, reordered ->
                 val source = latestTiles[drag.key]
                 val target = latestTiles[drag.hoverKey]
-                if (drag.armed && source?.book != null && target != null) {
+                if (drag.extractReady && latestStack != null && source?.book != null) {
+                    gestures.keys = drag.originalKeys
+                    hideCat()
+                    extractionRootBounds.clear()
+                    extraction = LibraryBookExtraction(source.book, Rect(drag.topLeft, drag.bounds.size))
+                    stackTransition = true
+                    latestCommand(LibraryCommand.ExtractFromStack(listOf(source.book.id)))
+                } else if (drag.armed && source?.book != null && target != null) {
                     gestures.keys = drag.originalKeys
                     if (target.stack != null) latestCommand(LibraryCommand.AddToStack(target.stack.id, listOf(source.book.id)))
                     else target.book?.let { namingIds = listOf(it.id, source.book.id) }
                 } else {
-                    // Quick drops remain ordinary moves; only a confirmed center dwell groups.
+                    // A new group needs a center dwell; existing stacks accept release directly.
                     val destination = drag.dropKey ?: drag.originalKeys.getOrNull(reordered.indexOf(drag.key))
                     if (destination != null && destination != drag.key) move(drag.key, destination)
                 }
@@ -432,7 +473,7 @@ fun LibraryScreen(
         } }
         val rowContent: @Composable (Int) -> Unit = { index ->
             LibraryShelfRow(index, rows, bookWidth, rowBookHeight, (rowCaptionHeights.getOrNull(index) ?: 0f).dp,
-                ordered.isEmpty(), searchOpen, shelfEnabled, hiddenBookId, gestures.drag, ::openTile, reportBounds,
+                ordered.isEmpty(), searchOpen, shelfEnabled, hiddenBookId ?: extraction?.book?.id, gestures.drag, ::openTile, reportBounds,
                 coverContent, { actionsKey = it.key }, bookActionsLabel, stackActionsLabel, tileActions, captions,
                 stackOrigin = stackOrigin,
                 revealProgress = { if (stack != null && !searchOpen) stackReveal.value else 1f })
@@ -444,8 +485,12 @@ fun LibraryScreen(
                         { keyboard?.hide(); focus.clearFocus() }, searchFocus, shelfEnabled, Modifier.widthIn(max = 640.dp).fillMaxWidth().graphicsLayer {
                             translationY = -20.dp.toPx() * (1f - searchReveal.value); alpha = searchReveal.value
                         })
-                    else stack?.let { current -> LibraryStackHeader(current, { changeStack(null) }, { actionsKey = "stack:${current.id}" },
-                        shelfEnabled, Modifier.widthIn(max = 520.dp).fillMaxWidth()) }
+                    else stack?.let { current ->
+                        if (gestures.drag != null) LibraryStackExtractionTarget(gestures.drag?.extractReady == true,
+                            { gestures.extractionBounds = it }, Modifier.widthIn(max = 520.dp).fillMaxWidth())
+                        else LibraryStackHeader(current, { changeStack(null) }, { actionsKey = "stack:${current.id}" },
+                            shelfEnabled, Modifier.widthIn(max = 520.dp).fillMaxWidth())
+                    }
                 }
             } else {
                 Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top)).height(16.dp))
@@ -460,6 +505,13 @@ fun LibraryScreen(
                     fittedRows.scrollable, gestures.bounds,
                     inputBounds.copy(bottom = (inputBounds.bottom - bottomControls).coerceAtLeast(inputBounds.top)),
                     onReturnBookPositioned)
+                PositionReturningLibraryBook(extraction?.book?.id?.takeIf { stack == null && !searchOpen },
+                    ordered.map { it.key }, columns, listState, fittedRows.scrollable, extractionRootBounds,
+                    inputBounds.copy(bottom = (inputBounds.bottom - bottomControls).coerceAtLeast(inputBounds.top))) { id, target ->
+                    if (extraction?.book?.id == id && target != null && extraction?.target == null) {
+                        extraction = extraction?.copy(target = target)
+                    }
+                }
                 if (fittedRows.scrollable) {
                     LazyColumn(shelfModifier, state = listState, userScrollEnabled = shelfEnabled && gestures.drag == null,
                         contentPadding = PaddingValues(top = 16.dp, bottom = bottomPadding + 12.dp)) {
@@ -531,6 +583,7 @@ fun LibraryScreen(
                     Modifier.padding(12.dp).testTag("library_drop_hint"), style = MaterialTheme.typography.labelMedium)
             }
         }
+        extraction?.let { LibraryExtractedBookFlight(it, extractionProgress.value, shelfBounds.topLeft, coverContent) }
         val localViewport = Rect(Offset.Zero, shelfBounds.size)
         val catSupports = gestures.bounds.mapNotNull { (key, bounds) ->
             val tile = tiles[key] ?: return@mapNotNull null

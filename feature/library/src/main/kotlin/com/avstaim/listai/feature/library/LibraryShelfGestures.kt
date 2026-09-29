@@ -24,6 +24,7 @@ internal data class ShelfItemDrag(
     val hoverKey: String? = null,
     val hoverStartedAt: Long = 0,
     val armed: Boolean = false,
+    val extractReady: Boolean = false,
 ) { val topLeft get() = bounds.topLeft + pointer - start }
 
 /**
@@ -58,6 +59,7 @@ internal class LibraryShelfGestureState {
     val clock = LibraryGestureClock()
     var keys by mutableStateOf(emptyList<String>())
     val bounds = mutableStateMapOf<String, Rect>()
+    var extractionBounds: Rect? = null
     var drag by mutableStateOf<ShelfItemDrag?>(null)
     private var lastDestination: Pair<String, Rect>? = null
 
@@ -70,7 +72,13 @@ internal class LibraryShelfGestureState {
     fun move(pointer: Offset, slop: Float, time: Long, canGroup: (String, String) -> Boolean) {
         val old = drag ?: return
         val moved = old.moved || (pointer - old.start).getDistance() > slop
-        var next = old.copy(pointer = pointer, moved = moved)
+        var next = old.copy(pointer = pointer, moved = moved, extractReady = false)
+        if (moved && extractionBounds?.contains(pointer) == true) {
+            // An explicit destination takes priority over any shelf card under its overlay.
+            drag = next.copy(dropKey = null, hoverKey = null, armed = false, extractReady = true)
+            lastDestination = null
+            return
+        }
         if (moved) {
             val target = bounds.entries.firstOrNull { it.key != old.key && it.key in keys && it.value.contains(pointer) }
             val groupable = target != null && canGroup(old.key, target.key)
@@ -215,8 +223,9 @@ internal fun Modifier.libraryShelfInput(
                     change.consume()
                     // Validate the release position too: an up outside the target must not
                     // commit a group that had armed over a different book earlier.
+                    val wasExtractReady = state.drag?.extractReady == true
                     if (!isSearch()) state.move(change.position + origin(), slop, lastTime, canGroup)
-                    if (state.armHover(lastTime)) onGroupReady()
+                    if (state.armHover(lastTime) || (!wasExtractReady && state.drag?.extractReady == true)) onGroupReady()
                     if (!change.pressed) {
                         val keys = state.keys
                         state.release()?.let { final -> if (final.moved) onDrop(final, keys) else onActions(final.key) }

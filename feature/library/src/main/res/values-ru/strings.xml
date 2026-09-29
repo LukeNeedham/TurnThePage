@@ -53,4 +53,5 @@
     <string name="library_undo">Отменить</string>
     <string name="library_group_drop">Отпустите, чтобы собрать в стопку</string>
     <string name="library_stack_drop">Отпустите, чтобы добавить в стопку</string>
+    <string name="library_extract_drop">Убрать из стопки</string>
 </resources>

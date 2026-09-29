@@ -118,4 +118,32 @@ class LibraryShelfGesturesTest {
         assertNull(state.drag!!.hoverKey)
     }
 
+    @Test fun explicitExtractionTargetWinsOverAnUnderlyingBookAndRestoresOnExit() {
+        val state = shelf()
+        state.extractionBounds = Rect(120f, 0f, 220f, 60f)
+        state.move(Offset(170f, 40f), 8f, 100, { _, _ -> true })
+        assertTrue(state.drag!!.extractReady)
+        assertNull(state.drag!!.hoverKey)
+        assertNull(state.drag!!.dropKey)
+        assertFalse(state.armHover(1000))
+        assertEquals(listOf("book:a", "book:b", "stack:c"), state.keys)
+        state.move(Offset(170f, 75f), 8f, 1100, { _, _ -> true })
+        assertFalse(state.drag!!.extractReady)
+        assertEquals("book:b", state.drag!!.hoverKey)
+        assertFalse(state.drag!!.armed)
+    }
+
+    @Test fun cancellingExtractionOrReleasingOutsideTheTargetCannotExtract() {
+        val state = shelf()
+        state.extractionBounds = Rect(0f, -80f, 200f, -20f)
+        state.move(Offset(100f, -40f), 8f, 100, { _, _ -> false })
+        assertTrue(state.drag!!.extractReady)
+        state.move(Offset(100f, -10f), 8f, 200, { _, _ -> false })
+        assertFalse(state.release()!!.extractReady)
+        state.start("book:a", Offset(50f, 75f))
+        state.move(Offset(100f, -40f), 8f, 300, { _, _ -> false })
+        state.cancel()
+        assertNull(state.release())
+    }
+
 }

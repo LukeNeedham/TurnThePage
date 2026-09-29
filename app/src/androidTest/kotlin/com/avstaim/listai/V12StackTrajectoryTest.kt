@@ -71,6 +71,8 @@ class V12StackTrajectoryTest {
                                     is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
                                     is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)
                                     is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+                                    is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
+                                    is LibraryCommand.MoveStackBook -> repository.moveStackBook(command.stackId, command.bookId, command.targetBookId)
                                     else -> error("Unexpected trajectory command: $command")
                                 }
                             }
@@ -197,6 +199,54 @@ class V12StackTrajectoryTest {
         assertEquals(stackId, catalog.books.single { it.id == source }.stackId)
         assertNull(opened)
         compose.onNodeWithTag("library_stack_name").assertDoesNotExist()
+    }
+
+    @Test fun draggingOntoTheRemoveTargetReturnsTheBookToItsVisibleShelfSlot() {
+        extractWithHeldFinger(listOf(ids[0], ids[1], ids[2]))
+    }
+
+    @Test fun draggingTheLastBookOutCollapsesTheStackAndLandsOnTheShelf() {
+        extractWithHeldFinger(listOf(ids[0]))
+    }
+
+    private fun extractWithHeldFinger(members: List<BookId>) {
+        val stackId = runBlocking {
+            val initialMembers = if (members.size == 1) members + ids.first { it !in members } else members
+            repository.createStack("Extraction", initialMembers).also {
+                if (members.size == 1) repository.extractFromStack(initialMembers.drop(1))
+            }
+        }
+        compose.waitUntil(10_000) { catalog.stacks.any { it.id == stackId } }
+        compose.onNodeWithTag("library_stack_$stackId").performClick()
+        compose.waitForIdle()
+        val source = members.first()
+        val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
+        val sourceCenter = bounds(source).center
+        compose.mainClock.autoAdvance = false
+        var released = false
+        try {
+            compose.onNodeWithTag("library_screen").performTouchInput { down(sourceCenter - screen.topLeft) }
+            pauseWithFingerDown(650)
+            val removeTarget = compose.onNodeWithTag("library_extract_target").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            moveAlong(sourceCenter, removeTarget.center, screen) {}
+            assertTrue("Nothing durable before release", commands.isEmpty())
+            compose.onNodeWithTag("library_screen").performTouchInput { up() }
+            released = true
+        } finally {
+            if (!released) runCatching { compose.onNodeWithTag("library_screen").performTouchInput { cancel() } }
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitUntil(10_000) { catalog.books.single { it.id == source }.stackId == null }
+        compose.waitForIdle()
+        compose.onNodeWithTag("library_book_${source.value}").assertIsDisplayed()
+        compose.onNodeWithTag("library_stack_menu").assertDoesNotExist()
+        compose.onNodeWithTag("library_extraction_flight").assertDoesNotExist()
+        compose.onNodeWithTag("library_extract_target").assertDoesNotExist()
+        assertEquals(listOf(LibraryCommand.ExtractFromStack(listOf(source))), commands)
+        assertEquals(3, catalog.books.size)
+        if (members.size == 1) assertTrue(catalog.stacks.isEmpty())
+        else assertEquals(members.drop(1), catalog.stacks.single().bookIds)
+        assertNull(opened)
     }
 
     private fun bounds(id: BookId): Rect = compose.onNodeWithTag("library_book_${id.value}").fetchSemanticsNode().boundsInRoot
