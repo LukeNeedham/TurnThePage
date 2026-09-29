@@ -85,6 +85,71 @@ class OriginalBookCoverSurfaceTest {
         }
     }
 
+    @Test fun innerCoverKeepsItsBindingMaterialInBothThemesAndPageModes() {
+        for (presentation in BookPresentation.entries) for (dark in listOf(false, true)) {
+            val canvasSize = IntSize(if (presentation == BookPresentation.SINGLE) 420 else 840, 660)
+            val layout = calculateBookCanvasLayout(Size(canvasSize.width.toFloat(), 660f), presentation,
+                outerPaddingPx = 10f, coverInsetPx = 6f)
+            val board = IntSize(layout.pageWidth.toInt(), layout.pageHeight.toInt())
+            for (artwork in listOf(surface(IntSize(420, 210), board), BookCoverSurface(null, null, board))) {
+                val cover = artwork.copy(darkTheme = dark)
+                val outerBack = BookVisualSurface.Cover(cover, BookCoverFace.BACK)
+                val innerBack = outerBack.copy(isInside = true)
+                val paper = if (dark) BookVisualSurface.DarkPlainPaper else BookVisualSurface.PlainPaper
+                fun visible(back: BookVisualSurface.Cover) = if (presentation == BookPresentation.SPREAD)
+                    VisibleBookSurfaces(back, paper) else VisibleBookSurfaces(null, back)
+                val expected = draw(canvasSize) {
+                    drawPhysicalBook(layout, visible(outerBack), 0f, PhysicalBookPose.OPEN, coverSurface = cover)
+                }
+                val actual = draw(canvasSize) {
+                    drawPhysicalBook(layout, visible(innerBack), 0f, PhysicalBookPose.OPEN, coverSurface = cover)
+                }
+                assertTrue("Inner cover must retain printed or generated binding, regardless of paper theme",
+                    expected.sameAs(actual))
+                val bounds = layout.leftPage ?: layout.rightPage
+                val boardPixel = actual.getPixel(bounds.center.x.toInt(), bounds.center.y.toInt())
+                assertNotEquals("A rigid inner board must not become themed paper",
+                    if (dark) DarkPaper.toArgb() else android.graphics.Color.WHITE, boardPixel)
+                expected.recycle()
+                actual.recycle()
+            }
+        }
+    }
+
+    @Test fun innerCoverKeepsItsBindingMaterialThroughoutRigidOpeningAndClosing() {
+        val canvasSize = IntSize(840, 660)
+        val layout = calculateBookCanvasLayout(Size(840f, 660f), BookPresentation.SPREAD,
+            outerPaddingPx = 10f, coverInsetPx = 6f)
+        val board = IntSize(layout.pageWidth.toInt(), layout.pageHeight.toInt())
+        for (dark in listOf(false, true)) for (artwork in listOf(
+            surface(IntSize(420, 210), board), BookCoverSurface(null, null, board))) {
+            val cover = artwork.copy(darkTheme = dark)
+            val front = BookVisualSurface.Cover(cover, BookCoverFace.FRONT)
+            val back = BookVisualSurface.Cover(cover, BookCoverFace.BACK)
+            val paper = if (dark) BookVisualSurface.DarkPlainPaper else BookVisualSurface.PlainPaper
+            for (direction in TurnDirection.entries) for (progress in listOf(.15f, .35f, .65f, .85f, 1f)) {
+                val forward = direction == TurnDirection.FORWARD
+                val source = if (forward) layout.rightPage else requireNotNull(layout.leftPage)
+                val destination = if (forward) requireNotNull(layout.leftPage) else layout.rightPage
+                val geometry = PageCurlGeometryEngine().calculate(source.toCurlRect(),
+                    Point(source.right.toDouble(), source.bottom.toDouble()), direction,
+                    destinationBounds = destination.toCurlRect()).copy(progress = progress.toDouble())
+                fun frame(inner: Boolean) = CurlFrame(direction, geometry,
+                    if (forward) front else back.copy(isInside = inner), source,
+                    if (forward) PageSide.RIGHT else PageSide.LEFT,
+                    if (forward) back.copy(isInside = inner) else front, destination)
+                val expected = draw(canvasSize) { drawPhysicalBook(layout, VisibleBookSurfaces(paper, paper),
+                    0f, PhysicalBookPose.OPEN, frame(false), cover) }
+                val actual = draw(canvasSize) { drawPhysicalBook(layout, VisibleBookSurfaces(paper, paper),
+                    0f, PhysicalBookPose.OPEN, frame(true), cover) }
+                assertTrue("Inside binding must remain attached during $direction at $progress",
+                    expected.sameAs(actual))
+                expected.recycle()
+                actual.recycle()
+            }
+        }
+    }
+
     @Test fun transparentArtworkUsesWhiteStockInBothThemes() {
         val board = IntSize(154, 228)
         val transparent = Bitmap.createBitmap(240, 360, Bitmap.Config.ARGB_8888).asImageBitmap()
