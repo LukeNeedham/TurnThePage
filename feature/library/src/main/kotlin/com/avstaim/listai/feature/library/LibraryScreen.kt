@@ -51,6 +51,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onLongClick
@@ -486,10 +487,17 @@ fun LibraryScreen(
                             translationY = -20.dp.toPx() * (1f - searchReveal.value); alpha = searchReveal.value
                         })
                     else stack?.let { current ->
-                        if (gestures.drag != null) LibraryStackExtractionTarget(gestures.drag?.extractReady == true,
-                            { gestures.extractionBounds = it }, Modifier.widthIn(max = 520.dp).fillMaxWidth())
-                        else LibraryStackHeader(current, { changeStack(null) }, { actionsKey = "stack:${current.id}" },
-                            shelfEnabled, Modifier.widthIn(max = 520.dp).fillMaxWidth())
+                        val holdingBook = gestures.drag != null
+                        Box(Modifier.widthIn(max = 520.dp).fillMaxWidth()) {
+                            // Keep the measured heading (including large type) in the layout.
+                            // A shorter replacement can switch LazyColumn/Column mid-gesture
+                            // and detach the pointer host while the finger is still down.
+                            LibraryStackHeader(current, { changeStack(null) }, { actionsKey = "stack:${current.id}" },
+                                shelfEnabled && !holdingBook, Modifier.fillMaxWidth().graphicsLayer { alpha = if (holdingBook) 0f else 1f }
+                                    .then(if (holdingBook) Modifier.clearAndSetSemantics {} else Modifier))
+                            if (holdingBook) LibraryStackExtractionTarget(gestures.drag?.extractReady == true,
+                                { gestures.extractionBounds = it }, Modifier.matchParentSize())
+                        }
                     }
                 }
             } else {

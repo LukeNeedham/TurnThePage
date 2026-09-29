@@ -234,13 +234,18 @@ class V12StackTrajectoryTest {
         compose.waitForIdle()
         val source = members.first()
         val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
-        val sourceCenter = bounds(source).center
+        val shelfBeforeHold = compose.onNodeWithTag("library_shelf").fetchSemanticsNode().boundsInRoot
+        val sourceBeforeHold = bounds(source)
+        val sourceCenter = sourceBeforeHold.center
         compose.mainClock.autoAdvance = false
         var released = false
         try {
             compose.onNodeWithTag("library_screen").performTouchInput { down(sourceCenter - screen.topLeft) }
             pauseWithFingerDown(650)
             val removeTarget = compose.onNodeWithTag("library_extract_target").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertEquals("Showing the extraction target must preserve the held book's geometry", sourceBeforeHold, bounds(source))
+            assertEquals("The pointer host must never resize during a hold", shelfBeforeHold,
+                compose.onNodeWithTag("library_shelf").fetchSemanticsNode().boundsInRoot)
             capture("$capturePrefix-0-target")
             moveAlong(sourceCenter, removeTarget.center, screen) {}
             capture("$capturePrefix-1-ready")

@@ -151,9 +151,19 @@ class V12StackGesturesTest {
     }
 
     private fun holdAndDrop(sourceTag: String, targetTag: String, dwell: Long) {
+        // Stack cards share their fold origin until reveal finishes. Wait for the same
+        // interaction contract a real finger uses before sampling the resting coordinates.
+        compose.waitUntil(10_000) {
+            listOf(sourceTag, targetTag).all { tag ->
+                compose.onAllNodesWithTag(tag).fetchSemanticsNodes().singleOrNull()
+                    ?.config?.contains(SemanticsActions.OnLongClick) == true
+            }
+        }
         val screen = compose.onNodeWithTag("library_screen").fetchSemanticsNode().boundsInRoot
         val source = compose.onNodeWithTag(sourceTag).fetchSemanticsNode().boundsInRoot.center - screen.topLeft
         val target = compose.onNodeWithTag(targetTag).fetchSemanticsNode().boundsInRoot.center - screen.topLeft
+        assertTrue("Resting source and target must be distinct: $sourceTag=$source, $targetTag=$target",
+            (source - target).getDistance() > 1f)
         compose.onNodeWithTag("library_screen").performTouchInput {
             down(source)
             advanceEventTime(650)
