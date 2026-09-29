@@ -153,9 +153,10 @@ class LibraryRepository(
         else topology.moveStackBook(stack.id, id.value, targetId.value)
     }
 
-    suspend fun createStack(name: String, bookIds: List<BookId>): String {
+    suspend fun createStack(name: String, bookIds: List<BookId>, requestedId: String? = null): String {
         validatedStackName(name)
-        val id = UUID.randomUUID().toString()
+        val id = requestedId ?: UUID.randomUUID().toString()
+        require(id.isNotBlank()) { "A stack needs an ID" }
         mutateShelf { topology ->
             require(bookIds.distinct().count { it.value in topology.books } >= 2) { "A stack needs two books" }
             topology.createStack(id, name, bookIds.map { it.value })
@@ -164,7 +165,8 @@ class LibraryRepository(
     }
 
     suspend fun renameStack(stackId: String, name: String) = mutateShelf { it.renameStack(stackId, name) }
-    suspend fun addToStack(stackId: String, bookIds: List<BookId>) = mutateShelf { it.addToStack(stackId, bookIds.map(BookId::value)) }
+    suspend fun addToStack(stackId: String, bookIds: List<BookId>, onTop: Boolean = false) =
+        mutateShelf { it.addToStack(stackId, bookIds.map(BookId::value), onTop) }
     suspend fun extractFromStack(bookIds: List<BookId>) = mutateShelf { it.extract(bookIds.map(BookId::value)) }
     suspend fun dissolveStack(stackId: String) = mutateShelf { it.dissolve(stackId) }
     suspend fun moveShelfItem(key: String, targetKey: String) = mutateShelf { it.moveShelfItem(key, targetKey) }

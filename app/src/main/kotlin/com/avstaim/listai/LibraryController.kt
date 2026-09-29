@@ -98,9 +98,9 @@ class LibraryController(
     }
     fun libraryCommand(command: LibraryCommand) = enqueue {
         when (command) {
-            is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds)
+            is LibraryCommand.CreateStack -> repository.createStack(command.name, command.bookIds, command.requestedId)
             is LibraryCommand.RenameStack -> repository.renameStack(command.stackId, command.name)
-            is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds)
+            is LibraryCommand.AddToStack -> repository.addToStack(command.stackId, command.bookIds, command.onTop)
             is LibraryCommand.ExtractFromStack -> repository.extractFromStack(command.bookIds)
             is LibraryCommand.DissolveStack -> repository.dissolveStack(command.stackId)
             is LibraryCommand.MoveShelfItem -> repository.moveShelfItem(command.key, command.targetKey)

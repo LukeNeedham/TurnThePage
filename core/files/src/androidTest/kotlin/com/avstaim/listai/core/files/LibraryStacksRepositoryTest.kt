@@ -87,6 +87,81 @@ class LibraryStacksRepositoryTest {
         assertTrue(database.library().allStacks().isEmpty())
     }
 
+    @Test fun topTransferIsDurableAndUndoRestoresBothStacksWithoutRevertingReading() = runBlocking {
+        val a = add("A"); val b = add("B"); val c = add("C"); val d = add("D"); val e = add("E")
+        val source = repository.createStack("Source", listOf(a, b))
+        val target = repository.createStack("Target", listOf(c, d))
+        val before = repository.catalog.first()
+        repository.addToStack(target, listOf(b, c, a, b), onTop = true)
+        val transferred = repository.catalog.first()
+        assertEquals(listOf(b, c, a, d), transferred.stacks.single().bookIds)
+        assertEquals(target, transferred.stacks.single().id)
+        assertEquals(listOf("book:${e.value}", "stack:$target"), transferred.shelf.map { it.key })
+        assertTrue(database.library().allBooks().filter { it.id != e.value }.all { it.stackId == target })
+        val document = repository.open(b).document
+        val location = BookLocation(document.readingBlocks().first().id, 3, 3)
+        val progress = ReadingProgress(location, fraction = .3f)
+        repository.saveProgress(b, progress)
+        repository.addBookmark(b, location, "After transfer")
+        assertTrue(repository.undoLastLibraryChange())
+        val undone = repository.catalog.first()
+        assertEquals(before.stacks, undone.stacks)
+        assertEquals(before.shelf, undone.shelf)
+        assertEquals(progress, undone.books.first { it.id == b }.progress)
+        assertEquals(1, repository.bookmarks(b).first().size)
+        assertEquals(source, database.library().book(b.value)!!.stackId)
+
+        repository.addToStack(target, listOf(b, c, a, b), onTop = true)
+        // The menu/picker default still appends instead of replacing the top book.
+        repository.addToStack(target, listOf(e, c, e))
+        assertEquals(listOf(b, c, a, d, e), repository.catalog.first().stacks.single().bookIds)
+        // Selecting every existing member must keep the same stack and shelf slot.
+        repository.addToStack(target, listOf(e, d, a, c, b, e), onTop = true)
+        val final = repository.catalog.first()
+        assertEquals(listOf(e, d, a, c, b), final.stacks.single().bookIds)
+        assertEquals(listOf("stack:$target"), final.shelf.map { it.key })
+        database.close()
+        database = LibraryDatabase.open(context, name)
+        repository = repo()
+        repository.initialize()
+        assertEquals(final, repository.catalog.first())
+        assertEquals(progress, repository.catalog.first().books.first { it.id == b }.progress)
+        assertEquals(1, repository.bookmarks(b).first().size)
+    }
+
+    @Test fun requestedStackIdSurvivesReopenAndCollisionLeavesCatalogAndUndoUntouched() = runBlocking {
+        val a = add("A"); val b = add("B"); val c = add("C"); val d = add("D")
+        val original = repository.catalog.first()
+        val requestedId = UUID.randomUUID().toString()
+        assertEquals(requestedId, repository.createStack("Named", listOf(b, a), requestedId))
+        val created = repository.catalog.first()
+        assertEquals(LibraryStack(requestedId, "Named", listOf(b, a)), created.stacks.single())
+        try {
+            repository.createStack("Must not replace", listOf(c, d, b), requestedId)
+            fail("An existing stack ID must reject the entire operation")
+        } catch (_: IllegalArgumentException) {
+            assertEquals(created, repository.catalog.first())
+            assertEquals("Named", database.library().allStacks().single().name)
+            assertNull(database.library().book(c.value)!!.stackId)
+            assertTrue(repository.canUndo.value)
+        }
+        // A rejected operation must not overwrite the previous successful operation's undo.
+        assertTrue(repository.undoLastLibraryChange())
+        assertEquals(original, repository.catalog.first())
+        assertFalse(repository.undoLastLibraryChange())
+        repository.createStack("Named", listOf(b, a), requestedId)
+        val generatedId = repository.createStack("Generated", listOf(c, d))
+        assertNotEquals(requestedId, generatedId)
+        assertEquals(generatedId, UUID.fromString(generatedId).toString())
+        val final = repository.catalog.first()
+        database.close()
+        database = LibraryDatabase.open(context, name)
+        repository = repo()
+        repository.initialize()
+        assertEquals(final, repository.catalog.first())
+        assertEquals(listOf(b, a), repository.catalog.first().stacks.first { it.id == requestedId }.bookIds)
+    }
+
     @Test fun metadataIsStoredAsSeparateAuthorsAndBackfillIsBoundedResumableAndFailureIsolated() = runBlocking {
         val a = add("A"); val b = add("B"); val c = add("C")
         val imported = repository.books.first().first()

@@ -24,6 +24,41 @@ class ShelfTopologyTest {
         assertEquals(listOf("c", "d", "a", "b"), allMoved.stacks.single().bookIds)
     }
 
+    @Test fun addingOnTopKeepsSelectionOrderAndDetachesEachBookOnlyOnce() {
+        val groups = original.createStack("s", "First", listOf("a", "b"))
+            .createStack("t", "Second", listOf("c", "d"))
+        val moved = groups.addToStack("t", listOf("b", "c", "a", "b", "missing"), onTop = true)
+        assertEquals(listOf("stack:t"), moved.shelf)
+        assertEquals(ShelfStack("t", "Second", listOf("b", "c", "a", "d")), moved.stacks.single())
+        assertEquals(groups, groups.restoreAgainst(moved))
+    }
+
+    @Test fun addingOnTopCanReorderAllDestinationMembersWithoutLosingItsShelfSlot() {
+        val grouped = original.createStack("s", "Name", listOf("b", "c"))
+        val moved = grouped.addToStack("s", listOf("c", "b", "c"), onTop = true)
+        assertEquals(listOf("book:a", "stack:s", "book:d"), moved.shelf)
+        assertEquals(ShelfStack("s", "Name", listOf("c", "b")), moved.stacks.single())
+        assertEquals(moved, moved.addToStack("s", listOf("c", "missing"), onTop = true))
+        assertEquals(grouped, grouped.addToStack("s", listOf("c", "b", "c")))
+    }
+
+    @Test fun defaultAppendPreservesExistingTopAndTopInsertionPreservesOtherRootBooks() {
+        val grouped = original.createStack("s", "Name", listOf("b", "c"))
+        assertEquals(listOf("b", "c", "a"), grouped.addToStack("s", listOf("c", "a", "a")).stacks.single().bookIds)
+        val moved = grouped.addToStack("s", listOf("a", "c", "a"), onTop = true)
+        assertEquals(listOf("stack:s", "book:d"), moved.shelf)
+        assertEquals(listOf("a", "c", "b"), moved.stacks.single().bookIds)
+    }
+
+    @Test fun createWithAnExistingIdRejectsInsteadOfTakingBooksOutOfEitherStack() {
+        val grouped = original.createStack("s", "Original", listOf("b", "a"))
+        assertThrows(IllegalArgumentException::class.java) {
+            grouped.createStack("s", "Replacement", listOf("c", "d"))
+        }
+        assertEquals(listOf("stack:s", "book:c", "book:d"), grouped.shelf)
+        assertEquals(ShelfStack("s", "Original", listOf("b", "a")), grouped.stacks.single())
+    }
+
     @Test fun extractionAndStackReorderingHaveIndependentStableOrder() {
         val grouped = original.createStack("s", "Name", listOf("a", "b", "c"))
         val reordered = grouped.moveStackBook("s", "c", "a")

@@ -7,6 +7,7 @@ data class ShelfTopology(
     val books: Set<String>,
 ) {
     fun createStack(id: String, name: String, selected: List<String>): ShelfTopology {
+        require(stacks.none { it.id == id }) { "Stack ID already exists" }
         val members = selected.distinct().filter { it in books }
         if (members.size < 2) return this
         val title = validatedStackName(name)
@@ -27,13 +28,18 @@ data class ShelfTopology(
         if (it.id == id) it.copy(name = validatedStackName(name)) else it
     })
 
-    fun addToStack(id: String, selected: List<String>): ShelfTopology {
+    fun addToStack(id: String, selected: List<String>, onTop: Boolean = false): ShelfTopology {
         val target = stacks.firstOrNull { it.id == id } ?: return this
-        val members = selected.distinct().filter { it in books && it !in target.bookIds }
+        val members = selected.distinct().filter { it in books && (onTop || it !in target.bookIds) }
         if (members.isEmpty()) return this
-        val detached = removeMembers(members.toSet())
+        val memberIds = members.toSet()
+        // Keep the destination itself in place even when every existing member is selected.
+        // Only books arriving from the shelf or another stack need detaching first.
+        val detached = removeMembers(memberIds - target.bookIds.toSet())
         return detached.copy(stacks = detached.stacks.map {
-            if (it.id == id) it.copy(bookIds = it.bookIds + members) else it
+            if (it.id != id) it else it.copy(bookIds = if (onTop) {
+                members + it.bookIds.filterNot(memberIds::contains)
+            } else it.bookIds + members)
         }).normalized()
     }
 
