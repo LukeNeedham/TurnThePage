@@ -3,20 +3,26 @@ package com.avstaim.listai.core.model
 /** The source heading may span several blocks, but is one physical chapter opening. */
 data class BookChapter(
     val headingBlockIds: List<BlockId>,
-    val ordinal: Int,
+    /** Only ordinary chapters consume a number; an epilogue remains unnumbered. */
+    val ordinal: Int?,
     val number: String? = null,
     /** Prefix of the first original block displayed in the separate number row. */
     val numberPrefixLength: Int = 0,
+    val kind: BookChapterKind = BookChapterKind.CHAPTER,
 ) {
     init {
         require(headingBlockIds.isNotEmpty() && headingBlockIds.distinct().size == headingBlockIds.size)
-        require(ordinal > 0 && numberPrefixLength >= 0)
+        require(numberPrefixLength >= 0)
+        require(if (kind == BookChapterKind.CHAPTER) ordinal != null && ordinal > 0
+            else ordinal == null && number == null && numberPrefixLength == 0)
         require(number == null || number.isNotBlank())
     }
     val startBlockId: BlockId get() = headingBlockIds.first()
 }
 
-enum class BookHeadingRole { UNSPECIFIED, CHAPTER, PART, OTHER }
+enum class BookChapterKind { CHAPTER, EPILOGUE }
+
+enum class BookHeadingRole { UNSPECIFIED, CHAPTER, PART, EPILOGUE, OTHER }
 
 /** Parser-owned grouping; never combines or rewrites original blocks. */
 data class BookHeadingGroup(
@@ -33,6 +39,10 @@ private val explicitNumber = Regex(
     RegexOption.IGNORE_CASE,
 )
 private val chapterWord = Regex("^\\s*(chapter|глава)\\s+", RegexOption.IGNORE_CASE)
+private val standaloneEpilogue = Regex("^\\s*(?:epilogue|эпилог)\\s*[.:]?\\s*$", RegexOption.IGNORE_CASE)
+
+/** A prose mention or a heading such as "Epilogue of a journey" is not a division label. */
+fun isStandaloneEpilogueLabel(text: String): Boolean = standaloneEpilogue.matches(text)
 
 /** Conservative structural projection: parts/frontmatter are not numbered as chapters. */
 fun chapterOpenings(blocks: List<BookBlock>, groups: List<BookHeadingGroup>): List<BookChapter> {
@@ -43,14 +53,21 @@ fun chapterOpenings(blocks: List<BookBlock>, groups: List<BookHeadingGroup>): Li
     val positions = flat.mapIndexed { index, block -> block.id to index }.toMap()
     val sources = flat.associateBy(BookBlock::id)
     val partIds = partOpenings(blocks, groups).flatMapTo(mutableSetOf()) { it.blockIds }
-    val eligible = groups.filter { group ->
+    val sourceHeadings = groups.filter { group ->
         group.blockIds.isNotEmpty() && group.blockIds.all { sources[it] is BookBlock.Heading } &&
-            group.role !in setOf(BookHeadingRole.OTHER, BookHeadingRole.PART) &&
-            group.blockIds.none { it in partIds } && !otherOpening.containsMatchIn(sources.getValue(group.blockIds.first()).plainText().trim())
+            group.role !in setOf(BookHeadingRole.OTHER, BookHeadingRole.PART) && group.blockIds.none { it in partIds }
     }.sortedBy { positions[it.blockIds.first()] }
-    val level = eligible.minOfOrNull(BookHeadingGroup::level) ?: return emptyList()
+    // The top-level epilogue must not change the chapter level in a book whose chapters
+    // live one level deeper inside parts, or consume a generated chapter number.
+    val eligible = sourceHeadings.filter { group -> group.role != BookHeadingRole.EPILOGUE &&
+        !otherOpening.containsMatchIn(sources.getValue(group.blockIds.first()).plainText().trim()) }
+    val level = eligible.minOfOrNull(BookHeadingGroup::level)
     val selected = eligible.filter { it.level == level || chapterWord.containsMatchIn(sources.getValue(it.blockIds.first()).plainText()) }
-    return selected.mapIndexed { index, group ->
+    val epilogueLevel = level ?: sourceHeadings.minOfOrNull(BookHeadingGroup::level)
+    val epilogues = sourceHeadings.filter { group -> group.role == BookHeadingRole.EPILOGUE ||
+        group.role in setOf(BookHeadingRole.UNSPECIFIED, BookHeadingRole.CHAPTER) && epilogueLevel != null && group.level <= epilogueLevel &&
+        isStandaloneEpilogueLabel(sources.getValue(group.blockIds.first()).plainText()) }
+    val chapters = selected.mapIndexed { index, group ->
         val firstText = sources.getValue(group.blockIds.first()).plainText()
         val number = explicitNumber.find(firstText)?.takeIf {
             // A bare number is unambiguous only when it occupies the whole source line.
@@ -65,4 +82,6 @@ fun chapterOpenings(blocks: List<BookBlock>, groups: List<BookHeadingGroup>): Li
             group.blockIds + following.blockIds else group.blockIds
         BookChapter(ids, index + 1, number?.groupValues?.get(1), number?.range?.last?.plus(1) ?: 0)
     }
+    return (chapters + epilogues.map { BookChapter(it.blockIds, null, kind = BookChapterKind.EPILOGUE) })
+        .sortedBy { positions[it.startBlockId] }
 }

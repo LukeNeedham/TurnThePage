@@ -13,6 +13,60 @@ import org.junit.Test
 class EpubBookParserTest {
     private val parser = EpubBookParser()
 
+    @Test fun `explicit epilogue groups its own header without numbering or moving source anchors`() = runBlocking {
+        val content = """
+            <section epub:type='part'><h1>Part One</h1><section epub:type='chapter'><h2 id='first'>Arrival</h2><p>Text 😀.</p></section></section>
+            <section epub:type='epilogue' id='epilogue'><header><h1 id='label'>Эпилог</h1><h2 id='name'>Дом для света</h2></header>
+              <p id='text'>Весной 😀 лёд ушёл.</p><section><header><h2 id='subheading'>An evening</h2></header><p>More text.</p></section>
+            </section>
+            <section epub:type='chapter'><h2 id='last'>Departure</h2><p>Last text.</p></section>
+        """
+        val document = parser.parse(book(chapters = mapOf("chapter" to xhtml(content))).inputStream())
+        fun id(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        assertEquals(listOf(id("first"), id("label"), id("last")), document.chapters.map { it.startBlockId })
+        val epilogue = document.chapters[1]
+        assertEquals(BookChapterKind.EPILOGUE, epilogue.kind)
+        assertEquals(listOf(id("label"), id("name")), epilogue.headingBlockIds)
+        assertEquals(listOf(1, null, 2), document.chapters.map { it.ordinal })
+        assertNull(epilogue.number)
+        assertEquals(0, epilogue.numberPrefixLength)
+        val ordinary = parser.parse(book(chapters = mapOf("chapter" to xhtml(content.replace("epub:type='epilogue'", "")))).inputStream())
+        assertEquals(ordinary.blocks, document.blocks)
+        assertEquals(ordinary.locationsBySourceId, document.locationsBySourceId)
+        val text = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", "text"))
+        assertEquals(document.blocks.takeWhile { it.id != text.blockId }.sumOf { it.plainText().length + 1L }, text.fallbackGlobalOffset)
+    }
+
+    @Test fun `doc epilogue named heading and exact lexical fallback stay distinct from nested chapters`() = runBlocking {
+        val document = parser.parse(book(chapters = mapOf("chapter" to xhtml("""
+            <section><h1 id='chapter'>Arrival</h1><p>Epilogue</p><section><h2 id='nested-label'>Epilogue</h2><p>Nested discussion.</p></section></section>
+            <section role='doc-epilogue'><h1 id='named'>Ten years later</h1><p>Text.</p></section>
+            <section><header><h1 id='lexical'>Epilogue.</h1><h2 id='subtitle'>Back home</h2></header><p>Text.</p></section>
+            <section epub:type='chapter'><header><h1 id='chapter-label'>Эпилог</h1><h2 id='chapter-subtitle'>Свет</h2></header><p>Text.</p></section>
+            <section epub:type='epilogue'><h1 id='unpaired'>Эпилог</h1>
+                <section epub:type='chapter'><h2 id='nested-chapter'>Chapter II</h2><p>Source chapter.</p></section></section>
+            <section><h1>Эпилог путешествия</h1><p>Ordinary heading.</p></section>
+        """))).inputStream())
+        fun id(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        val epilogues = document.chapters.filter { it.kind == BookChapterKind.EPILOGUE }
+        assertEquals(listOf(id("named"), id("lexical"), id("chapter-label"), id("unpaired")), epilogues.map { it.startBlockId })
+        assertEquals(listOf(id("lexical"), id("subtitle")), epilogues[1].headingBlockIds)
+        assertEquals(listOf(id("chapter-label"), id("chapter-subtitle")), epilogues[2].headingBlockIds)
+        assertEquals(listOf(id("unpaired")), epilogues[3].headingBlockIds)
+        val ordinary = document.chapters.filter { it.kind == BookChapterKind.CHAPTER }
+        assertEquals(listOf(id("chapter"), id("nested-chapter")), ordinary.map { it.startBlockId })
+        assertEquals(listOf(1, 2), ordinary.map { it.ordinal })
+    }
+
+    @Test fun `epilogue semantics does not promote a foreign nested header when its own heading is absent`() = runBlocking {
+        val document = parser.parse(book(chapters = mapOf("chapter" to xhtml("""
+            <section epub:type='epilogue'><p>A conclusion without a heading.</p>
+              <section><header><h2>Discussion</h2></header><p>Not an epilogue title.</p></section>
+            </section>
+        """))).inputStream())
+        assertTrue(document.chapters.isEmpty())
+    }
+
     @Test fun `unmarked numbered part label and sibling subtitle share an opening before an epigraph`() = runBlocking {
         val document = parser.parse(book(chapters = mapOf("chapter" to xhtml("""
             <header><h1 id='part'>Part One</h1><h2 id='subtitle'>The Coast</h2></header><hr/>

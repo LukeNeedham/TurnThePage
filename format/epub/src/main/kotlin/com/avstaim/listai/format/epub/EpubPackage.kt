@@ -73,7 +73,7 @@ internal fun Attributes.value(name: String): String? = getValue(name)?.trim()?.t
 internal fun Attributes.epubType(): Set<String> =
     (getValue("http://www.idpf.org/2007/ops", "type") ?: getValue("epub:type")).orEmpty().split(Regex("\\s+")).toSet() +
         value("role").orEmpty().split(Regex("\\s+")).mapNotNull {
-            when (it) { "doc-part" -> "part"; "doc-chapter" -> "chapter"; "doc-epigraph" -> "epigraph"; else -> null }
+            when (it) { "doc-part" -> "part"; "doc-chapter" -> "chapter"; "doc-epigraph" -> "epigraph"; "doc-epilogue" -> "epilogue"; else -> null }
         }
 internal fun String.normalizedText(): String = replace(Regex("[\\t\\r\\n ]+"), " ").trim()
 

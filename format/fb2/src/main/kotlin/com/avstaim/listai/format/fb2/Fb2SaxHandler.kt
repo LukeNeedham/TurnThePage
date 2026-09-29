@@ -13,6 +13,8 @@ import com.avstaim.listai.core.model.BookPoemStanza
 import com.avstaim.listai.core.model.BookSequence
 import com.avstaim.listai.core.model.BookTocEntry
 import com.avstaim.listai.core.model.BookHeadingGroup
+import com.avstaim.listai.core.model.BookHeadingRole
+import com.avstaim.listai.core.model.isStandaloneEpilogueLabel
 import com.avstaim.listai.core.model.chapterOpenings
 import com.avstaim.listai.core.model.partOpenings
 import com.avstaim.listai.core.model.ImageId
@@ -508,10 +510,13 @@ internal class Fb2SaxHandler(
             }
         }
         if (!requireNotNull(body).isNotes && sections.isNotEmpty() && headingIds.isNotEmpty()) {
-            headingGroups += BookHeadingGroup(headingIds, currentTitle.level)
+            headingGroups += BookHeadingGroup(headingIds, currentTitle.level,
+                if (sections.any { it !== sections.last && it.epilogueLabel }) BookHeadingRole.OTHER else BookHeadingRole.UNSPECIFIED)
         }
         sections.lastOrNull()?.let { section ->
             if (section.title == null) {
+                section.epilogueLabel = currentTitle.lines.firstOrNull()?.content?.rawPlainText()
+                    ?.let(::isStandaloneEpilogueLabel) == true
                 section.title = currentTitle.lines
                     .joinToString(separator = " ") { it.content.rawPlainText() }
                     .normalizedText()
@@ -779,6 +784,7 @@ private data class SectionContext(
     val toc: MutableList<RawTocEntry> = mutableListOf(),
     val noteAliases: MutableList<String> = mutableListOf(),
     var title: String? = null,
+    var epilogueLabel: Boolean = false,
 )
 
 private data class QuoteContext(
