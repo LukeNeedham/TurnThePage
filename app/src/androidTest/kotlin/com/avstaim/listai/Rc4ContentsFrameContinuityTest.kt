@@ -3,7 +3,6 @@ package com.avstaim.listai
 import android.graphics.Bitmap
 import androidx.activity.compose.setContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -20,7 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** A supplementary TOC changes physical page indices, but must never remove the current book. */
+/** Navigation uses the permanent TOC leaves without changing the session or physical pairing. */
 @RunWith(AndroidJUnit4::class)
 class Rc4ContentsFrameContinuityTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -28,13 +27,13 @@ class Rc4ContentsFrameContinuityTest {
     private val observations = mutableListOf<String>()
     private val captured = mutableSetOf<String>()
     private var paperSamples = emptyList<Pair<Offset, Int>>()
-    private var bookmarkBounds: Rect? = null
     private var originalPages = emptyList<String>()
     private var sourcePages = emptyList<String>()
     private var checkedSource = false
     private var checkedDestination = false
     private var artifactPrefix = ""
     private var frame = 0
+    private var rendersBeforeNavigation = 0L
 
     @Test fun openingAndLeavingContentsNeverExposesAnEmptyReader() =
         exerciseContents(ReaderPresentationMode.SINGLE, dark = false, returnWithBack = false)
@@ -51,7 +50,7 @@ class Rc4ContentsFrameContinuityTest {
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value }
         val blocks = List(30) { index -> BookBlock.Paragraph(BlockId("text-$index"),
-            listOf(InlineNode.Text("Section $index: a printed page must stay visible while its contents are prepared. ".repeat(14)))) }
+            listOf(InlineNode.Text("Section $index: a printed page must stay visible while navigating its permanent contents. ".repeat(14)))) }
         fun anchorAt(index: Int) = BookLocation(blocks[index].id, 0,
             blocks.take(index).sumOf { it.plainText().length + 1L })
         progress.set(ReadingProgress(anchorAt(8)))
@@ -69,11 +68,10 @@ class Rc4ContentsFrameContinuityTest {
         compose.waitUntil(30_000) { node()?.config?.getOrElse(ReaderPaginationComplete) { false } == true }
         compose.waitForIdle()
         val book = requireNotNull(node())
+        rendersBeforeNavigation = book.config[ReaderSurfaceRenders]
         originalPages = book.config[SemanticsProperties.Text].map { it.text }
         sourcePages = originalPages
         if (mode == ReaderPresentationMode.SPREAD) assertEquals("Two distinct source leaves exercise spread parity", 2, originalPages.size)
-        bookmarkBounds = compose.onAllNodesWithTag("reader_quick_bookmark").fetchSemanticsNodes()
-            .singleOrNull()?.boundsInRoot
         val baseline = captureFrame()
         paperSamples = book.config[ReaderPaperBounds].map { bounds ->
             val point = Offset(bounds.right - bounds.width * .035f, bounds.center.y) + book.boundsInRoot.topLeft
@@ -112,7 +110,7 @@ class Rc4ContentsFrameContinuityTest {
             }
             inspectUntil("return") { progress.get().tocEntryIndex == null }
             assertTrue("Returning restores $anchor, got ${progress.get().location}", progress.get().location == anchor)
-            assertEquals("Returning keeps the same left and right leaves after removing supplementary contents",
+            assertEquals("Returning keeps exactly the same left and right leaves",
                 originalPages, requireNotNull(node()).config[SemanticsProperties.Text].map { it.text })
             if (mode == ReaderPresentationMode.SPREAD) {
                 assertTrue("Both TOC directions were checked while real paper was curling", checkedSource && checkedDestination)
@@ -123,7 +121,7 @@ class Rc4ContentsFrameContinuityTest {
             compose.onNodeWithTag("book_view_demo").performTouchInput { click(Offset(width * .88f, height * .52f)) }
             compose.waitUntil(30_000) { progress.get().location != restored &&
                 node()?.config?.getOrElse(ReaderTurnProgress) { 1f } == 0f }
-            assertTrue("Supplementary contents stay outside ordinary page turns", progress.get().tocEntryIndex == null)
+            assertTrue("A forward turn from the restored middle of the book continues its source text", progress.get().tocEntryIndex == null)
         } finally {
             compose.mainClock.autoAdvance = true
             File(directory(), "contents-$artifactPrefix-frame-report.txt").writeText(observations.joinToString("\n"))
@@ -140,6 +138,12 @@ class Rc4ContentsFrameContinuityTest {
                 "turn=${state?.getOrElse(ReaderTurnProgress) { 0f }} " +
                 "contents=${state?.getOrElse(ReaderContentsLocation) { "" }}"
             observations += report
+            if (state != null) {
+                assertTrue("TOC navigation must not recreate a completed pagination session: $report",
+                    state.getOrElse(ReaderPaginationComplete) { false })
+                assertTrue("TOC navigation must retain its raster cache: $report",
+                    state[ReaderSurfaceRenders] >= rendersBeforeNavigation)
+            }
             if (state != null && !destination()) {
                 assertEquals("The source leaves must not swap during TOC preparation/curl: $report",
                     sourcePages, state[SemanticsProperties.Text].map { it.text })
@@ -159,20 +163,14 @@ class Rc4ContentsFrameContinuityTest {
             }
             val atRest = destination() && state?.getOrElse(ReaderJumpInProgress) { true } == false &&
                 state.getOrElse(ReaderTurnProgress) { 1f } == 0f
-            val retained = state?.getOrElse(ReaderPaginationComplete) { true } == false &&
-                state.getOrElse(ReaderTurnProgress) { 1f } == 0f
-            if (label == "enter" && retained && bookmarkBounds != null) {
-                val retainedBookmark = compose.onNodeWithTag("reader_quick_bookmark").fetchSemanticsNode()
-                assertTrue("The retained bookmark stays on the paper edge", retainedBookmark.boundsInRoot == bookmarkBounds)
-            }
-            if (state == null || frame == 1 || (retained && captured.add("$label-retained")) ||
+            if (state == null || frame == 1 ||
                 (state.getOrElse(ReaderTurnProgress) { 0f } in .4f.. .6f && captured.add("$label-curl")) ||
                 (atRest && captured.add("$label-rest"))) {
                 val bitmap = captureFrame()
                 File(directory(), "contents-$artifactPrefix-$label-frame-$frame.png").outputStream().use {
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
-                if (retained || atRest) paperSamples.forEach { (point, expected) ->
+                if (atRest) paperSamples.forEach { (point, expected) ->
                     val actual = bitmap.getPixel(point.x.toInt(), point.y.toInt())
                     val difference = listOf(16, 8, 0).sumOf { shift ->
                         kotlin.math.abs((actual shr shift and 255) - (expected shr shift and 255)) }

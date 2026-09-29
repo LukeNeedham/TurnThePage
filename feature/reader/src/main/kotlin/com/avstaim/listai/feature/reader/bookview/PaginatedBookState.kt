@@ -118,6 +118,10 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
         val annotationCount = annotationSnapshot.annotationPaperCount
         val tocCount = tocSnapshot?.pages?.size ?: 0
         val notesStart = annotationCount + tocCount + snapshot.pages.size
+        if (tocEntryIndex != null && (state !is PhysicalBookState.Open ||
+                state.semanticPageIndex !in annotationCount until annotationCount + tocCount)) {
+            clearContentsOrigin()
+        }
         if (state == PhysicalBookState.FrontBoundary) {
             val anchor = annotationSnapshot?.pages?.firstOrNull()?.start
             annotationLocation = anchor?.takeUnless { it.blockId in titleBlockIds }
@@ -209,8 +213,12 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
             tocCharOffset = 0
         } else commitJump(request.progress)
         if (request.returningFromContents || request.progress.tocEntryIndex == null) {
-            contentsNoteId = null; contentsNoteLocation = null; contentsNoteOrigin = null
+            clearContentsOrigin()
         }
+    }
+
+    private fun clearContentsOrigin() {
+        contentsNoteId = null; contentsNoteLocation = null; contentsNoteOrigin = null
     }
 
     fun clearNotes() { noteLocation = null; noteId = null; visit = null }

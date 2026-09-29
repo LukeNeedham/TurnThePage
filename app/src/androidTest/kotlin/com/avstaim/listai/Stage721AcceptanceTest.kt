@@ -191,15 +191,8 @@ class Stage721AcceptanceTest {
                     before.text.contains(sourceText))
             }
             assertEquals("A jump must reuse the live pagination layout", before.layout, frame[ReaderLayoutIdentity])
-            val changesContentsProjection = (before.progress.tocEntryIndex != null) != toc
-            if (changesContentsProjection) {
-                // Adding/removing supplementary TOC pages intentionally replaces the cache
-                // producer. Its own render counter starts anew; prepared pixels stay pinned.
-                assertTrue("The new contents projection must have prepared its surfaces", frame[ReaderSurfaceRenders] > 0)
-            } else {
-                assertTrue("A jump within one projection must not reset the surface render count",
-                    frame[ReaderSurfaceRenders] >= before.renders)
-            }
+            assertTrue("Navigation must keep the live surface cache, including TOC entry and return",
+                frame[ReaderSurfaceRenders] >= before.renders)
             assertTrue("The surface cache must remain within 64 MiB during a jump",
                 frame[ReaderCacheBytes] <= 64L * 1024 * 1024)
             assertTrue("The intermediate frame must visibly deform the original book",

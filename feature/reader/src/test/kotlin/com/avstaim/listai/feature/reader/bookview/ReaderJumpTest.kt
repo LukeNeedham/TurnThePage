@@ -43,14 +43,14 @@ class ReaderJumpTest {
             PhysicalBookState.Open(1), contents, progress(0)))
     }
 
-    @Test fun leavingContentsUsesItsVisibleSectionAfterDestinationRemovesTheTocPages() {
+    @Test fun permanentContentsUseTheSamePhysicalOrderInBothDirections() {
         val contents = progress(95).copy(tocEntryIndex = 0)
-        val sourceInDestinationSession = PhysicalBookState.Open(9)
-        assertEquals(TurnDirection.FORWARD, readerJumpDirection(sourceInDestinationSession,
-            PhysicalBookState.Open(1), contents, progress(5)))
-        assertEquals(TurnDirection.BACKWARD, readerJumpDirection(sourceInDestinationSession,
-            PhysicalBookState.Open(0), contents, progress(95).copy(titleLocation = location(0))))
-        assertEquals(TurnDirection.BACKWARD, readerJumpDirection(sourceInDestinationSession,
+        val contentsPage = PhysicalBookState.Open(2)
+        assertEquals(TurnDirection.FORWARD, readerJumpDirection(contentsPage,
+            PhysicalBookState.Open(3), contents, progress(5)))
+        assertEquals(TurnDirection.BACKWARD, readerJumpDirection(contentsPage,
+            PhysicalBookState.Open(1), contents, progress(95).copy(titleLocation = location(0))))
+        assertEquals(TurnDirection.BACKWARD, readerJumpDirection(contentsPage,
             PhysicalBookState.Open(0), contents, progress(95).copy(annotationLocation = location(0))))
     }
 

@@ -164,6 +164,26 @@ class PhysicalAnnotationPositionTest {
         assertEquals(main, restored.location)
     }
 
+    @Test fun `ordinary exit from contents forgets a previous direct note visit`() = runBlocking {
+        val source = document()
+        val main = engine.paginate(source, null, key).last()
+        val contents = PhysicalContents(source, "Contents", "Begin reading")
+        val toc = engine.paginate(contents.document, null, key).last()
+        val anchor = main.pages.first().start
+        val id = NoteId("note")
+        val target = BookLocation(BlockId("note"), 23, 230)
+        val position = ReaderPosition(anchor, noteLocation = target, noteId = id,
+            visit = FootnoteVisit(id, anchor, target))
+        position.commitJump(position.prepareJump(ReaderJumpRequest(1,
+            ReadingProgress(anchor, tocEntryIndex = 0))), null)
+        position.commit(PhysicalBookState.Open(toc.pages.size), main, contents, toc)
+        position.commit(PhysicalBookState.Open(0), main, contents, toc)
+        val returning = position.prepareJump(ReaderJumpRequest(2, ReadingProgress(anchor), returningFromContents = true))
+        assertNull("A natural TOC visit must not resurrect an unrelated earlier note", returning.noteId)
+        assertNull(returning.noteTarget)
+        assertEquals(anchor, position.location)
+    }
+
     @Test fun `legacy native title checkpoint restores its projection without advancing main progress`() = runBlocking {
         val title = BookBlock.Heading(BlockId("native-title"), 1, listOf(InlineNode.Text("A native title")))
         val source = document().copy(blocks = listOf(title) + document().blocks, titlePageBlockIds = listOf(title.id))

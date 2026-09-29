@@ -155,8 +155,8 @@ fun ReaderScreen(
     fun returnFromContents() {
         val origin = contentsOrigin?.toReaderProgress() ?: checkpoint.copy(cover = CoverPosition.OPEN,
             tocEntryIndex = null, tocCharOffset = 0, annotationLocation = null, titleLocation = null)
+        // Keep the origin until the return commits; a cancelled curl remains in this visit.
         navigate(origin, returningFromContents = true)
-        contentsOrigin = null
     }
     BackHandler(enabled = active && !insertOpen && !onboarding.visible) {
         if (checkpoint.tocEntryIndex != null) returnFromContents() else onReturnToShelf()
@@ -209,6 +209,9 @@ fun ReaderScreen(
                 initialAnnotationLocation = checkpoint.annotationLocation,
                 initialTitleLocation = checkpoint.titleLocation,
                 onProgressChanged = {
+                    // Once ordinary turning or a chapter link leaves the TOC, a later
+                    // natural visit must not return to an unrelated old menu origin.
+                    if (checkpoint.tocEntryIndex != null && it.tocEntryIndex == null) contentsOrigin = null
                     checkpoint = it
                     if (it.cover == CoverPosition.OPEN && it.annotationLocation == null &&
                         it.titleLocation == null && it.tocEntryIndex == null) {

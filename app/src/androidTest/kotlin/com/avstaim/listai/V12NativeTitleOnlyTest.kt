@@ -49,8 +49,17 @@ class V12NativeTitleOnlyTest {
         compose.waitUntil(30_000) { resting() && progress.get().titleLocation == legacy && progress.get().tocEntryIndex == null }
         assertEquals(legacy, progress.get().location)
         turn(forward = true)
+        compose.waitUntil(30_000) { resting() && progress.get().tocEntryIndex != null }
+        assertEquals(legacy, progress.get().location)
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitUntil(30_000) { resting() && progress.get().titleLocation == legacy }
+        turn(forward = true)
+        compose.waitUntil(30_000) { resting() && progress.get().tocEntryIndex != null }
+        turn(forward = true)
         compose.waitUntil(30_000) { resting() && progress.get().cover == CoverPosition.BACK }
         assertEquals(legacy, progress.get().location)
+        turn(forward = false)
+        compose.waitUntil(30_000) { resting() && progress.get().tocEntryIndex != null }
         turn(forward = false)
         compose.waitUntil(30_000) { resting() && progress.get().titleLocation?.blockId == title.id }
         assertEquals(legacy, progress.get().location)
@@ -68,12 +77,12 @@ class V12NativeTitleOnlyTest {
         val book = compose.onNodeWithTag("book_view_demo")
         if (forward) {
             compose.waitUntil(10_000) { book.fetchSemanticsNode().config.contains(SemanticsActions.OnClick) }
-            book.performTouchInput { click(Offset(width * .87f, height * .52f)) }
+            book.performSemanticsAction(SemanticsActions.OnClick) { assertTrue(it()) }
         } else {
-            // ClosedBack has no forward click: its only turn action reopens the rigid cover.
+            // Backward is the last action both on the closed back and on ordinary paper.
             compose.waitUntil(10_000) { book.fetchSemanticsNode().config
-                .getOrElse(SemanticsActions.CustomActions) { emptyList() }.size == 1 }
-            val backward = book.fetchSemanticsNode().config[SemanticsActions.CustomActions].single()
+                .getOrElse(SemanticsActions.CustomActions) { emptyList() }.isNotEmpty() }
+            val backward = book.fetchSemanticsNode().config[SemanticsActions.CustomActions].last()
             compose.runOnIdle { assertTrue(backward.action()) }
         }
     }

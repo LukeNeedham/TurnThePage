@@ -3,6 +3,7 @@ package com.avstaim.listai
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -21,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 class V12ReaderFlowTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    @Test fun firstLeavesFollowDescriptionTitleTextAndContentsReturnsToTitle() {
+    @Test fun firstLeavesFollowDescriptionTitleContentsTextInBothDirections() {
         val progress = AtomicReference(ReadingProgress(cover = CoverPosition.FRONT))
         showReader(progress)
         compose.onNodeWithTag("closed_book_description").performClick()
@@ -43,9 +44,50 @@ class V12ReaderFlowTest {
         assertEquals(title.titleLocation, progress.get().titleLocation)
         assertEquals(title.location, progress.get().location)
         turnForward()
+        awaitProgress { it.tocEntryIndex != null }
+        val naturalContents = config()[ReaderContentsLocation]
+        compose.onNodeWithTag("reader_quick_bookmark").assertDoesNotExist()
+        assertEquals(title.location, progress.get().location)
+        turnForward()
         awaitProgress { it.annotationLocation == null && it.titleLocation == null && it.tocEntryIndex == null }
         assertEquals(BlockId("chapter-1"), progress.get().location?.blockId)
         compose.onNodeWithTag("reader_quick_bookmark").assertIsDisplayed()
+        turnBackward()
+        awaitProgress { it.tocEntryIndex != null }
+        assertEquals("The same TOC leaf exists when turning back from text", naturalContents, config()[ReaderContentsLocation])
+        turnBackward()
+        awaitProgress { it.titleLocation != null }
+        assertEquals(title.titleLocation, progress.get().titleLocation)
+        turnBackward()
+        awaitProgress { it.annotationLocation != null }
+
+    }
+
+    @Test fun longContentsRemainPhysicalLeavesWhenWalkingASpreadForwardsAndBackwards() {
+        val progress = AtomicReference(ReadingProgress(cover = CoverPosition.FRONT))
+        showReader(progress, mode = ReaderPresentationMode.SPREAD, longContents = true)
+        compose.onNodeWithTag("closed_book_description").performClick()
+        awaitProgress { it.annotationLocation != null }
+        val pages = mutableListOf<List<String>>()
+        var contentsSpreads = 0
+        fun visibleText() = config()[SemanticsProperties.Text].map { it.text }
+        fun atSource() = progress.get().let { it.annotationLocation == null && it.titleLocation == null && it.tocEntryIndex == null }
+        do {
+            val before = visibleText()
+            pages += before
+            if (config()[ReaderContentsRows].isNotEmpty()) contentsSpreads++
+            assertTrue("The permanent contents must lead to source within a bounded number of turns", pages.size < 20)
+            turnForward()
+            compose.waitUntil(30_000) { resting() && visibleText() != before }
+        } while (!atSource())
+        assertTrue("This fixture must exercise several physical contents spreads", contentsSpreads >= 2)
+        for (expected in pages.asReversed()) {
+            val before = visibleText()
+            turnBackward()
+            compose.waitUntil(30_000) { resting() && visibleText() != before }
+            assertEquals("A reverse turn restores precisely the previous pair of leaves", expected, visibleText())
+        }
+        assertNotNull(progress.get().annotationLocation)
     }
 
     @Test fun clockPreferenceDoesNotChangePaginationOrReadingAnchor() {
@@ -80,18 +122,22 @@ class V12ReaderFlowTest {
     private lateinit var latest: AtomicReference<ReadingProgress>
 
     private fun showReader(progress: AtomicReference<ReadingProgress>,
-        preferences: androidx.compose.runtime.MutableState<ReaderPreferences> = mutableStateOf(ReaderPreferences())) {
+        preferences: androidx.compose.runtime.MutableState<ReaderPreferences> = mutableStateOf(ReaderPreferences()),
+        mode: ReaderPresentationMode = ReaderPresentationMode.SINGLE, longContents: Boolean = false) {
         latest = progress
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value }
-        val fixture = fixture()
+        val fixture = fixture().let { source -> if (longContents) source.copy(tableOfContents = List(32) { index ->
+            BookTocEntry("Chapter ${index + 1}: the long quiet path through a permanent printed table of contents",
+                source.tableOfContents.first().location)
+        }) else source }
         val initial = progress.get()
         compose.runOnUiThread {
             compose.activity.setContent {
                 ListaiTheme {
                     ReaderScreen(fixture, initialProgress = initial, onProgressChanged = progress::set,
                         preferences = preferences.value, onPreferencesChange = { preferences.value = it },
-                        presentationMode = ReaderPresentationMode.SINGLE, onboardingCompleted = true)
+                        presentationMode = mode, onboardingCompleted = true)
                 }
             }
         }
@@ -111,7 +157,17 @@ class V12ReaderFlowTest {
     private fun turnForward() {
         awaitRest()
         compose.waitUntil(10_000) { config().contains(SemanticsActions.OnClick) }
-        compose.onNodeWithTag("book_view_demo").performTouchInput { click(Offset(width * .87f, height * .52f)) }
+        compose.onNodeWithTag("book_view_demo").performTouchInput {
+            swipe(Offset(width * .93f, height * .7f), Offset(width * .08f, height * .68f), durationMillis = 400)
+        }
+    }
+
+    private fun turnBackward() {
+        awaitRest()
+        compose.waitUntil(10_000) { config().contains(SemanticsActions.OnClick) }
+        compose.onNodeWithTag("book_view_demo").performTouchInput {
+            swipe(Offset(width * .07f, height * .7f), Offset(width * .92f, height * .68f), durationMillis = 400)
+        }
     }
 
     private fun fixture(): BookDocument {

@@ -34,7 +34,6 @@ internal data class ReaderTopControlLayout(
     val onCoverMaterial: Boolean = false,
     val onWhitePaper: Boolean = false,
     val clockBounds: Rect? = null,
-    val enabled: Boolean = true,
 )
 
 /** Two/three ink marks at the paper edges with the camera and fold kept clear. */
@@ -154,7 +153,7 @@ internal fun ReaderTopControls(
         layout.buttons.forEachIndexed { index, bounds ->
             Box(Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
                 .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
-                .clickable(enabled = enabled && layout.enabled, interactionSource = remember { MutableInteractionSource() },
+                .clickable(enabled = enabled, interactionSource = remember { MutableInteractionSource() },
                     indication = null, role = Role.Button, onClickLabel = labels[index], onClick = actions[index])
                 .semantics { contentDescription = labels[index] }
                 .testTag(tags[index]), contentAlignment = Alignment.Center) {

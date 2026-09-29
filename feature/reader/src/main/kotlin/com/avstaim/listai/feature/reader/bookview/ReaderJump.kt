@@ -69,11 +69,6 @@ internal fun readerJumpDirection(
     PhysicalBookState.ClosedFront, PhysicalBookState.FrontBoundary -> TurnDirection.FORWARD
     PhysicalBookState.ClosedBack, PhysicalBookState.BackBoundary -> TurnDirection.BACKWARD
     is PhysicalBookState.Open -> when {
-        // A TOC-free destination session uses main-source indices for its initial state,
-        // while the pinned visible origin is still TOC paper. Compare semantic sections first.
-        current.tocEntryIndex != null && requested.tocEntryIndex == null ->
-            if (requested.titleLocation != null || requested.annotationLocation != null)
-                TurnDirection.BACKWARD else TurnDirection.FORWARD
         target.semanticPageIndex < source.semanticPageIndex -> TurnDirection.BACKWARD
         target.semanticPageIndex > source.semanticPageIndex -> TurnDirection.FORWARD
         requested.tocEntryIndex != null && current.tocEntryIndex != null ->
