@@ -28,14 +28,29 @@ internal fun PositionReturningLibraryBook(
     viewport: Rect,
     onPositioned: (BookId, Rect?) -> Unit,
 ) {
+    PositionReturningLibraryItem(bookId?.let { "book:${it.value}" }, keys, columns, listState,
+        scrollable, bounds, viewport) { _, positioned -> bookId?.let { onPositioned(it, positioned) } }
+}
+
+/** Also used by a landed stack whose old slot disappears when its source is removed. */
+@Composable
+internal fun PositionReturningLibraryItem(
+    itemKey: String?,
+    keys: List<String>,
+    columns: Int,
+    listState: LazyListState,
+    scrollable: Boolean,
+    bounds: Map<String, Rect>,
+    viewport: Rect,
+    onPositioned: (String, Rect?) -> Unit,
+) {
     val latestOnPositioned by rememberUpdatedState(onPositioned)
-    LaunchedEffect(bookId, keys, columns, listState, scrollable, viewport) {
-        val id = bookId ?: return@LaunchedEffect
+    LaunchedEffect(itemKey, keys, columns, listState, scrollable, viewport) {
+        val key = itemKey ?: return@LaunchedEffect
         // A previous acknowledgement belongs to the previous layout. Do not let a Fold
         // resize start (or continue) lowering toward that obsolete slot.
-        latestOnPositioned(id, null)
+        latestOnPositioned(key, null)
         if (viewport.width <= 0f || viewport.height <= 0f) return@LaunchedEffect
-        val key = "book:${id.value}"
         val index = keys.indexOf(key)
         if (index < 0) return@LaunchedEffect // The containing stack may still be opening.
         // Layout callbacks may still describe the old column count at composition time.
@@ -49,6 +64,6 @@ internal fun PositionReturningLibraryBook(
         // Keep the acknowledgement live until the return ends: a late scroll restoration
         // or placement must invalidate it rather than leaving a stale successful result.
         snapshotFlow { visibleReturnBookBounds(bounds[key], viewport) }
-            .collect { measured -> latestOnPositioned(id, measured) }
+            .collect { measured -> latestOnPositioned(key, measured) }
     }
 }
