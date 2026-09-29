@@ -111,6 +111,8 @@ fun LibraryScreen(
     initialStackId: String? = null,
     initialSearchQuery: String? = null,
     restoredBookId: BookId? = null,
+    returningBookId: BookId? = null,
+    onReturnBookPositioned: (BookId, Rect?) -> Unit = { _, _ -> },
     /** Window/root-coordinate exclusions such as a separating or occluding Fold hinge. */
     occlusionBounds: List<Rect> = emptyList(),
 ) {
@@ -149,6 +151,13 @@ fun LibraryScreen(
     }
     val tiles = incoming.associateBy { it.key }
     val incomingKeys = incoming.map { it.key }
+    LaunchedEffect(returningBookId, incomingKeys) {
+        val id = returningBookId ?: return@LaunchedEffect
+        if ("book:${id.value}" !in incomingKeys) {
+            // A restored/external selection may not belong to the currently visible surface.
+            byId[id]?.let { book -> searchOpen = false; stackId = book.stackId }
+        }
+    }
     val gestures = remember { LibraryShelfGestureState() }
     val surfaceKey = if (searchOpen) "search" else stackId ?: "root"
     LaunchedEffect(incomingKeys, surfaceKey) {
@@ -447,6 +456,10 @@ fun LibraryScreen(
                 val fittedRows = calculateLibraryLayout(maxHeight.value, rows.size, rowBookHeight.value,
                     hasEmptyMessage = ordered.isEmpty(), topPaddingDp = 16f, bottomPaddingDp = bottomPadding.value + 12f,
                     shelfHeightDp = 12f, rowCaptionHeightsDp = rowCaptionHeights)
+                PositionReturningLibraryBook(returningBookId, ordered.map { it.key }, columns, listState,
+                    fittedRows.scrollable, gestures.bounds,
+                    inputBounds.copy(bottom = (inputBounds.bottom - bottomControls).coerceAtLeast(inputBounds.top)),
+                    onReturnBookPositioned)
                 if (fittedRows.scrollable) {
                     LazyColumn(shelfModifier, state = listState, userScrollEnabled = shelfEnabled && gestures.drag == null,
                         contentPadding = PaddingValues(top = 16.dp, bottom = bottomPadding + 12.dp)) {
@@ -634,7 +647,10 @@ private fun LibraryShelfRow(
                 Box(Modifier.width(bookWidth).height(bookHeight)
                     .testTag(if (tile.stack != null) "library_stack_${tile.stack.id}" else "library_book_${tile.book?.id?.value}")
                     .onGloballyPositioned { coordinates ->
-                        val bounds = coordinates.boundsInRoot()
+                        // boundsInRoot clips a partially visible lazy row. The flight needs the
+                        // whole cover so it can distinguish an offscreen slot from a smaller book.
+                        val bounds = Rect(coordinates.localToRoot(Offset.Zero),
+                            Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
                         restingBounds = bounds
                         onBounds(tile, bounds)
                     }
