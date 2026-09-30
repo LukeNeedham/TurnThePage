@@ -22,9 +22,13 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
     }
 
     override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> {
-        if (document.parts.isEmpty()) return paginateSource(document, location, layoutKey)
-        val parts = PartLeafProjector(document, location)
-        return paginateSource(document.withPartBreaks(), location, layoutKey).map(parts::project)
+        val pages = if (document.parts.isEmpty()) paginateSource(document, location, layoutKey)
+        else {
+            val parts = PartLeafProjector(document, location)
+            paginateSource(document.withPartBreaks(), location, layoutKey).map(parts::project)
+        }
+        val title = document.titlePageBlockIds.firstOrNull()?.takeIf { document.isFrontmatter }
+        return if (title != null) pages.map { it.withRectoTitle(title) } else pages
     }
 
     private fun paginateSource(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =

@@ -21,6 +21,33 @@ class PhysicalAnnotationPositionTest {
         }, layout.contentWidth.toFloat())
     })
 
+    @Test fun `blank beside recto title preserves separate anchors across folding and contents jumps`() = runBlocking {
+        val source = document().copy(metadata = BookMetadata("Book", listOf("Author"), annotation = "Short description"))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val spreadKey = key.copy(pageMode = PageMode.SPREAD)
+        val main = engine.paginate(source, null, spreadKey).last()
+        val front = engine.paginate(matter.document, null, spreadKey.forAnnotation()).last()
+        assertEquals(listOf(PageKind.TEXT, PageKind.BLANK, PageKind.TEXT), front.pages.map { it.kind })
+        val sourceAnchor = main.pages.last().start
+        val position = ReaderPosition(sourceAnchor)
+        // Natural spread navigation lands on the blank left leaf, with the title on the right.
+        position.commit(PhysicalBookState.Open(1), main, annotationSnapshot = front, titleBlockIds = matter.titleBlockIds)
+        val titleAnchor = position.titleLocation!!
+        assertEquals(BlockId("listai:title:name"), titleAnchor.blockId)
+        assertNull(position.annotationLocation)
+        assertEquals(sourceAnchor, position.location)
+        val phone = engine.paginate(matter.document, titleAnchor, key.forAnnotation()).last()
+        assertEquals(listOf(PageKind.TEXT, PageKind.TEXT), phone.pages.map { it.kind })
+        assertEquals(PhysicalBookState.Open(1), position.initialState(main, annotationSnapshot = phone))
+        val restored = engine.paginate(matter.document, titleAnchor, spreadKey.forAnnotation()).last()
+        assertEquals(PhysicalBookState.Open(2), position.initialState(main, annotationSnapshot = restored))
+        val jump = resolveReaderJump(ReaderJumpRequest(1, position.progress(source.readingLength())), main,
+            null, null, BookPresentation.SPREAD, annotationPageCount = restored.pages.size, annotationSnapshot = restored)
+        assertEquals(PhysicalBookState.Open(2), jump?.target)
+        assertEquals(sourceAnchor, position.location)
+        assertEquals(titleAnchor, position.titleLocation)
+    }
+
     @Test fun `native title-only book restores one title projection and can close its back cover`() = runBlocking {
         val title = BookBlock.Heading(BlockId("native-title-only"), 1, listOf(InlineNode.Text("Title 😀")))
         val source = BookDocument(BookId("only-title"), BookMetadata("Title"), listOf(title), titlePageBlockIds = listOf(title.id))
