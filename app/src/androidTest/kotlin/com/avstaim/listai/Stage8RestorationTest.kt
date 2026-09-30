@@ -35,8 +35,12 @@ class Stage8RestorationTest {
         try {
             compose.runOnUiThread { controller.import(Uri.fromFile(sourceFile)) }
             compose.waitUntil(45_000) {
-                controller.selection.value?.opened?.document?.metadata?.title == name &&
-                    node()?.config?.getOrElse(ReaderNoteLinks) { emptyList() }?.isNotEmpty() == true
+                controller.selection.value?.opened?.document?.metadata?.title == name
+            }
+            // Imports now open the physical cover. Enter the source through its real Read action.
+            readFromClosedCover()
+            compose.waitUntil(45_000) {
+                node()?.config?.getOrElse(ReaderNoteLinks) { emptyList() }?.isNotEmpty() == true && !jumping()
             }
             awaitIdle()
             val bookId = requireNotNull(controller.selection.value).opened.book.id
@@ -85,6 +89,13 @@ class Stage8RestorationTest {
             assertTrue(config()[ReaderCacheBytes] <= 64L * 1024 * 1024)
             capture("source-after-shelf-reopen")
         } finally { sourceFile.delete() }
+    }
+
+    private fun readFromClosedCover() {
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithTag("closed_book_read").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("closed_book_read").performClick()
     }
 
     private fun awaitNotes() {
