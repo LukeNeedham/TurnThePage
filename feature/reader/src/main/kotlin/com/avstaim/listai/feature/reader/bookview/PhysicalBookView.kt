@@ -773,25 +773,33 @@ internal fun PhysicalBookView(
             initialPageControlsLayout.clockBounds?.takeUnless { clock ->
                 quickBookmarkPlacement?.bounds?.overlaps(clock) == true
             })
-        val noteLinks = remember(ready, bookState, layout, presentation, density.density) {
+        // Use the painted leaf's side, not the number of visible pages: the first lone
+        // page is on the right, but a final unpaired page is on the left of a spread.
+        val visiblePageLeaves = remember(idleSurfaces, layout) {
+            buildList {
+                (idleSurfaces.left as? BookVisualSurface.Page)?.surface?.let { surface ->
+                    layout.leftPage?.let { add(it to surface) }
+                }
+                (idleSurfaces.right as? BookVisualSurface.Page)?.surface?.let { surface ->
+                    add(layout.rightPage to surface)
+                }
+            }
+        }
+        val noteLinks = remember(ready, bookState, visiblePageLeaves, density.density) {
             buildList {
                 if (bookState !is PhysicalBookState.Open || ready == null) return@buildList
-                val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
-                visible.forEachIndexed { side, index ->
-                    val leaf = if (visible.size > 1 && side == 0) layout.leftPage ?: layout.rightPage else layout.rightPage
-                    preparedPages[index]?.paginated?.noteLinks?.forEach { link ->
+                visiblePageLeaves.forEach { (leaf, surface) ->
+                    surface.paginated?.noteLinks?.forEach { link ->
                         add(noteTapBounds(link.bounds, leaf, ready.snapshot.key, density.density) to link)
                     }
                 }
             }
         }
-        val noteReturns = remember(ready, bookState, layout, presentation, density.density) {
+        val noteReturns = remember(ready, bookState, visiblePageLeaves, density.density) {
             buildList {
                 if (bookState !is PhysicalBookState.Open || ready?.notesSnapshot == null) return@buildList
-                val visible = visiblePageIndices(bookState, presentation, preparedPages.size)
-                visible.forEachIndexed { side, index ->
-                    val leaf = if (visible.size > 1 && side == 0) layout.leftPage ?: layout.rightPage else layout.rightPage
-                    preparedPages[index]?.paginated?.noteReturns?.forEach { link ->
+                visiblePageLeaves.forEach { (leaf, surface) ->
+                    surface.paginated?.noteReturns?.forEach { link ->
                         add(noteTapBounds(link.bounds, leaf, ready.notesSnapshot.key, density.density, expand = false) to link)
                     }
                 }
