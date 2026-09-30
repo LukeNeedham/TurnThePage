@@ -64,6 +64,17 @@ class EpiloguePaginationTest {
         }
     }
 
+    @Test fun `single mode omits recto padding before the epilogue of a book with parts`() = runBlocking {
+        for (notes in listOf(false, true)) for (prefix in 0..4) {
+            val doc = document(withNotes = notes, withPart = true)
+            val pages = engine.paginate(doc, null, key.copy(pageMode = PageMode.SINGLE, leadingPageCount = prefix)).last().pages
+            assertTrue(pages.none { it.kind == PageKind.BLANK })
+            assertEquals(listOf("part", "chapter", "epilogue"), pages.map { it.start.blockId.value })
+            assertEquals(((prefix + 1)..(prefix + pages.size)).toList(), pages.map { it.displayNumber })
+            assertSource(doc, pages)
+        }
+    }
+
     private fun assertSource(doc: BookDocument, pages: List<PageLayout>) {
         for (block in doc.readingFlow()) {
             val fragments = pages.flatMap { it.blocks }.filter { it.blockId == block.source.id }

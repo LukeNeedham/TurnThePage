@@ -43,8 +43,12 @@ internal class PartLeafProjector(document: BookDocument, location: BookLocation?
         fun append(page: PageLayout) {
             leaves += page.copy(id = PageId(leaves.size.toLong()), displayNumber = key.leadingPageCount + leaves.size + 1)
         }
-        fun blank(anchor: BookLocation) = append(PageLayout(PageId(0), anchor, anchor,
-            emptyList(), 0, kind = PageKind.BLANK))
+        fun blank(anchor: BookLocation) {
+            // Recto alignment and empty reverses belong to a physical two-page spread.
+            // Single-page reading goes straight to the next source leaf in either direction.
+            if (key.pageMode == PageMode.SPREAD) append(PageLayout(PageId(0), anchor, anchor,
+                emptyList(), 0, kind = PageKind.BLANK))
+        }
         for (page in pages) {
             val part = page.blocks.firstOrNull()?.blockId?.let(partByBlock::get)
             if (part == null) {

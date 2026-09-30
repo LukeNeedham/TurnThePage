@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -37,7 +38,7 @@ class Rc6PartOpeningFlowTest {
     private lateinit var part: BookLocation
     private lateinit var chapter: BookLocation
 
-    @Test fun phoneKeepsThePartEpigraphTogetherAndTurnsItsBlankVersoBothWays() {
+    @Test fun phoneKeepsThePartEpigraphAndSkipsBlankLeavesBothWays() {
         show(ReaderPresentationMode.SINGLE, dark = false)
         assertPart()
         assertEquals(listOf("PART_TITLE"), config()[ReaderPaperKinds])
@@ -47,21 +48,24 @@ class Rc6PartOpeningFlowTest {
         val original = visibleText()
         turn(forward = true)
         compose.waitUntil(30_000) { resting() && visibleText() != original }
-        assertTrue("The reverse of the part title is a real blank leaf", visibleText().all(String::isBlank))
-        assertEquals(listOf("BLANK"), config()[ReaderPaperKinds])
-        assertEquals("", config()[ReaderVisibleFooters])
-        assertTrue(config()[ReaderPageNumberBounds].isEmpty())
-        capture("phone-blank-verso")
-        turn(forward = true)
-        awaitText("Глава четвёртая")
+        capture("phone-after-one-turn")
+        assertTrue("One turn from the part opens the chapter without a blank stop",
+            visibleText().any { it.contains("Глава четвёртая") })
+        assertEquals(listOf("TEXT"), config()[ReaderPaperKinds])
         assertFalse(visibleText().joinToString().contains("Семён Ракитин, полевой дневник"))
         capture("phone-following-chapter")
-        turn(forward = false)
-        compose.waitUntil(30_000) { resting() && visibleText().all(String::isBlank) }
         turn(forward = false)
         awaitText("Карта прилива")
         assertPart()
         assertEquals("Walking backwards restores the complete original divider", original, visibleText())
+        turn(forward = false)
+        compose.waitUntil(30_000) { resting() && visibleText() != original }
+        assertTrue("No recto-alignment blank is shown before the part either", visibleText().any(String::isNotBlank))
+        assertFalse(config()[ReaderPaperKinds].contains("BLANK"))
+        capture("phone-before-part")
+        turn(forward = true)
+        awaitText("Карта прилива")
+        assertEquals(original, visibleText())
     }
 
     @Test fun foldPartAndNextChapterAreRectoAndContentsCanReachTheSameLeaf() {
@@ -127,6 +131,7 @@ class Rc6PartOpeningFlowTest {
             val before = visibleText()
             turn(forward = true)
             compose.waitUntil(30_000) { resting() && visibleText() != before }
+            assertFalse("Every single-page turn must show source content", config()[ReaderPaperKinds].contains("BLANK"))
         }
         val anchor = progress.get().location
         val singleLayout = config()[ReaderLayoutIdentity]
@@ -139,6 +144,13 @@ class Rc6PartOpeningFlowTest {
         assertTrue("The left leaf is the part's blank verso or an explicit epigraph continuation",
             config()[ReaderPaperKinds].first() in listOf("BLANK", "PART_CONTINUATION"))
         capture("reflow-chapter-large-type")
+        val foldedAgainLayout = config()[ReaderLayoutIdentity]
+        compose.runOnIdle { mode.value = ReaderPresentationMode.SINGLE }
+        compose.waitUntil(30_000) { resting() && config()[ReaderLayoutIdentity] != foldedAgainLayout }
+        assertEquals("Folding at the chapter beside a blank verso preserves its source", anchor, progress.get().location)
+        assertTrue(visibleText().any { it.contains("Глава четвёртая") })
+        assertFalse(config()[ReaderPaperKinds].contains("BLANK"))
+        capture("folded-again-chapter-large-type")
     }
 
     private fun show(presentation: ReaderPresentationMode, dark: Boolean) {
@@ -176,7 +188,7 @@ class Rc6PartOpeningFlowTest {
     }
 
     private fun turn(forward: Boolean) {
-        compose.waitUntil(30_000) { resting() }
+        compose.waitUntil(30_000) { resting() && (!forward || config().contains(SemanticsActions.OnClick)) }
         compose.onNodeWithTag("book_view_demo").performTouchInput {
             swipe(Offset(width * if (forward) .92f else .08f, height * .68f),
                 Offset(width * if (forward) .08f else .92f, height * .68f), durationMillis = 400)

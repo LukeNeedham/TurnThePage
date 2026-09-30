@@ -43,6 +43,23 @@ class PartPaginationTest {
         }
     }
 
+    @Test fun `single pages omit part alignment and blank reverse leaves in both engines`() = runBlocking {
+        for (notes in listOf(false, true)) for (prefix in 0..5) {
+            val doc = document(notes)
+            val single = engine.paginate(doc, null, key.copy(pageMode = PageMode.SINGLE, leadingPageCount = prefix)).last().pages
+            val spread = engine.paginate(doc, null, key.copy(leadingPageCount = prefix)).last().pages
+            assertFalse("A phone must never stop on a synthetic blank leaf", single.any { it.kind == PageKind.BLANK })
+            assertTrue("The same source still has physical blank leaves in spread", spread.any { it.kind == PageKind.BLANK })
+            val divider = single.indexOfFirst { it.kind == PageKind.PART_TITLE }
+            val chapter = single.indexOfFirst { it.blocks.firstOrNull()?.blockId == BlockId("chapter") }
+            assertEquals("One forward turn opens the chapter", divider + 1, chapter)
+            assertEquals(spread.filter { it.kind != PageKind.BLANK }.map { it.blocks }, single.map { it.blocks })
+            assertEquals(((prefix + 1)..(prefix + single.size)).toList(), single.map { it.displayNumber })
+            assertEquals(single.indices.map { it.toLong() }, single.map { it.id.value })
+            assertSourceCoverage(doc, single)
+        }
+    }
+
     @Test fun `a long epigraph keeps every source character and its anchor through reflow`() = runBlocking {
         val doc = document(notes = true, longEpigraph = true)
         val target = doc.readingFlow().first { it.source.id.value == "epigraph" }.let {
@@ -55,7 +72,9 @@ class PartPaginationTest {
             assertTrue(restored.blocks.any { it.blockId == target.blockId && target.charOffset in it.startCharOffset until it.endCharOffsetExclusive })
             assertNotEquals(PageKind.BLANK, restored.kind)
             assertSourceCoverage(doc, pages)
-            assertEquals(0, (pages.indexOfFirst { it.blocks.firstOrNull()?.blockId == BlockId("chapter") } + 3) % 2)
+            if (mode == PageMode.SPREAD)
+                assertEquals(0, (pages.indexOfFirst { it.blocks.firstOrNull()?.blockId == BlockId("chapter") } + 3) % 2)
+            else assertTrue(pages.none { it.kind == PageKind.BLANK })
         }
     }
 
@@ -92,10 +111,13 @@ class PartPaginationTest {
 
     @Test fun `incremental publications preserve the entire already published physical prefix`() = runBlocking {
         val doc = document(notes = true, longEpigraph = true)
-        val snapshots = engine.paginate(doc, null, key.copy(pageHeightPx = 200, leadingPageCount = 3)).toList()
-        assertTrue(snapshots.size > 1)
-        snapshots.zipWithNext().forEach { (before, after) ->
-            assertEquals(before.pages, after.pages.take(before.pages.size))
+        for (mode in PageMode.entries) {
+            val snapshots = engine.paginate(doc, null, key.copy(pageMode = mode, pageHeightPx = 200, leadingPageCount = 3)).toList()
+            assertTrue(snapshots.size > 1)
+            snapshots.zipWithNext().forEach { (before, after) ->
+                assertEquals(before.pages, after.pages.take(before.pages.size))
+            }
+            if (mode == PageMode.SINGLE) assertTrue(snapshots.all { snapshot -> snapshot.pages.none { it.kind == PageKind.BLANK } })
         }
     }
 
