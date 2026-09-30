@@ -146,8 +146,19 @@ internal class ReaderPosition(location: BookLocation? = null, cover: String = "o
         }
         annotationLocation = null
         titleLocation = null
-        if (state is PhysicalBookState.Open && state.semanticPageIndex >= notesStart && notes != null && notesSnapshot != null) {
-            noteLocation = notesSnapshot.pages[state.semanticPageIndex - notesStart].start
+        val notesPage = if (state is PhysicalBookState.Open && notes != null && notesSnapshot != null) {
+            val pageIndex = state.semanticPageIndex.takeIf { it >= notesStart }
+                ?: if ((noteId != null || visit != null) && snapshot.key.pageMode == PageMode.SPREAD) {
+                    // At the section boundary the left leaf can still be source text while the
+                    // right leaf is notes. A completed backward turn must not discard the visit
+                    // while its printed return remains visible. Keep explicit right-leaf anchors.
+                    visiblePageIndices(state, BookPresentation.SPREAD, notesStart + notesSnapshot.pages.size)
+                        .firstOrNull { it >= notesStart }
+                } else null
+            pageIndex?.let { notesSnapshot.pages.getOrNull(it - notesStart) }
+        } else null
+        if (notesPage != null && notes != null) {
+            noteLocation = notesPage.start
             noteId = notes.noteAt(requireNotNull(noteLocation)) ?: notes.targets.keys.firstOrNull()
             cover = "open"
             tocEntryIndex = null
