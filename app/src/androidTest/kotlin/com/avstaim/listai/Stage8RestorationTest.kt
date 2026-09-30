@@ -82,7 +82,12 @@ class Stage8RestorationTest {
             book().performTouchInput { click(footerBounds.center) }
             awaitNotes()
             top("close")
-            compose.waitUntil(30_000) { controller.selection.value == null && node() == null }
+            try {
+                compose.waitUntil(30_000) { controller.selection.value == null && node() == null }
+            } catch (failure: Exception) {
+                capture("shelf-close-wait-failure")
+                throw failure
+            }
             compose.runOnUiThread { controller.open(bookId) }
             awaitSource(origin)
             assertEquals("", config()[ReaderNoteVisit])
@@ -121,9 +126,20 @@ class Stage8RestorationTest {
         }
         awaitIdle()
     }
-    private fun awaitIdle() { compose.waitForIdle() }
+    private fun awaitIdle() {
+        // A committed source address can be observed before the final physical turn frame.
+        // Wait for the book itself to settle before resolving another control or hit region.
+        compose.waitUntil(30_000) {
+            node()?.config?.getOrElse(ReaderTurnProgress) { 1f } == 0f && !jumping()
+        }
+        compose.waitForIdle()
+    }
     private fun back() = compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
-    private fun top(action: String) = compose.onNodeWithTag("reader_top_$action").performTouchInput { click(center) }
+    private fun top(action: String) {
+        awaitIdle()
+        // This restoration test exercises the real action; pointer geometry has separate coverage.
+        compose.onNodeWithTag("reader_top_$action").assertIsDisplayed().assertIsEnabled().performClick()
+    }
     private fun book() = compose.onNodeWithTag("book_view_demo")
     private fun node() = compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().singleOrNull()
     private fun config() = book().fetchSemanticsNode().config
@@ -133,6 +149,10 @@ class Stage8RestorationTest {
         val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
         val directory = requireNotNull(compose.activity.getExternalFilesDir("stage8-restoration")).also { it.mkdirs() }
         File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val roots = compose.onAllNodes(isRoot(), useUnmergedTree = true)
+        File(directory, "$name.txt").writeText(roots.fetchSemanticsNodes().indices.joinToString("\n---\n") {
+            roots[it].printToString()
+        })
         bitmap.recycle()
     }
 }
