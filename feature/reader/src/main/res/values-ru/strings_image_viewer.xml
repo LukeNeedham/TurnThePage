@@ -1,0 +1,10 @@
+<resources>
+    <string name="reader_image_viewer_title">Иллюстрация книги</string>
+    <string name="reader_image_description">Иллюстрация</string>
+    <string name="reader_image_open">Открыть иллюстрацию</string>
+    <string name="reader_image_close">Закрыть иллюстрацию</string>
+    <string name="reader_image_zoom_in">Увеличить</string>
+    <string name="reader_image_zoom_out">Уменьшить</string>
+    <string name="reader_image_zoom_reset">Показать иллюстрацию целиком</string>
+    <string name="reader_image_unavailable">Не удалось открыть иллюстрацию</string>
+</resources>

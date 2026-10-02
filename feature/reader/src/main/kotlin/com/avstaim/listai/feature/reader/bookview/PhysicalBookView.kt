@@ -99,6 +99,8 @@ import com.avstaim.listai.feature.reader.ReaderNoteReturns
 import com.avstaim.listai.feature.reader.ReaderNoteReturnTargets
 import com.avstaim.listai.feature.reader.ReaderNotesLocation
 import com.avstaim.listai.feature.reader.ReaderNoteVisit
+import com.avstaim.listai.feature.reader.ReaderImageBounds
+import com.avstaim.listai.feature.reader.ReaderImageIds
 import com.avstaim.listai.feature.reader.readerTopControlLayout
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
@@ -183,6 +185,9 @@ internal fun PhysicalBookView(
     onBookmarkableLocationChanged: ((BookLocation?) -> Unit)? = null,
     onCenterTap: (() -> Unit)? = null,
     onPageNumberTap: (() -> Unit)? = null,
+    onImageTap: ((BookImageHit) -> Unit)? = null,
+    onImageHoldStart: ((BookImageHit) -> Unit)? = null,
+    onImageHoldEnd: (() -> Unit)? = null,
     onReturnToShelf: (() -> Unit)? = null,
     onNavigateToLocation: ((BookLocation) -> Unit)? = null,
     onNavigationState: ((ReaderNavigationState) -> Unit)? = null,
@@ -225,6 +230,9 @@ internal fun PhysicalBookView(
     val progressCallback by rememberUpdatedState(onProgressChanged)
     val centerCallback by rememberUpdatedState(onCenterTap)
     val pageNumberCallback by rememberUpdatedState(onPageNumberTap)
+    val imageCallback by rememberUpdatedState(onImageTap)
+    val imageHoldCallback by rememberUpdatedState(onImageHoldStart)
+    val imageHoldEndCallback by rememberUpdatedState(onImageHoldEnd)
     val shelfCallback by rememberUpdatedState(onReturnToShelf)
     val navigateCallback by rememberUpdatedState(onNavigateToLocation)
     val navigationCallback by rememberUpdatedState(onNavigationState)
@@ -678,6 +686,7 @@ internal fun PhysicalBookView(
         val bookDescription = stringResource(R.string.reader_book_accessibility)
         val forwardAction = stringResource(R.string.reader_turn_forward_action)
         val backwardAction = stringResource(R.string.reader_turn_backward_action)
+        val imageAction = stringResource(R.string.reader_image_open)
         val idleSurfaces = visibleBookSurfaces(
             pages = preparedPages, coverSurface = coverSurface, state = bookState,
             presentation = presentation, navigator = navigator,
@@ -805,6 +814,11 @@ internal fun PhysicalBookView(
                 }
             }
         }
+        val imageRegions = remember(bookState, visiblePageLeaves) {
+            visiblePageLeaves.flatMap { (leaf, surface) ->
+                surface.paginated?.imageTapRegions(leaf).orEmpty()
+            }
+        }
         val semanticsModifier = Modifier.semantics {
             contentDescription = bookDescription
             stateDescription = stateText
@@ -818,6 +832,8 @@ internal fun PhysicalBookView(
                 "${link.noteId.value}|${link.origin.blockId.value}:${link.origin.charOffset}:${link.origin.fallbackGlobalOffset}|${link.kind.name.lowercase()}"
             }
             this[ReaderNoteReturns] = noteReturns.map { it.first }
+            this[ReaderImageBounds] = imageRegions.map { it.bounds }
+            this[ReaderImageIds] = imageRegions.map { it.image.imageId.value }
             this[ReaderNoteReturnTargets] = noteReturns.map { it.second.noteId.value }
             this[ReaderNotesLocation] = readingPosition?.noteLocation?.let {
                 "${readingPosition.noteId?.value}|${it.blockId.value}:${it.charOffset}:${it.fallbackGlobalOffset}"
@@ -870,6 +886,14 @@ internal fun PhysicalBookView(
                 onClick(label = forwardAction) { launchAutomaticTurn(TurnDirection.FORWARD) }
             }
             customActions = buildList {
+                if (imageCallback != null && !physicalTurnActive && jumpPreparing == null &&
+                    !closingBook) imageRegions.forEach { hit ->
+                    add(CustomAccessibilityAction(listOfNotNull(imageAction,
+                        hit.image.alternativeText?.takeIf(String::isNotBlank)).joinToString(": ")) {
+                        imageCallback?.invoke(hit)
+                        true
+                    })
+                }
                 if (canTurn(TurnDirection.FORWARD)) {
                     add(CustomAccessibilityAction(forwardAction) {
                         launchAutomaticTurn(TurnDirection.FORWARD)
@@ -897,6 +921,7 @@ internal fun PhysicalBookView(
                         return@awaitEachGesture
                     }
                     gestureActive = true
+                    var imageHeld = false
                     try {
                         if (jumpPreparing != null || dragSession != null || settleSession != null) {
                             waitUntilReleased(down.id)
@@ -915,14 +940,56 @@ internal fun PhysicalBookView(
                         var dragging = false
                         var movedBeyondTapSlop = false
                         var direction: TurnDirection? = null
+                        val touchedImage = imageRegions.firstOrNull { it.bounds.contains(down.position) }
+                        var holdEligible = touchedImage != null && imageHoldCallback != null &&
+                            noteReturns.none { it.first.contains(down.position) } &&
+                            noteLinks.none { it.first.contains(down.position) }
+                        var imageGestureCancelled = false
 
                         while (current.pressed) {
-                            val event = awaitPointerEvent()
+                            val event = if (holdEligible) {
+                                val remaining = (viewConfiguration.longPressTimeoutMillis -
+                                    (current.uptimeMillis - down.uptimeMillis)).coerceAtLeast(1)
+                                withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                            } else awaitPointerEvent()
+                            if (event == null) {
+                                imageHeld = true
+                                holdEligible = false
+                                current.consume()
+                                imageHoldCallback?.invoke(requireNotNull(touchedImage))
+                                continue
+                            }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            // Android CANCEL is an already-consumed release, never a tap/turn.
+                            if (!change.pressed && change.isConsumed) {
+                                dragSession = null
+                                return@awaitEachGesture
+                            }
+                            if (touchedImage != null && event.changes.count { it.pressed } > 1) {
+                                holdEligible = false
+                                imageGestureCancelled = true
+                                dragSession = null
+                            }
+                            if (imageHeld || imageGestureCancelled) {
+                                event.changes.forEach { it.consume() }
+                                current = change
+                                continue
+                            }
                             tracker.addPosition(change.uptimeMillis, change.position)
                             val displacement = change.position - down.position
                             if (displacement.getDistance() >= viewConfiguration.touchSlop) {
                                 movedBeyondTapSlop = true
+                                holdEligible = false
+                            }
+                            // A delayed frame can deliver the post-hold event before the timer.
+                            if (holdEligible && change.pressed &&
+                                change.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) {
+                                imageHeld = true
+                                holdEligible = false
+                                change.consume()
+                                imageHoldCallback?.invoke(requireNotNull(touchedImage))
+                                current = change
+                                continue
                             }
                             if (
                                 !dragging &&
@@ -951,6 +1018,7 @@ internal fun PhysicalBookView(
                             current = change
                         }
 
+                        if (imageHeld || imageGestureCancelled) return@awaitEachGesture
                         if (!dragging) {
                             if (!movedBeyondTapSlop && down.uptimeMillis + viewConfiguration.longPressTimeoutMillis >= current.uptimeMillis) {
                                 val indices = visiblePageIndices(bookState, presentation, preparedPages.size)
@@ -974,11 +1042,13 @@ internal fun PhysicalBookView(
                                 val noteReturn = noteReturns.firstOrNull { it.first.contains(down.position) }?.second
                                 val noteLink = noteLinks.filter { it.first.contains(down.position) }
                                     .minByOrNull { (it.first.center - down.position).getDistance() }?.second
+                                val image = touchedImage
                                 when {
                                     closedBackground -> shelfCallback?.invoke()
                                     bookState == PhysicalBookState.ClosedBack -> shelfCallback?.invoke()
                                     noteReturn != null -> returnFromNote(noteReturn.noteId)
                                     noteLink != null -> openNote(noteLink.noteId, noteLink.origin)
+                                    image != null && imageCallback != null -> imageCallback?.invoke(image)
                                     tocLink != null && ready?.notes?.noteAt(tocLink) != null ->
                                         openNote(requireNotNull(ready.notes.noteAt(tocLink)))
                                     pageNumberBounds.any { it.contains(down.position) } && pageNumberCallback != null -> pageNumberCallback?.invoke()
@@ -1018,6 +1088,7 @@ internal fun PhysicalBookView(
                         dragSession = null
                         throw cancelled
                     } finally {
+                        if (imageHeld) imageHoldEndCallback?.invoke()
                         gestureActive = false
                     }
                 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -28,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import androidx.core.view.ViewCompat
@@ -38,6 +40,15 @@ import com.avstaim.listai.feature.reader.demo.FakeBookDocumentFactory
 import com.avstaim.listai.feature.reader.demo.toDemoPages
 
 enum class ReaderPresentationMode { AUTOMATIC, SINGLE, SPREAD }
+
+private data class SelectedBookImage(
+    val image: BookImage,
+    val alternativeText: String?,
+    val sourceBounds: Rect?,
+    val preview: BookImagePreview,
+    val transient: Boolean,
+    val visible: Boolean = true,
+)
 
 /** Deterministic renderer fixture, retained for geometry regressions. */
 @Suppress("UNUSED_PARAMETER")
@@ -93,6 +104,7 @@ fun ReaderScreen(
     var navigationRequest by remember(document, readerSession) { mutableStateOf<ReaderJumpRequest?>(null) }
     var navigation by remember(document, readerSession) { mutableStateOf<ReaderNavigationState?>(null) }
     var bookmarkableLocation by remember(document, readerSession) { mutableStateOf<BookLocation?>(null) }
+    var selectedImage by remember(document, readerSession) { mutableStateOf<SelectedBookImage?>(null) }
     val firstChapterLocation = remember(document) { document.firstChapterLocation() }
     val hasDescription = remember(document) { PhysicalAnnotation.create(document)?.hasDescription == true }
     val progressCallback by rememberUpdatedState(onProgressChanged)
@@ -105,7 +117,7 @@ fun ReaderScreen(
     val externalOpeningPending = onboardingReplayRequest > 0L &&
         handledExternalReplay != onboardingReplayRequest && !atReadingPage
     val onboarding = rememberReaderOnboardingState(onboardingCompleted,
-        readerReady = transitionCoverProgress == null && !closingBook && !insertOpen &&
+        readerReady = transitionCoverProgress == null && !closingBook && !insertOpen && selectedImage == null &&
             !externalOpeningPending && !hintsOpening && checkpoint.cover == CoverPosition.OPEN &&
             navigation != null,
         replayRequest = onboardingReplayRequest + localReplay, onComplete = onOnboardingComplete)
@@ -158,7 +170,7 @@ fun ReaderScreen(
         // Keep the origin until the return commits; a cancelled curl remains in this visit.
         navigate(origin, returningFromContents = true)
     }
-    BackHandler(enabled = active && !insertOpen && !onboarding.visible) {
+    BackHandler(enabled = active && !insertOpen && !onboarding.visible && selectedImage == null) {
         if (checkpoint.tocEntryIndex != null) returnFromContents() else onReturnToShelf()
     }
 
@@ -168,6 +180,7 @@ fun ReaderScreen(
     val configuration = LocalConfiguration.current
     val cutout = WindowInsets.displayCutout
     var windowOrigin by remember { mutableStateOf(Offset.Zero) }
+    var imageViewportSize by remember { mutableStateOf(Size.Zero) }
     fun openMenu() { insertSection = PaperInsertSection.MENU; insertOpen = true }
     fun openContents() {
         if (checkpoint.tocEntryIndex == null) contentsOrigin = checkpoint.toReaderBundle()
@@ -179,9 +192,20 @@ fun ReaderScreen(
         openReadingPageForHints()
         localReplay++
     }
+    LaunchedEffect(active, closingBook) {
+        if (!active || closingBook) selectedImage = selectedImage?.copy(visible = false)
+    }
+    LaunchedEffect(imageViewportSize, devicePosture) {
+        // A new paper layout can move the source; fade out instead of returning to stale bounds.
+        selectedImage = selectedImage?.copy(visible = false, sourceBounds = null)
+    }
     Box(modifier.fillMaxSize().drawBehind { drawReaderBackdrop(darkTheme) }
         .readerOnboardingGestures(onboarding)
-        .onGloballyPositioned { windowOrigin = it.boundsInWindow().topLeft }) {
+        .onGloballyPositioned {
+            val bounds = it.boundsInWindow()
+            windowOrigin = bounds.topLeft
+            imageViewportSize = bounds.size
+        }) {
         val left = cutout.getLeft(density, direction).toFloat()
         val top = cutout.getTop(density).toFloat()
         val right = cutout.getRight(density, direction).toFloat()
@@ -195,130 +219,165 @@ fun ReaderScreen(
         val bookOrigin = Offset(left, 0f)
         val paperInsets = ReaderCutoutInsets(top = top,
             cutouts = nativeCutouts.map { it.translate(-bookOrigin) })
-        key(document.id) {
-            PhysicalBookView(
-                pages = emptyList(), document = document,
-                bookTitle = document.metadata.title,
-                bookAuthor = document.metadata.authors.joinToString().ifBlank { null },
-                modifier = Modifier.fillMaxSize().padding(
-                    start = with(density) { left.toDp() },
-                    end = with(density) { right.toDp() }, bottom = with(density) { bottom.toDp() }),
-                initialLocation = checkpoint.location, initialCover = checkpoint.cover,
-                readerSession = readerSession,
-                initialTocEntryIndex = checkpoint.tocEntryIndex, initialTocCharOffset = checkpoint.tocCharOffset,
-                initialAnnotationLocation = checkpoint.annotationLocation,
-                initialTitleLocation = checkpoint.titleLocation,
-                onProgressChanged = {
-                    // Once ordinary turning or a chapter link leaves the TOC, a later
-                    // natural visit must not return to an unrelated old menu origin.
-                    if (checkpoint.tocEntryIndex != null && it.tocEntryIndex == null) contentsOrigin = null
-                    checkpoint = it
-                    if (it.cover == CoverPosition.OPEN && it.annotationLocation == null &&
-                        it.titleLocation == null && it.tocEntryIndex == null) {
-                        if (hintsOpening && dispatchedExternalReplay == onboardingReplayRequest) {
-                            handledExternalReplay = onboardingReplayRequest
+        Box(Modifier.fillMaxSize().then(if (selectedImage != null) Modifier.clearAndSetSemantics {} else Modifier)) {
+            key(document.id) {
+                PhysicalBookView(
+                    pages = emptyList(), document = document,
+                    bookTitle = document.metadata.title,
+                    bookAuthor = document.metadata.authors.joinToString().ifBlank { null },
+                    modifier = Modifier.fillMaxSize().padding(
+                        start = with(density) { left.toDp() },
+                        end = with(density) { right.toDp() }, bottom = with(density) { bottom.toDp() }),
+                    initialLocation = checkpoint.location, initialCover = checkpoint.cover,
+                    readerSession = readerSession,
+                    initialTocEntryIndex = checkpoint.tocEntryIndex, initialTocCharOffset = checkpoint.tocCharOffset,
+                    initialAnnotationLocation = checkpoint.annotationLocation,
+                    initialTitleLocation = checkpoint.titleLocation,
+                    onProgressChanged = {
+                        // Once ordinary turning or a chapter link leaves the TOC, a later
+                        // natural visit must not return to an unrelated old menu origin.
+                        if (checkpoint.tocEntryIndex != null && it.tocEntryIndex == null) contentsOrigin = null
+                        checkpoint = it
+                        if (it.cover == CoverPosition.OPEN && it.annotationLocation == null &&
+                            it.titleLocation == null && it.tocEntryIndex == null) {
+                            if (hintsOpening && dispatchedExternalReplay == onboardingReplayRequest) {
+                                handledExternalReplay = onboardingReplayRequest
+                            }
+                            hintsOpening = false
                         }
-                        hintsOpening = false
-                    }
-                    progressCallback?.invoke(it)
-                },
-                devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
-                outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
-                darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
-                onAddBookmark = onAddBookmarkAt,
-                onDeleteBookmark = onDeleteBookmark,
-                onBookmarkableLocationChanged = { bookmarkableLocation = it },
-                onCenterTap = ::openMenu, onReturnToShelf = onReturnToShelf,
-                onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
-                onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
-                navigationRequest = navigationRequest,
-                noteBackEnabled = !insertOpen,
-                onNavigationRequestConsumed = { sequence ->
-                    if (navigationRequest?.sequence == sequence) navigationRequest = null
-                },
-                transitionCoverProgress = transitionCoverProgress,
-                closingBook = closingBook,
-                onBookReady = {
-                    onBookReady(it.translate(bookOrigin))
-                },
-                onBookCoverChanged = onBookCoverChanged,
-                onBookArtworkReady = onBookArtworkReady,
-                drawBackdrop = false,
-                pageControlInsets = paperInsets,
-                pageControls = { layout ->
-                    ReaderTopControls(layout, darkTheme,
-                        onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
-                        onToggleTheme = { onPreferencesChange(preferences.copy(theme =
-                            if (darkTheme) ReaderTheme.LIGHT else ReaderTheme.DARK)) },
-                        onContents = ::openContents,
-                        showClock = preferences.showClock,
-                        active = active && !closingBook && transitionCoverProgress == null,
-                        onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize(), onMenu = ::openMenu)
-                },
-                closedBookControls = { bookBounds, viewportBounds, physicalPresentation,
-                    frontCover, openFrontCover ->
-                    if (!insertOpen) ClosedBookControls(
-                        onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
-                        onDescription = openFrontCover.takeIf { frontCover && hasDescription },
-                        onShelf = onReturnToShelf,
-                        onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
-                        onContents = ::openContents,
-                        onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
-                        bookBounds = bookBounds,
-                        viewportBounds = viewportBounds,
-                        overlayOnCover = physicalPresentation == BookPresentation.SINGLE,
-                        modifier = Modifier.fillMaxSize())
-                },
-                insideCoverControls = { bookBounds, viewportBounds, openDescription ->
-                    if (!insertOpen) ClosedBookControls(
-                        onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
-                        onDescription = openDescription.takeIf { hasDescription },
-                        onShelf = onReturnToShelf,
-                        onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
-                        onContents = ::openContents,
-                        onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
-                        bookBounds = bookBounds, viewportBounds = viewportBounds,
-                        overlayOnCover = true, modifier = Modifier.fillMaxSize())
-                },
-            )
-        }
-        AnimatedVisibility(insertOpen, modifier = Modifier.fillMaxSize(),
-            enter = fadeIn(tween(140)) + slideInVertically(tween(230)) { it / 12 } + scaleIn(tween(230), initialScale = .96f),
-            exit = fadeOut(tween(130))) {
-            Box(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .18f))
-                    .clickable { insertOpen = false })
-                val currentBookmark = bookmarks.firstOrNull {
-                    it.location.blockId == bookmarkableLocation?.blockId &&
-                        it.location.charOffset == bookmarkableLocation?.charOffset
-                }
-                PaperReaderInsert(
-                    preferences = preferences, onPreferencesChange = onPreferencesChange,
-                    bookmarks = bookmarks, onAddBookmark = {
-                        bookmarkableLocation?.let(onAddBookmarkAt) ?: onAddBookmark()
+                        progressCallback?.invoke(it)
                     },
+                    devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
+                    outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
+                    darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
+                    onAddBookmark = onAddBookmarkAt,
                     onDeleteBookmark = onDeleteBookmark,
-                    onBookmarkSelected = { goTo(it.location) },
-                    onReturnToShelf = { insertOpen = false; onReturnToShelf() }, onDismiss = { insertOpen = false },
-                    onGoToToc = ::openContents,
-                    onReturnFromToc = if (checkpoint.tocEntryIndex != null) {
-                        ::returnFromContents
-                    } else null,
-                    navigation = navigation, onConfirmNavigation = ::goTo,
-                    isBookmarked = currentBookmark != null,
-                    canBookmarkCurrent = bookmarkableLocation != null,
-                    onRemoveCurrentBookmark = { currentBookmark?.let(onDeleteBookmark) },
-                    initialSection = insertSection,
-                    onShowHints = ::replayHints,
-                    modifier = Modifier.align(Alignment.Center).padding(
-                        start = with(density) { left.toDp() } + 18.dp,
-                        top = with(density) { top.toDp() } + 12.dp,
-                        end = with(density) { right.toDp() } + 18.dp,
-                        bottom = with(density) { bottom.toDp() } + 12.dp),
+                    onBookmarkableLocationChanged = { bookmarkableLocation = it },
+                    onCenterTap = ::openMenu, onReturnToShelf = onReturnToShelf,
+                    onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
+                    onImageTap = { hit ->
+                        document.imagesById[hit.image.imageId]?.let {
+                            selectedImage = SelectedBookImage(it, hit.image.alternativeText,
+                                hit.bounds.translate(bookOrigin), hit.preview, transient = false)
+                        }
+                    },
+                    onImageHoldStart = { hit ->
+                        document.imagesById[hit.image.imageId]?.let {
+                            selectedImage = SelectedBookImage(it, hit.image.alternativeText,
+                                hit.bounds.translate(bookOrigin), hit.preview, transient = true)
+                        }
+                    },
+                    onImageHoldEnd = {
+                        selectedImage?.takeIf { it.transient }?.let {
+                            selectedImage = it.copy(visible = false)
+                        }
+                    },
+                    onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
+                    navigationRequest = navigationRequest,
+                    noteBackEnabled = !insertOpen && selectedImage == null,
+                    onNavigationRequestConsumed = { sequence ->
+                        if (navigationRequest?.sequence == sequence) navigationRequest = null
+                    },
+                    transitionCoverProgress = transitionCoverProgress,
+                    closingBook = closingBook,
+                    onBookReady = {
+                        onBookReady(it.translate(bookOrigin))
+                    },
+                    onBookCoverChanged = onBookCoverChanged,
+                    onBookArtworkReady = onBookArtworkReady,
+                    drawBackdrop = false,
+                    pageControlInsets = paperInsets,
+                    pageControls = { layout ->
+                        ReaderTopControls(layout, darkTheme,
+                            onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
+                            onToggleTheme = { onPreferencesChange(preferences.copy(theme =
+                                if (darkTheme) ReaderTheme.LIGHT else ReaderTheme.DARK)) },
+                            onContents = ::openContents,
+                            showClock = preferences.showClock,
+                            active = active && selectedImage == null && !closingBook && transitionCoverProgress == null,
+                            onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize(), onMenu = ::openMenu)
+                    },
+                    closedBookControls = { bookBounds, viewportBounds, physicalPresentation,
+                        frontCover, openFrontCover ->
+                        if (!insertOpen) ClosedBookControls(
+                            onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
+                            onDescription = openFrontCover.takeIf { frontCover && hasDescription },
+                            onShelf = onReturnToShelf,
+                            onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                            onContents = ::openContents,
+                            onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
+                            bookBounds = bookBounds,
+                            viewportBounds = viewportBounds,
+                            overlayOnCover = physicalPresentation == BookPresentation.SINGLE,
+                            modifier = Modifier.fillMaxSize())
+                    },
+                    insideCoverControls = { bookBounds, viewportBounds, openDescription ->
+                        if (!insertOpen) ClosedBookControls(
+                            onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
+                            onDescription = openDescription.takeIf { hasDescription },
+                            onShelf = onReturnToShelf,
+                            onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                            onContents = ::openContents,
+                            onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
+                            bookBounds = bookBounds, viewportBounds = viewportBounds,
+                            overlayOnCover = true, modifier = Modifier.fillMaxSize())
+                    },
                 )
             }
+            AnimatedVisibility(insertOpen, modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(140)) + slideInVertically(tween(230)) { it / 12 } + scaleIn(tween(230), initialScale = .96f),
+                exit = fadeOut(tween(130))) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .18f))
+                        .clickable { insertOpen = false })
+                    val currentBookmark = bookmarks.firstOrNull {
+                        it.location.blockId == bookmarkableLocation?.blockId &&
+                            it.location.charOffset == bookmarkableLocation?.charOffset
+                    }
+                    PaperReaderInsert(
+                        preferences = preferences, onPreferencesChange = onPreferencesChange,
+                        bookmarks = bookmarks, onAddBookmark = {
+                            bookmarkableLocation?.let(onAddBookmarkAt) ?: onAddBookmark()
+                        },
+                        onDeleteBookmark = onDeleteBookmark,
+                        onBookmarkSelected = { goTo(it.location) },
+                        onReturnToShelf = { insertOpen = false; onReturnToShelf() }, onDismiss = { insertOpen = false },
+                        onGoToToc = ::openContents,
+                        onReturnFromToc = if (checkpoint.tocEntryIndex != null) {
+                            ::returnFromContents
+                        } else null,
+                        navigation = navigation, onConfirmNavigation = ::goTo,
+                        isBookmarked = currentBookmark != null,
+                        canBookmarkCurrent = bookmarkableLocation != null,
+                        onRemoveCurrentBookmark = { currentBookmark?.let(onDeleteBookmark) },
+                        initialSection = insertSection,
+                        onShowHints = ::replayHints,
+                        modifier = Modifier.align(Alignment.Center).padding(
+                            start = with(density) { left.toDp() } + 18.dp,
+                            top = with(density) { top.toDp() } + 12.dp,
+                            end = with(density) { right.toDp() } + 18.dp,
+                            bottom = with(density) { bottom.toDp() } + 12.dp),
+                    )
+                }
+            }
+            ReaderOnboardingOverlay(onboarding, darkTheme)
         }
-        ReaderOnboardingOverlay(onboarding, darkTheme)
+        selectedImage?.let { selected ->
+            // Lift only the illustration, leaving a single moving copy over the paper.
+            selected.sourceBounds?.let { source ->
+                // Cover the filtered edge of the pixel-aligned page raster as well.
+                val mask = source.inflate(1f)
+                Box(Modifier.fillMaxSize().drawBehind {
+                    drawRect(if (darkTheme) DarkPaper else WhitePaper,
+                        topLeft = mask.topLeft, size = mask.size)
+                })
+            }
+            BookImageViewer(selected.image, selected.alternativeText,
+                onDismissCompleted = { selectedImage = null }, devicePosture = devicePosture,
+                sourceBounds = selected.sourceBounds, preview = selected.preview,
+                visible = selected.visible, transientPreview = selected.transient,
+                onDismissRequested = { selectedImage = selectedImage?.copy(visible = false) })
+        }
     }
 }
 
@@ -396,6 +455,8 @@ val ReaderNoteReturns = SemanticsPropertyKey<List<Rect>>("ReaderNoteReturns")
 val ReaderNoteReturnTargets = SemanticsPropertyKey<List<String>>("ReaderNoteReturnTargets")
 val ReaderNotesLocation = SemanticsPropertyKey<String>("ReaderNotesLocation")
 val ReaderNoteVisit = SemanticsPropertyKey<String>("ReaderNoteVisit")
+val ReaderImageBounds = SemanticsPropertyKey<List<Rect>>("ReaderImageBounds")
+val ReaderImageIds = SemanticsPropertyKey<List<String>>("ReaderImageIds")
 
 // Legacy test identifier; no production fullscreen control exists.
 const val READER_FULLSCREEN_BUTTON_TAG = "reader_fullscreen_button"
