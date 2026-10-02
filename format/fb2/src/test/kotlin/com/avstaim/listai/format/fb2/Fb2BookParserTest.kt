@@ -1,6 +1,7 @@
 package com.avstaim.listai.format.fb2
 
 import com.avstaim.listai.core.model.BookBlock
+import com.avstaim.listai.core.model.BookChapterKind
 import com.avstaim.listai.core.model.ImageId
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -28,6 +29,94 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Fb2BookParserTest {
+    @Test fun `epilogue title group is unnumbered and preserves UTF16 anchors and chapter depth`() = runBlocking {
+        val source = """<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section><title><p>Часть первая</p></title><section id="chapter"><title><p>Прибытие</p></title>
+            <p id="before">Текст 😀 до конца.</p></section></section>
+            <section id="epilogue"><title><p id="label">Эпилог</p><p id="name">Дом для света</p></title>
+            <p id="epilogue-body">Весной 😀 лёд ушёл.</p><section><title><p>Вечер</p></title><p>Дальше.</p></section></section>
+            <section><title><p>Часть вторая</p></title><section id="next"><title><p>Отъезд</p></title><p>Конец.</p></section></section>
+            </body></FictionBook>"""
+        val document = parser.parse(source.byteInputStream())
+        val epilogue = document.chapters.single { it.kind == BookChapterKind.EPILOGUE }
+        assertEquals(listOf("label", "name").map { document.locationsBySourceId.getValue(it).blockId }, epilogue.headingBlockIds)
+        assertNull(epilogue.ordinal)
+        assertNull(epilogue.number)
+        assertEquals(0, epilogue.numberPrefixLength)
+        assertEquals(listOf("chapter", "epilogue", "next").map { document.locationsBySourceId.getValue(it).blockId },
+            document.chapters.map { it.startBlockId })
+        assertEquals(listOf(1, null, 2), document.chapters.map { it.ordinal })
+        val flat = document.blocks.flattened().filterNot { it is BookBlock.Quote }
+        listOf("label", "name", "epilogue-body").forEach { id ->
+            val location = document.locationsBySourceId.getValue(id)
+            assertEquals(flat.takeWhile { it.id != location.blockId }.sumOf { it.plainText().length + 1L }, location.fallbackGlobalOffset)
+        }
+        // The same-length label switches classification without changing any source identity/offset.
+        val plain = parser.parse(source.replace(">Эпилог<", ">Раздел<").byteInputStream())
+        assertEquals(plain.blocks.flattened().map { it.id }, document.blocks.flattened().map { it.id })
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+    }
+
+    @Test fun `epilogue prose and nested unmarked heading are not principal epilogues`() = runBlocking {
+        val document = parser.parse("""<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section><title><p>Глава первая</p></title><p>Эпилог</p>
+            <section><title><p>Эпилог</p></title><p>Обычный подраздел.</p></section></section>
+            <section><title><p>Эпилог путешествия</p></title><p>Обычный раздел.</p></section>
+            </body></FictionBook>""".byteInputStream())
+        assertTrue(document.chapters.none { it.kind == BookChapterKind.EPILOGUE })
+        assertEquals(1, document.chapters.size)
+    }
+
+    @Test fun `source spacing can precede the part epigraph but a nested chapter is not its subtitle`() = runBlocking {
+        val document = Fb2BookParser().parse("""<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section><title><p>Часть первая</p></title><empty-line/><epigraph><p>Эпиграф.</p></epigraph>
+            <section><title><p>Прибытие</p></title><p>Текст.</p></section></section>
+            <section><title><p>Часть вторая</p></title><section><title><p>Отъезд</p></title><p>Текст.</p></section></section>
+            </body></FictionBook>""".byteInputStream())
+        assertEquals(2, document.parts.size)
+        assertEquals(1, document.parts[1].headingBlockIds.size)
+        assertEquals(2, document.parts[0].epigraphBlockIds.size)
+        assertTrue(document.parts[1].epigraphBlockIds.isEmpty())
+        val blocks = document.blocks.flattened().associateBy { it.id }
+        assertTrue(blocks.getValue(document.parts[0].epigraphBlockIds.first()) is BookBlock.Spacer)
+        assertEquals(listOf("Прибытие", "Отъезд"), document.chapters.map { blocks.getValue(it.startBlockId).plainText() })
+    }
+
+    @Test fun `part title and its epigraph retain source anchors without consuming chapter numbers`() = runBlocking {
+        val source = """<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section id="part"><title><p id="part-number">Часть вторая</p><p id="part-name">Карта прилива</p></title>
+            <epigraph><p id="epigraph">Вода 😀 хранит след.</p><text-author id="author">Дневник</text-author></epigraph>
+            <section id="chapter"><title><p>Глава четвёртая</p></title><p id="text">Текст книги.</p></section></section>
+            <section><title><p>Часть речи</p></title><p>Обычный раздел.</p></section>
+            </body></FictionBook>"""
+        val document = Fb2BookParser().parse(source.byteInputStream())
+        val part = document.parts.single()
+        assertEquals(listOf("part-number", "part-name").map { document.locationsBySourceId.getValue(it).blockId }, part.headingBlockIds)
+        assertEquals(listOf("epigraph", "author").map { document.locationsBySourceId.getValue(it).blockId }, part.epigraphBlockIds)
+        assertEquals("Глава четвёртая", document.blocks.flattened().first { it.id == document.chapters.single().startBlockId }.plainText())
+        val leaves = document.blocks.flattened().filterNot { it is BookBlock.Quote }
+        listOf("epigraph", "author", "text").forEach { sourceId ->
+            val location = document.locationsBySourceId.getValue(sourceId)
+            assertEquals(leaves.takeWhile { it.id != location.blockId }.sumOf { it.plainText().length + 1L }, location.fallbackGlobalOffset)
+        }
+        val original = Fb2BookParser().parse(source.replace("Часть вторая", "Раздел второй").byteInputStream())
+        assertEquals(original.blocks.flattened().map { it.id }, document.blocks.flattened().map { it.id })
+    }
+
+    @Test fun `chapter projection groups title paragraphs without changing source anchors`() = runBlocking {
+        val document = Fb2BookParser().parse("""<FictionBook><description><title-info><book-title>Book</book-title></title-info></description><body>
+            <section id="part"><title><p>Часть первая</p></title><section id="chapter"><title><p id="number">Глава XI.</p><p id="name">Тихий берег</p></title><p id="body">Текст 😀 конца.</p><section><title><p>Подзаголовок</p></title><p>Ещё текст.</p></section></section></section>
+            </body></FictionBook>""".byteInputStream())
+        val chapter = document.chapters.single()
+        assertEquals("XI", chapter.number)
+        assertEquals(2, chapter.headingBlockIds.size)
+        assertEquals(document.locationsBySourceId.getValue("number").blockId, chapter.startBlockId)
+        assertEquals(document.locationsBySourceId.getValue("name").blockId, chapter.headingBlockIds.last())
+        val source = document.blocks.flatMap { if (it is BookBlock.Quote) it.blocks else listOf(it) }
+        val bodyIndex = source.indexOfFirst { it.id == document.locationsBySourceId.getValue("body").blockId }
+        assertEquals(source.take(bodyIndex).sumOf { it.plainText().length + 1L }, document.locationsBySourceId.getValue("body").fallbackGlobalOffset)
+        assertEquals("Глава XI.", source.first { it.id == chapter.startBlockId }.plainText())
+    }
     private val parser = Fb2BookParser()
 
     @Test

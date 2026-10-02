@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_stack_name_clear">Очистить название стопки</string>
+    <string name="library_sheet_book_label">КНИГА</string>
+    <string name="library_sheet_stack_label">СТОПКА</string>
+    <string name="library_sheet_create_title">Новая стопка</string>
+    <string name="library_sheet_create_hint">Назовите стопку и выберите книги.</string>
+    <string name="library_sheet_add_hint">Выберите книги для стопки «%1$s».</string>
+    <string name="library_sheet_search_hint">Найти книгу или автора</string>
+    <string name="library_sheet_found_count">Книг: %1$d</string>
+    <string name="library_sheet_select_all">Выбрать все</string>
+    <string name="library_sheet_minimum">Выберите хотя бы две книги.</string>
+    <string name="library_sheet_create_count">Создать · %1$d</string>
+    <string name="library_sheet_create">Собрать</string>
+    <string name="library_sheet_add_count">Добавить · %1$d</string>
+    <plurals name="library_sheet_book_count">
+        <item quantity="one">%1$d книга</item>
+        <item quantity="few">%1$d книги</item>
+        <item quantity="many">%1$d книг</item>
+        <item quantity="other">%1$d книги</item>
+    </plurals>
+</resources>

@@ -396,9 +396,9 @@ private fun DrawScope.drawBookVisualSurface(
         )
 
         is BookVisualSurface.Cover -> {
-            if (surface.isInside && surface.insideContent == null) {
-                drawWhitePaper(bounds, side, paperColor = if (surface.surface.darkTheme) DarkPaper else Color.White)
-            } else drawExternalBookCover(
+            // Both sides of a rigid cover belong to its binding. Reader paper preferences
+            // apply only to separate leaves, including description and title pages.
+            drawExternalBookCover(
                 surface = surface.surface,
                 bounds = bounds,
                 face = surface.face,

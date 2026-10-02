@@ -66,7 +66,7 @@ fun PaperReaderInsert(
     onDismiss: () -> Unit,
     onGoToToc: () -> Unit,
     onReturnFromToc: (() -> Unit)?,
-    navigation: ReaderNavigationState,
+    navigation: ReaderNavigationState?,
     onConfirmNavigation: (BookLocation) -> Unit,
     modifier: Modifier = Modifier,
     isBookmarked: Boolean = false,
@@ -75,22 +75,23 @@ fun PaperReaderInsert(
     initialSection: PaperInsertSection = PaperInsertSection.MENU,
     onShowHints: (() -> Unit)? = null,
 ) {
-    var section by remember(initialSection) { mutableStateOf(initialSection) }
-    var navigationDraft by remember { mutableStateOf(PaperNavigationDraft.at(navigation.current)) }
-    val draft = navigationDraft.preview
-    val percentText = navigationDraft.percentText
-    val pageText = navigationDraft.pageText
+    var section by remember(initialSection) { mutableStateOf(
+        if (navigation == null && initialSection == PaperInsertSection.PROGRESS) PaperInsertSection.MENU else initialSection) }
+    var navigationDraft by remember { mutableStateOf(navigation?.let { PaperNavigationDraft.at(it.current) }) }
+    val draft = navigationDraft?.preview
+    val percentText = navigationDraft?.percentText.orEmpty()
+    val pageText = navigationDraft?.pageText.orEmpty()
     fun selectPreview(preview: ReaderNavigationPreview) {
         navigationDraft = PaperNavigationDraft.at(preview)
     }
     LaunchedEffect(navigation) {
-        navigationDraft = navigationDraft.refreshed(navigation)
+        navigationDraft = navigation?.let { navigationDraft?.refreshed(it) ?: PaperNavigationDraft.at(it.current) }
     }
     // Resolve again against this snapshot: a newly available exact page must never confirm an old draft.
-    val confirmationLocation = navigationDraft.confirmationLocation(navigation)
+    val confirmationLocation = navigation?.let { navigationDraft?.confirmationLocation(it) }
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier.widthIn(max = 640.dp), contentAlignment = Alignment.Center) {
-        val wide = maxWidth >= 560.dp && section == PaperInsertSection.MENU
+        val wide = maxWidth >= 560.dp && section == PaperInsertSection.MENU && navigation != null
         val compact = maxHeight < 620.dp
         val inset = if (maxWidth < 340.dp) 20.dp else 26.dp
         Column(Modifier.widthIn(max = if (wide) 620.dp else 420.dp).fillMaxWidth().heightIn(max = 680.dp)
@@ -115,12 +116,14 @@ fun PaperReaderInsert(
             when (section) {
                 PaperInsertSection.MENU -> {
                     val place: @Composable () -> Unit = {
+                      if (navigation != null) {
                         ReadingPlace(navigation.current, isBookmarked, compact = compact)
                         Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
                         RulerInvitation(navigation.current.fraction, compact) {
                             selectPreview(navigation.current)
                             section = PaperInsertSection.PROGRESS
                         }
+                      }
                     }
                     val pockets: @Composable () -> Unit = {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -180,17 +183,21 @@ fun PaperReaderInsert(
                     SectionFooter(onDismiss)
                 }
                 PaperInsertSection.PROGRESS -> {
+                  if (navigation != null && draft != null) {
                     Text(stringResource(R.string.insert_preview_position), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     BookmarkRuler(draft.fraction, compact, onChange = { selectPreview(navigation.previewFraction(it)) })
                     ReadingPlace(draft, false, preview = true, compact = compact)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         InkField(stringResource(R.string.insert_percent), percentText, "reader_progress_percent", Modifier.weight(1f)) { value ->
-                            navigationDraft = navigationDraft.editPercent(value, navigation)
+                            navigationDraft = navigationDraft?.editPercent(value, navigation)
                         }
                         InkField(stringResource(R.string.insert_page), pageText, "reader_progress_page", Modifier.weight(1f), KeyboardType.Number) { value ->
-                            navigationDraft = navigationDraft.editPage(value, navigation)
+                            navigationDraft = navigationDraft?.editPage(value, navigation)
                         }
                     }
+                    if (navigation.firstAvailablePage > 1) Text(stringResource(R.string.insert_source_page_range,
+                        navigation.firstAvailablePage, navigation.availablePages),
+                        style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     if (!navigation.complete) Text(stringResource(R.string.insert_pagination_pending, navigation.availablePages),
                         style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     if (confirmationLocation == null) Text(stringResource(R.string.insert_invalid_position),
@@ -204,6 +211,7 @@ fun PaperReaderInsert(
                     InkAction(stringResource(R.string.insert_confirm), "reader_progress_confirm", { confirmationLocation?.let(onConfirmNavigation) },
                         PaperIcon.Check, enabled = confirmationLocation != null, strong = true, modifier = Modifier.fillMaxWidth())
                     InkAction(stringResource(R.string.insert_cancel), "reader_progress_cancel", onDismiss, modifier = Modifier.fillMaxWidth())
+                  }
                 }
             }
         }
@@ -265,6 +273,18 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
                 onPreferencesChange(preferences.copy(theme = theme))
             }
         }
+    }
+    InkRule()
+    val clockLabel = stringResource(R.string.reader_show_clock)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(clockLabel, Modifier.weight(1f),
+            style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
+        androidx.compose.material3.Switch(preferences.showClock,
+            { onPreferencesChange(preferences.copy(showClock = it)) },
+            modifier = Modifier.testTag("reader_show_clock").semantics {
+                contentDescription = clockLabel
+            })
     }
     onShowHints?.let {
         InkRule()

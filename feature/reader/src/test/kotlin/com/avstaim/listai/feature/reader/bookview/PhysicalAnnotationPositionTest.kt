@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import com.avstaim.listai.reader.rendering.turn.TurnDirection
 
 class PhysicalAnnotationPositionTest {
     private val key = LayoutKey(400, 800, PageMode.SINGLE)
@@ -20,6 +21,60 @@ class PhysicalAnnotationPositionTest {
         }, layout.contentWidth.toFloat())
     })
 
+    @Test fun `blank beside recto title preserves separate anchors across folding and contents jumps`() = runBlocking {
+        val source = document().copy(metadata = BookMetadata("Book", listOf("Author"), annotation = "Short description"))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val spreadKey = key.copy(pageMode = PageMode.SPREAD)
+        val main = engine.paginate(source, null, spreadKey).last()
+        val front = engine.paginate(matter.document, null, spreadKey.forAnnotation()).last()
+        assertEquals(listOf(PageKind.TEXT, PageKind.BLANK, PageKind.TEXT), front.pages.map { it.kind })
+        val sourceAnchor = main.pages.last().start
+        val position = ReaderPosition(sourceAnchor)
+        // Natural spread navigation lands on the blank left leaf, with the title on the right.
+        position.commit(PhysicalBookState.Open(1), main, annotationSnapshot = front, titleBlockIds = matter.titleBlockIds)
+        val titleAnchor = position.titleLocation!!
+        assertEquals(BlockId("listai:title:name"), titleAnchor.blockId)
+        assertNull(position.annotationLocation)
+        assertEquals(sourceAnchor, position.location)
+        val phone = engine.paginate(matter.document, titleAnchor, key.forAnnotation()).last()
+        assertEquals(listOf(PageKind.TEXT, PageKind.TEXT), phone.pages.map { it.kind })
+        assertEquals(PhysicalBookState.Open(1), position.initialState(main, annotationSnapshot = phone))
+        val restored = engine.paginate(matter.document, titleAnchor, spreadKey.forAnnotation()).last()
+        assertEquals(PhysicalBookState.Open(2), position.initialState(main, annotationSnapshot = restored))
+        val jump = resolveReaderJump(ReaderJumpRequest(1, position.progress(source.readingLength())), main,
+            null, null, BookPresentation.SPREAD, annotationPageCount = restored.pages.size, annotationSnapshot = restored)
+        assertEquals(PhysicalBookState.Open(2), jump?.target)
+        assertEquals(sourceAnchor, position.location)
+        assertEquals(titleAnchor, position.titleLocation)
+    }
+
+    @Test fun `native title-only book restores one title projection and can close its back cover`() = runBlocking {
+        val title = BookBlock.Heading(BlockId("native-title-only"), 1, listOf(InlineNode.Text("Title 😀")))
+        val source = BookDocument(BookId("only-title"), BookMetadata("Title"), listOf(title), titlePageBlockIds = listOf(title.id))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val main = engine.paginate(source, null, key).last()
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
+        assertTrue(main.pages.isEmpty())
+        assertEquals(1, front.pages.flatMap { it.blocks }.count { it.blockId == title.id })
+        val legacy = BookLocation(title.id, 2, 2)
+        val position = ReaderPosition(legacy)
+        position.restoreNativeTitle(source.titlePageBlockIds.toSet())
+        var state = position.initialState(main, annotationSnapshot = front)
+        assertEquals(PhysicalBookState.Open(0), state)
+        val target = resolveReaderJump(ReaderJumpRequest(1, position.progress(source.readingLength())), main,
+            null, null, BookPresentation.SINGLE, annotationPageCount = front.pages.size, annotationSnapshot = front)
+        assertEquals(state, target?.target)
+        val navigator = PhysicalBookNavigator(front.pages.size, hasFrontEndpaper = false)
+        repeat(2) {
+            if (state != PhysicalBookState.ClosedBack) {
+                state = requireNotNull(navigator.transition(state, TurnDirection.FORWARD, BookPresentation.SINGLE)).to
+                position.commit(state, main, annotationSnapshot = front, titleBlockIds = matter.titleBlockIds)
+            }
+        }
+        assertEquals(PhysicalBookState.ClosedBack, state)
+        assertEquals(legacy, position.location)
+    }
+
     @Test fun `annotation saver preserves exact source checkpoint across font reflow and page-mode change`() = runBlocking {
         val source = document()
         val main = engine.paginate(source, null, key).last()
@@ -29,10 +84,10 @@ class PhysicalAnnotationPositionTest {
         val sourceAnchor = main.pages.last().start
         val exactAnnotationAnchor = front.pages[2].start
         val position = ReaderPosition(sourceAnchor, annotationLocation = exactAnnotationAnchor)
-        assertEquals(PhysicalBookState.Open(1),
+        assertEquals(PhysicalBookState.Open(2),
             position.initialState(main, annotationSnapshot = front))
         val mainProgress = position.progress(source.readingLength())
-        position.commit(PhysicalBookState.Open(1), main, annotationSnapshot = front)
+        position.commit(PhysicalBookState.Open(2), main, annotationSnapshot = front, titleBlockIds = annotation.titleBlockIds)
         assertEquals(exactAnnotationAnchor, position.annotationLocation)
         val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
         val saved = with(ReaderPosition.Saver) { requireNotNull(scope.save(position)) }
@@ -43,18 +98,18 @@ class PhysicalAnnotationPositionTest {
         val resizedKey = key.copy(pageMode = PageMode.SPREAD, pageWidthPx = 300, fontSizeSp = 26f)
         val resized = engine.paginate(annotation.document, restored.annotationLocation, resizedKey.forAnnotation()).last()
         val resizedMain = engine.paginate(source, sourceAnchor, resizedKey).last()
-        assertEquals(PhysicalBookState.Open(resized.pages.pageIndexContaining(restored.annotationLocation!!) - 1),
+        assertEquals(PhysicalBookState.Open(resized.pages.pageIndexContaining(restored.annotationLocation!!)),
             restored.initialState(resizedMain, annotationSnapshot = resized))
         assertEquals(sourceAnchor, restored.location)
-        restored.commit(PhysicalBookState.FrontBoundary, main, annotationSnapshot = front)
+        restored.commit(PhysicalBookState.Open(0), main, annotationSnapshot = front, titleBlockIds = annotation.titleBlockIds)
         assertEquals(front.pages.first().start, restored.annotationLocation)
-        assertEquals(PhysicalBookState.FrontBoundary, restored.initialState(main, annotationSnapshot = front))
+        assertEquals(PhysicalBookState.Open(0), restored.initialState(main, annotationSnapshot = front))
         assertEquals(PhysicalBookState.Open(0),
             restored.initialState(resizedMain, annotationSnapshot = resized))
         assertEquals(sourceAnchor, restored.location)
     }
 
-    @Test fun `main navigation clears an annotation copied with the old checkpoint`() = runBlocking {
+    @Test fun `explicit main navigation clears supplemental anchors`() = runBlocking {
         val source = document()
         val main = engine.paginate(source, null, key).last()
         val annotation = requireNotNull(PhysicalAnnotation.create(source))
@@ -62,26 +117,124 @@ class PhysicalAnnotationPositionTest {
         val position = ReaderPosition(main.pages.last().start)
         position.commit(PhysicalBookState.FrontBoundary, main, annotationSnapshot = front)
         val destination = main.pages[1].start
-        position.commitJump(position.progress(source.readingLength()).copy(location = destination))
+        position.commitJump(position.progress(source.readingLength()).copy(location = destination, annotationLocation = null, titleLocation = null))
         assertNull(position.annotationLocation)
         assertEquals(destination, position.location)
         assertEquals(PhysicalBookState.Open(front.annotationPaperCount + 1),
             position.initialState(main, annotationSnapshot = front))
     }
 
-    @Test fun `single front endpaper is stable without an fb2 annotation`() = runBlocking {
+    @Test fun `absent description still has independent title and no empty endpaper`() = runBlocking {
         val source = document().copy(metadata = BookMetadata("Book"))
         val main = engine.paginate(source, null, key).last()
-        val original = main.pages.first().start
-        val position = ReaderPosition(original, cover = "front")
-
-        position.commit(PhysicalBookState.FrontBoundary, main, annotationSnapshot = null)
-
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        assertFalse(matter.hasDescription)
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
+        assertEquals(front.pages.size, front.annotationPaperCount)
+        val original = main.pages.last().start
+        val title = BookLocation(BlockId("listai:title:name"), 2, 2)
+        val position = ReaderPosition(original, titleLocation = title)
+        assertEquals(PhysicalBookState.Open(0), position.initialState(main, annotationSnapshot = front))
         assertNull(position.annotationLocation)
-        assertEquals(original, position.location)
-        assertEquals(CoverPosition.OPEN, position.progress(source.readingLength()).cover)
-        assertEquals(PhysicalBookState.FrontBoundary,
-            position.initialState(main, annotationSnapshot = null))
+        val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
+        val saved = with(ReaderPosition.Saver) { requireNotNull(scope.save(position)) }
+        val restored = requireNotNull(ReaderPosition.Saver.restore(saved))
+        assertEquals(title, restored.titleLocation)
+        assertEquals(original, restored.location)
+        restored.commit(PhysicalBookState.ClosedFront, main, annotationSnapshot = front, titleBlockIds = matter.titleBlockIds)
+        assertEquals(original, restored.location)
+        assertEquals(PhysicalBookState.ClosedFront, restored.initialState(main, annotationSnapshot = front))
+    }
+
+    @Test fun `title and description keep separate exact anchors through jumps and reflow`() = runBlocking {
+        val source = document().copy(metadata = BookMetadata("A very long title ".repeat(60), listOf("Author"), annotation = "Description text"))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val main = engine.paginate(source, null, key).last()
+        val front = engine.paginate(matter.document, null, key.forAnnotation()).last()
+        val mainLocation = main.pages.last().start
+        val title = BookLocation(BlockId("listai:title:name"), 123, 0)
+        val position = ReaderPosition(mainLocation)
+        position.commitJump(ReadingProgress(mainLocation, titleLocation = title))
+        val before = position.progress(source.readingLength())
+        assertNull(before.annotationLocation)
+        assertEquals(title, before.titleLocation)
+        val resizedKey = key.copy(pageMode = PageMode.SPREAD, pageWidthPx = 220, fontSizeSp = 32f)
+        val resized = engine.paginate(matter.document, title, resizedKey.forAnnotation()).last()
+        val sourceResized = engine.paginate(source, mainLocation, resizedKey).last()
+        assertEquals(PhysicalBookState.Open(resized.pages.pageIndexContaining(title)), position.initialState(sourceResized, annotationSnapshot = resized))
+        position.commitJump(before.copy(annotationLocation = front.pages.first().start, titleLocation = null))
+        assertNull(position.titleLocation)
+        assertEquals(mainLocation, position.location)
+        assertEquals(before.fraction, position.progress(source.readingLength()).fraction)
+        assertEquals(PhysicalBookState.Open(0), position.initialState(main, annotationSnapshot = front))
+        assertEquals(PhysicalBookState.ClosedFront, resolveReaderJump(ReaderJumpRequest(2,
+            ReadingProgress(cover = CoverPosition.FRONT)), main, null, null, BookPresentation.SINGLE)?.target)
+    }
+
+    @Test fun `contents return remembers note visit across recreation without replacing main progress`() {
+        val main = BookLocation(BlockId("body"), 17, 170)
+        val target = BookLocation(BlockId("note"), 23, 230)
+        val id = NoteId("note")
+        val origin = BookLocation(BlockId("body"), 29, 182)
+        val position = ReaderPosition(main, noteLocation = target, noteId = id, visit = FootnoteVisit(id, origin, target))
+        val request = position.prepareJump(ReaderJumpRequest(1, ReadingProgress(main, tocEntryIndex = 0)))
+        position.commitJump(request, null)
+        val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
+        val saved = with(ReaderPosition.Saver) { requireNotNull(scope.save(position)) }
+        val restored = requireNotNull(ReaderPosition.Saver.restore(saved))
+        val returning = restored.prepareJump(ReaderJumpRequest(2, ReadingProgress(main), returningFromContents = true))
+        assertEquals(id, returning.noteId)
+        assertEquals(target, returning.noteTarget)
+        assertEquals(origin, returning.origin)
+        restored.commitJump(returning, null)
+        assertEquals(FootnoteVisit(id, origin, target), restored.visit)
+        assertEquals(main, restored.location)
+    }
+
+    @Test fun `ordinary exit from contents forgets a previous direct note visit`() = runBlocking {
+        val source = document()
+        val main = engine.paginate(source, null, key).last()
+        val contents = PhysicalContents(source, "Contents", "Begin reading")
+        val toc = engine.paginate(contents.document, null, key).last()
+        val anchor = main.pages.first().start
+        val id = NoteId("note")
+        val target = BookLocation(BlockId("note"), 23, 230)
+        val position = ReaderPosition(anchor, noteLocation = target, noteId = id,
+            visit = FootnoteVisit(id, anchor, target))
+        position.commitJump(position.prepareJump(ReaderJumpRequest(1,
+            ReadingProgress(anchor, tocEntryIndex = 0))), null)
+        position.commit(PhysicalBookState.Open(toc.pages.size), main, contents, toc)
+        position.commit(PhysicalBookState.Open(0), main, contents, toc)
+        val returning = position.prepareJump(ReaderJumpRequest(2, ReadingProgress(anchor), returningFromContents = true))
+        assertNull("A natural TOC visit must not resurrect an unrelated earlier note", returning.noteId)
+        assertNull(returning.noteTarget)
+        assertEquals(anchor, position.location)
+    }
+
+    @Test fun `legacy native title checkpoint restores its projection without advancing main progress`() = runBlocking {
+        val title = BookBlock.Heading(BlockId("native-title"), 1, listOf(InlineNode.Text("A native title")))
+        val source = document().copy(blocks = listOf(title) + document().blocks, titlePageBlockIds = listOf(title.id))
+        val matter = requireNotNull(PhysicalAnnotation.create(source))
+        val nativeLocation = BookLocation(title.id, 5, 5)
+        val position = ReaderPosition(nativeLocation)
+        val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
+        val saved = with(ReaderPosition.Saver) { requireNotNull(scope.save(position)) }
+        // Also exercise the old Bundle form, before the title fields were appended.
+        val restored = requireNotNull(ReaderPosition.Saver.restore((saved as List<*>).take(20)))
+        val before = restored.progress(source.readingLength())
+        restored.restoreNativeTitle(source.titlePageBlockIds.toSet())
+        val front = engine.paginate(matter.document, restored.titleLocation, key.forAnnotation()).last()
+        val main = engine.paginate(source, restored.location, key).last()
+        assertEquals(nativeLocation, restored.titleLocation)
+        assertEquals(before.location, restored.location)
+        assertEquals(before.fraction, restored.progress(source.readingLength()).fraction)
+        assertEquals(PhysicalBookState.Open(front.pages.pageIndexContaining(nativeLocation)),
+            restored.initialState(main, annotationSnapshot = front))
+        val mainLocation = main.pages.last().start
+        restored.commitJump(ReadingProgress(mainLocation))
+        restored.restoreNativeTitle(source.titlePageBlockIds.toSet())
+        assertNull(restored.titleLocation)
+        assertEquals(mainLocation, restored.location)
     }
 
     private fun document() = BookDocument(BookId("annotation-state"),

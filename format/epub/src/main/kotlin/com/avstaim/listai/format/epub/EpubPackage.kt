@@ -71,7 +71,10 @@ internal class EpubXml(private val limits: EpubParserLimits) {
 internal fun elementName(local: String, qualified: String): String = local.ifEmpty { qualified.substringAfter(':') }.lowercase()
 internal fun Attributes.value(name: String): String? = getValue(name)?.trim()?.takeIf(String::isNotEmpty)
 internal fun Attributes.epubType(): Set<String> =
-    (getValue("http://www.idpf.org/2007/ops", "type") ?: getValue("epub:type")).orEmpty().split(Regex("\\s+")).toSet()
+    (getValue("http://www.idpf.org/2007/ops", "type") ?: getValue("epub:type")).orEmpty().split(Regex("\\s+")).toSet() +
+        value("role").orEmpty().split(Regex("\\s+")).mapNotNull {
+            when (it) { "doc-part" -> "part"; "doc-chapter" -> "chapter"; "doc-epigraph" -> "epigraph"; "doc-epilogue" -> "epilogue"; else -> null }
+        }
 internal fun String.normalizedText(): String = replace(Regex("[\\t\\r\\n ]+"), " ").trim()
 
 internal fun normalizeArchivePath(path: String): String {
@@ -132,6 +135,9 @@ internal class PackageHandler(private val path: String) : EpubHandler() {
     var identifier: String? = null
     var coverId: String? = null
     var coverPage: String? = null
+    var titlePage: String? = null
+    var seriesName: String? = null
+    var seriesNumber: Int? = null
     var ncxId: String? = null
     private val stack = mutableListOf<String>()
     private var capture: String? = null
@@ -164,8 +170,13 @@ internal class PackageHandler(private val path: String) : EpubHandler() {
             tag == "spine" -> ncxId = attrs.value("toc")
             tag == "itemref" && parent == "spine" -> spine += SpineReference(attrs.value("idref") ?: malformed(), attrs.value("linear") != "no")
             tag == "meta" && parent == "metadata" && attrs.value("name") == "cover" -> coverId = attrs.value("content")
+            tag == "meta" && parent == "metadata" && attrs.value("name") == "calibre:series" -> seriesName = attrs.value("content")
+            tag == "meta" && parent == "metadata" && attrs.value("name") == "calibre:series_index" ->
+                seriesNumber = attrs.value("content")?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 && it <= Int.MAX_VALUE && it % 1.0 == 0.0 }?.toInt()
             tag == "reference" && parent == "guide" && attrs.value("type") == "cover" ->
                 coverPage = attrs.value("href")?.let { resolveReference(path, it)?.path }
+            tag == "reference" && parent == "guide" && attrs.value("type") == "title-page" ->
+                titlePage = attrs.value("href")?.let { resolveReference(path, it)?.path }
         }
     }
     override fun characters(chars: CharArray, start: Int, length: Int) {

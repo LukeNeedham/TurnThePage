@@ -48,11 +48,17 @@ class PaperControlsFlowTest {
             val id = importFixture(controller).also { fixtureId = it }
             compose.runOnUiThread {
                 controller.setReaderPreferences(fixturePreferences)
+                controller.completeReaderOnboarding()
                 controller.open(id)
             }
             compose.waitUntil(30_000) {
                 controller.selection.value?.opened?.book?.id == id && !controller.busy.value &&
                     controller.readerPreferences.value == fixturePreferences
+            }
+            waitForBook()
+            compose.onNodeWithTag("closed_book_read").performClick()
+            compose.waitUntil(30_000) {
+                controller.selection.value?.initialProgress?.cover == com.avstaim.listai.core.model.CoverPosition.OPEN
             }
             waitForBook()
             val original = requireNotNull(controller.selection.value)
@@ -130,7 +136,10 @@ class PaperControlsFlowTest {
     }
 
     private fun waitForBook() = compose.waitUntil(30_000) {
-        compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().any {
+        // Pagination finishes before the shelf flight. Its input shield must also settle.
+        compose.onAllNodesWithTag("shelf_reader_transition").fetchSemanticsNodes().any {
+            it.config.getOrElse(ShelfTransitionPhase) { "" } == ShelfReaderPhase.READING.name
+        } && compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().any {
             it.config.getOrElse(ReaderPaginationComplete) { false } &&
                 !it.config.getOrElse(ReaderJumpInProgress) { true } &&
                 it.config.getOrElse(ReaderTurnProgress) { 1f } == 0f

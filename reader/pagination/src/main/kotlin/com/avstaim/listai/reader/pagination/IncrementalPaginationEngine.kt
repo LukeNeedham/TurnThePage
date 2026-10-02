@@ -10,6 +10,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.yield
 import kotlin.math.min
 
@@ -20,10 +21,25 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
         return snapshot.pages[snapshot.anchorPageIndex]
     }
 
-    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =
+    override fun paginate(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> {
+        val pages = if (document.parts.isEmpty()) paginateSource(document, location, layoutKey)
+        else {
+            val parts = PartLeafProjector(document, location)
+            paginateSource(document.withPartBreaks(), location, layoutKey).map(parts::project)
+        }
+        val title = document.titlePageBlockIds.firstOrNull()?.takeIf { document.isFrontmatter }
+        return if (title != null) pages.map { it.withRectoTitle(title) } else pages
+    }
+
+    private fun paginateSource(document: BookDocument, location: BookLocation?, layoutKey: LayoutKey): Flow<PaginationSnapshot> =
         if (document.noteIndex.referencesByBlock.isNotEmpty()) paginateWithFootnotes(document, location, layoutKey, measurer)
         else flow {
         val flow = document.readingFlow()
+        if (flow.isEmpty() && document.titlePageBlockIds.isNotEmpty()) {
+            emit(PaginationSnapshot(layoutKey, emptyList(), 0, complete = true))
+            return@flow
+        }
+        val chapterStarts = document.chapters.associateBy { it.startBlockId }
         val anchor = flow.resolveLocation(location)
         val pages = mutableListOf<PageLayout>()
         val fragments = mutableListOf<PageBlockLayout>()
@@ -60,6 +76,8 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
             // Fixed-layout source pages occupy separate leaves even when their aspect ratio
             // leaves unused paper. Neither font changes nor a short landscape page may merge them.
             if (block.source is BookBlock.FixedPage) finishPage()
+            // Source metadata marks chapter boundaries; an ordinary nested heading does not.
+            if (block.source.id in chapterStarts || block.source.id in document.pageBreakBefore) finishPage()
             val measured = nextMeasurement ?: measurer.measure(block, layoutKey)
             nextMeasurement = null
             require(measured.lines.isNotEmpty() && measured.width.isFinite() && measured.width > 0)
@@ -70,7 +88,7 @@ class IncrementalPaginationEngine(private val measurer: BlockMeasurer) : Paginat
                 val headingHeight = measured.lines.last().bottom - measured.lines.first().top
                 val required = headingHeight + layoutKey.paragraphGap + (following?.lines?.firstOrNull()?.height ?: 0f)
                 if (fragments.isNotEmpty() && required <= layoutKey.contentHeight && y + required > layoutKey.contentHeight) finishPage()
-                chapter = block.source.id
+                if (block.source.id in chapterStarts || document.chapters.isEmpty()) chapter = block.source.id
             }
             var lineIndex = 0
             while (lineIndex < measured.lines.size) {

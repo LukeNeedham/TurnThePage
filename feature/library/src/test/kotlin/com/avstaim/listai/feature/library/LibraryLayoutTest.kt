@@ -7,6 +7,16 @@ import org.junit.Test
 
 class LibraryLayoutTest {
     @Test
+    fun measuredCaptionHeightCanMakeTheLastShelfScrollableWithoutAddingFakeRows() {
+        val normal = calculateLibraryLayout(800f, 2, 228f, rowCaptionHeightsDp = listOf(44f, 44f))
+        val largeFont = calculateLibraryLayout(800f, 2, 228f, rowCaptionHeightsDp = listOf(72f, 72f))
+        assertFalse(normal.scrollable)
+        assertTrue(largeFont.scrollable)
+        assertEquals(2, largeFont.rowCount)
+        assertEquals(0, largeFont.decorativeRowCount)
+    }
+
+    @Test
     fun displayCutoutIsExcludedBeforeDecidingWhetherRealRowsFit() {
         val exactFit = calculateLibraryLayout(viewportHeightDp = 708f, rowCount = 2,
             bookHeightDp = 228f, topInsetDp = 32f)

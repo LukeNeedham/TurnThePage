@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_stack_name_clear">Clear stack name</string>
+    <string name="library_sheet_book_label">BOOK</string>
+    <string name="library_sheet_stack_label">STACK</string>
+    <string name="library_sheet_create_title">New stack</string>
+    <string name="library_sheet_create_hint">Give it a name and choose your books.</string>
+    <string name="library_sheet_add_hint">Choose books for “%1$s”.</string>
+    <string name="library_sheet_search_hint">Find a book or author</string>
+    <string name="library_sheet_found_count">Books: %1$d</string>
+    <string name="library_sheet_select_all">Select all</string>
+    <string name="library_sheet_minimum">Choose at least two books.</string>
+    <string name="library_sheet_create_count">Create · %1$d</string>
+    <string name="library_sheet_create">Create</string>
+    <string name="library_sheet_add_count">Add · %1$d</string>
+    <plurals name="library_sheet_book_count">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+</resources>

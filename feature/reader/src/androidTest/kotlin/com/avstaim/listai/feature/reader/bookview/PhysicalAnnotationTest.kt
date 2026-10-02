@@ -1,198 +1,158 @@
 package com.avstaim.listai.feature.reader.bookview
 
+import android.graphics.Bitmap
 import android.text.Spanned
 import android.text.style.StyleSpan
-import android.graphics.Bitmap
-import android.graphics.Canvas as AndroidCanvas
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.avstaim.listai.core.model.*
 import com.avstaim.listai.reader.pagination.*
-import com.avstaim.listai.core.designsystem.BookCoverSurface
-import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
-import com.avstaim.listai.reader.rendering.geometry.Point
-import com.avstaim.listai.reader.rendering.turn.TurnDirection
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
-import kotlin.math.roundToInt
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PhysicalAnnotationTest {
-    @Test fun annotationInkStaysOnTheRigidInsideBoardDuringOpeningAndClosing() = runBlocking {
-        val layout = calculateBookCanvasLayout(Size(840f, 660f), BookPresentation.SPREAD, 10f, 6f)
-        val key = LayoutKey(840, 660, PageMode.SPREAD, pageWidthPx = layout.pageWidth.toInt(),
-            pageHeightPx = layout.pageHeight.toInt()).forAnnotation()
-        val annotation = requireNotNull(PhysicalAnnotation.create(source()))
-        val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(annotation.document, "Missing"))
-            .paginate(annotation.document, null, key).last()
-        val inkSurface = AndroidPageRasterizer(annotation.document, key.forInsideCoverAnnotation(), "Missing")
-            .render(snapshot.pages.first())
-        assertTrue(inkSurface.darkTheme)
-        val ink = inkSurface.asBookSurface(0)
-        val stock = BookCoverSurface(null, null, IntSize(key.pageWidthPx, key.pageHeightPx))
-        val outside = BookVisualSurface.Cover(stock, ExternalBookCoverFace.FRONT)
-        val blank = BookVisualSurface.Cover(stock, ExternalBookCoverFace.BACK)
-        val printed = BookVisualSurface.Cover(stock, ExternalBookCoverFace.BACK, insideContent = ink, isInside = true)
-        for (direction in TurnDirection.entries) {
-            val sourceBounds = layout.sourcePage(direction)
-            val destinationBounds = requireNotNull(layout.destinationPage(direction))
-            val engine = PageCurlGeometryEngine()
-            val start = engine.calculate(sourceBounds.toCurlRect(),
-                Point(if (direction == TurnDirection.FORWARD) sourceBounds.right.toDouble() else sourceBounds.left.toDouble(),
-                    sourceBounds.bottom.toDouble()), direction, destinationBounds = destinationBounds.toCurlRect())
-            for (fraction in if (direction == TurnDirection.FORWARD) listOf(.7f, .9f, 1f) else listOf(0f, .1f, .3f)) {
-                val pointer = Point(start.grabPoint.x + (start.completionPointer.x - start.grabPoint.x) * fraction,
-                    start.grabPoint.y + (start.completionPointer.y - start.grabPoint.y) * fraction)
-                val geometry = engine.calculate(sourceBounds.toCurlRect(), pointer, direction,
-                    destinationBounds = destinationBounds.toCurlRect())
-                fun draw(inside: BookVisualSurface.Cover): Bitmap {
-                    val bitmap = Bitmap.createBitmap(840, 660, Bitmap.Config.ARGB_8888)
-                    val frame = CurlFrame(direction, geometry,
-                        if (direction == TurnDirection.FORWARD) outside else inside,
-                        sourceBounds, if (direction == TurnDirection.FORWARD) PageSide.RIGHT else PageSide.LEFT,
-                        if (direction == TurnDirection.FORWARD) inside else outside, destinationBounds)
-                    CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(AndroidCanvas(bitmap)), Size(840f, 660f)) {
-                        drawPhysicalBook(layout, VisibleBookSurfaces(BookVisualSurface.PlainPaper, BookVisualSurface.PlainPaper),
-                            0f, PhysicalBookPose.OPEN, frame, stock)
-                    }
-                    return bitmap
-                }
-                val unprinted = draw(blank)
-                val annotated = draw(printed)
-                val projection = calculateRigidCoverProjection(sourceBounds, destinationBounds, direction, geometry.progress.toFloat())
-                var inkPixels = 0
-                for (y in 0 until annotated.height) for (x in 0 until annotated.width) {
-                    if (unprinted.getPixel(x, y) != annotated.getPixel(x, y)) {
-                        inkPixels++
-                        assertTrue("Ink escaped the moving board at $x,$y", x >= projection.projectedBounds.left - 1 &&
-                            x <= projection.projectedBounds.right + 1 && y >= projection.projectedBounds.top - 1 &&
-                            y <= projection.projectedBounds.bottom + 1)
-                    }
-                }
-                assertTrue("Annotation must remain visible on the inside board at $direction/$fraction", inkPixels > 20)
-                val cleanNativeX = projection.nativeBounds.left + 8f
-                val cleanX = (projection.projectedHingeX +
-                    (cleanNativeX - projection.nativeHingeX) * projection.horizontalScale)
-                    .roundToInt().coerceIn(0, annotated.width - 1)
-                val cleanY = (projection.nativeBounds.top + 8f).roundToInt().coerceIn(0, annotated.height - 1)
-                assertEquals("Description must retain BACK cover stock at $direction/$fraction",
-                    unprinted.getPixel(cleanX, cleanY), annotated.getPixel(cleanX, cleanY))
-                unprinted.recycle()
-                annotated.recycle()
-            }
-        }
-    }
-
-    @Test fun annotationPagesRetainAllTextStyleAndNormalTypeSizeWhileMainAnchorsStayUnchanged() = runBlocking {
+    @Test fun descriptionAndTitleFollowReadingThemeInBothModesWithOriginalSourceStyles() = runBlocking {
         for (mode in PageMode.entries) for (dark in listOf(false, true)) {
             val key = LayoutKey(360, 640, mode, fontSizeSp = 22f, darkTheme = dark,
                 pageWidthPx = 360, topContentInsetDp = 72f)
             val source = source()
-            val annotation = requireNotNull(PhysicalAnnotation.create(source))
-            val annotationKey = key.forAnnotation()
-            assertEquals(key.fontSizeSp, annotationKey.fontSizeSp)
-            assertEquals(key.textScale, annotationKey.textScale)
-            val annotationSnapshot = IncrementalPaginationEngine(AndroidBookMeasurer(annotation.document, "Missing"))
-                .paginate(annotation.document, null, annotationKey).last()
-            assertTrue(annotationSnapshot.pages.size > 2)
-            assertEquals(annotationSnapshot.pages.size - 1, annotationSnapshot.annotationPaperCount)
-            val flow = annotation.document.readingFlow().associateBy { it.source.id }
-            val paperKey = if (mode == PageMode.SINGLE) key.forWhitePaperAnnotation() else annotationKey
-            val rasterizer = AndroidPageRasterizer(annotation.document, paperKey, "Missing")
-            val insideSurface = if (mode == PageMode.SINGLE) rasterizer.render(annotationSnapshot.pages.first())
-                else AndroidPageRasterizer(annotation.document,
-                    key.forInsideCoverAnnotation(), "Missing").render(annotationSnapshot.pages.first())
-            assertEquals("SINGLE starts on white paper; SPREAD starts on the dark inside cover",
-                mode == PageMode.SPREAD, insideSurface.darkTheme)
-            assertTrue("The first physical annotation surface must contain the FB2 description",
-                insideSurface.accessibleText.contains("An opening emphasized phrase in the description."))
-            val overflowSurface = rasterizer.render(annotationSnapshot.pages[1])
-            assertEquals("Every SINGLE annotation leaf stays white; SPREAD overflow follows the selected theme",
-                if (mode == PageMode.SINGLE) false else dark, overflowSurface.darkTheme)
-            val renderedText = StringBuilder()
-            annotationSnapshot.pages.forEach { page ->
+            val frontmatter = requireNotNull(PhysicalAnnotation.create(source, "Описание"))
+            assertTrue(frontmatter.hasDescription)
+            val paperKey = key.forAnnotation()
+            val front = IncrementalPaginationEngine(AndroidBookMeasurer(frontmatter.document, "Missing"))
+                .paginate(frontmatter.document, null, paperKey).last()
+            assertTrue(front.pages.size > 2)
+            assertEquals(front.pages.size, front.annotationPaperCount)
+            val titlePage = front.pages.indexOfFirst { page -> page.blocks.any { it.blockId in frontmatter.titleBlockIds } }
+            assertTrue(titlePage > 0)
+            assertTrue(front.pages[titlePage].blocks.first().blockId in frontmatter.titleBlockIds)
+            val rasterizer = AndroidPageRasterizer(frontmatter.document, paperKey, "Missing")
+            for (page in listOf(front.pages.first(), front.pages[1], front.pages[titlePage])) {
                 val surface = rasterizer.render(page)
+                assertEquals("Frontmatter follows the selected reading theme", dark, surface.darkTheme)
                 assertNull(surface.footerText)
-                assertEquals(if (mode == PageMode.SINGLE) false else dark, surface.darkTheme)
-                assertFalse(surface.accessibleText.contains(source.metadata.title))
-                page.blocks.forEach { fragment ->
-                    assertEquals(1f, fragment.scale)
-                    assertTrue(fragment.x >= annotationKey.marginX)
-                    assertTrue(fragment.y >= annotationKey.contentTop)
-                    renderedText.append(flow.getValue(fragment.blockId).source.plainText()
-                        .substring(fragment.startCharOffset, fragment.endCharOffsetExclusive))
-                }
+                assertTrue(surface.byteCount > 0)
+                assertThemedPaperAndReadableInk(surface, dark)
             }
-            assertEquals(annotation.document.blocks.joinToString("") { it.plainText() }, renderedText.toString())
-            val measured = AndroidBookMeasurer(annotation.document, "Missing").measure(flow.values.first(), annotationKey)
-                as AndroidTextMeasurement
-            val spans = measured.layout.text as Spanned
-            assertTrue(spans.getSpans(0, spans.length, StyleSpan::class.java).isNotEmpty())
-
-            val snapshot = IncrementalPaginationEngine(AndroidBookMeasurer(source, "Missing"))
-                .paginate(source, null, key).last()
-            val contents = PhysicalContents(source, "Contents", "Begin reading")
-            val toc = paginatePhysicalContents(contents, key, AndroidContentsMeasurer())
-            assertEquals(listOf("Only source chapter"), contents.entries.map { it.title })
-            assertEquals(listOf(1), contents.sourcePageNumbers(snapshot).values.toList())
-            val sourceLocation = snapshot.pages.last().start
-            val position = ReaderPosition(sourceLocation)
+            assertTrue(rasterizer.render(front.pages.first()).accessibleText.startsWith("Описание"))
+            assertTrue(rasterizer.render(front.pages[titlePage]).accessibleText.contains(source.metadata.title))
+            val flow = frontmatter.document.readingFlow().associateBy { it.source.id }
+            val collected = front.pages.flatMap { it.blocks }.joinToString("") { fragment ->
+                flow.getValue(fragment.blockId).source.plainText().substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
+            }
+            assertEquals(frontmatter.document.blocks.joinToString("") { it.plainText() }, collected)
+            val rich = flow.getValue(BlockId("description-first"))
+            val measured = AndroidBookMeasurer(frontmatter.document, "Missing").measure(rich, paperKey) as AndroidTextMeasurement
+            val styled = measured.layout.text as Spanned
+            assertTrue(styled.getSpans(0, styled.length, StyleSpan::class.java).isNotEmpty())
+            val main = IncrementalPaginationEngine(AndroidBookMeasurer(source, "Missing")).paginate(source, null, key).last()
+            val anchor = main.pages.last().start
+            val position = ReaderPosition(anchor)
             val before = position.progress(source.readingLength())
-            position.commit(PhysicalBookState.FrontBoundary, snapshot, contents, toc,
-                annotationSnapshot = annotationSnapshot)
-            val coverProgress = position.progress(source.readingLength())
-            assertEquals(before.location, coverProgress.location)
-            assertEquals(before.fraction, coverProgress.fraction)
-            assertEquals(annotationSnapshot.pages.first().start, coverProgress.annotationLocation)
-            assertEquals(if (mode == PageMode.SINGLE) PhysicalBookState.FrontBoundary else PhysicalBookState.Open(0),
-                ReaderPosition(sourceLocation, annotationLocation = coverProgress.annotationLocation)
-                    .initialState(snapshot, contents, toc, annotationSnapshot = annotationSnapshot))
-            position.commit(PhysicalBookState.Open(0), snapshot, contents, toc,
-                annotationSnapshot = annotationSnapshot)
-            assertEquals(annotationSnapshot.pages[1].start,
-                position.progress(source.readingLength()).annotationLocation)
-            position.commit(PhysicalBookState.Open(1), snapshot, contents, toc,
-                annotationSnapshot = annotationSnapshot)
-            val overflowProgress = position.progress(source.readingLength())
-            assertEquals(before.location, overflowProgress.location)
-            assertEquals(annotationSnapshot.pages[2].start, overflowProgress.annotationLocation)
-            assertEquals(PhysicalBookState.Open(1), ReaderPosition(sourceLocation,
-                annotationLocation = overflowProgress.annotationLocation).initialState(snapshot, contents, toc,
-                annotationSnapshot = annotationSnapshot))
-            val mainStart = annotationSnapshot.annotationPaperCount + toc.pages.size
-            assertEquals(PhysicalBookState.Open(mainStart), resolveReaderJump(ReaderJumpRequest(1,
-                ReadingProgress(snapshot.pages.first().start)), snapshot, contents, toc, BookPresentation.SINGLE,
-                annotationPageCount = annotationSnapshot.annotationPaperCount)?.target)
-            position.commit(PhysicalBookState.Open(mainStart), snapshot, contents, toc,
-                annotationSnapshot = annotationSnapshot)
-            assertNull(position.progress(source.readingLength()).annotationLocation)
-            assertEquals(snapshot.pages.first().start, position.location)
+            position.commit(PhysicalBookState.Open(titlePage), main, annotationSnapshot = front,
+                titleBlockIds = frontmatter.titleBlockIds)
+            assertNotNull(position.titleLocation)
+            assertNull(position.annotationLocation)
+            assertEquals(before.location, position.progress(source.readingLength()).location)
+            assertEquals(before.fraction, position.progress(source.readingLength()).fraction)
+            assertEquals(PhysicalBookState.Open(titlePage), position.initialState(main, annotationSnapshot = front))
         }
     }
 
-    @Test fun absentAnnotationLeavesAnUnprintedInsideCover() {
-        assertNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata("No annotation"))))
+    private fun assertThemedPaperAndReadableInk(surface: PaginatedPageSurface, dark: Boolean) {
+        val width = surface.bitmap.width
+        val height = surface.bitmap.height
+        val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(result.asImageBitmap()),
+            Size(width.toFloat(), height.toFloat())) {
+            drawDemoPageSurface(surface.asBookSurface(1), Rect(0f, 0f, size.width, size.height), PageSide.SINGLE)
+        }
+        assertEquals("Description and title substrate follows the theme",
+            if (dark) DarkPaper.toArgb() else WhitePaper.toArgb(), result.getPixel(width / 2, height - 20))
+        var readableInk = 0
+        for (y in 0 until height) for (x in 0 until width) {
+            val pixel = surface.bitmap.getPixel(x, y)
+            if (android.graphics.Color.alpha(pixel) < 240) continue
+            val red = android.graphics.Color.red(pixel)
+            if (if (dark) red > 150 else red < 100) readableInk++
+        }
+        assertTrue("Prepared title and description ink must contrast with their paper", readableInk > 50)
+        result.recycle()
+    }
+
+    @Test fun absentDescriptionCreatesOnlyTitleWhilePdfRemainsUnchanged() {
+        val titleOnly = requireNotNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata("No description"))))
+        assertFalse(titleOnly.hasDescription)
+        assertTrue(titleOnly.document.blocks.all { it.id in titleOnly.titleBlockIds })
+        val pdf = BookDocument(BookId("pdf"), BookMetadata("PDF"), listOf(BookBlock.FixedPage(
+            BlockId("page"), "/private/document.pdf", "application/pdf", 0, 300, 400)))
+        assertNull(PhysicalAnnotation.create(pdf))
+    }
+
+    @Test fun chapterDecorationKeepsSourceCoordinatesAndHasPreparedPixelsBeforeCurl() = runBlocking {
+        val heading = BookBlock.Heading(BlockId("h"), 1, listOf(InlineNode.Text("Chapter XI. The Pacific")))
+        val doc = BookDocument(BookId("chapter"), BookMetadata("Book"), listOf(heading,
+            BookBlock.Paragraph(BlockId("body"), listOf(InlineNode.Text("The sea lay quiet. ".repeat(50))))),
+            chapters = listOf(BookChapter(listOf(heading.id), 1, "XI", "Chapter XI. ".length)))
+        val key = LayoutKey(360, 640, PageMode.SINGLE)
+        val measured = AndroidBookMeasurer(doc, "Missing").measure(doc.readingFlow().first(), key) as AndroidTextMeasurement
+        assertNotNull(measured.chapterHeading)
+        assertTrue(measured.textTop > 0f)
+        assertEquals(heading.plainText().length, measured.layout.text.length)
+        assertEquals(0, measured.lines.first().start)
+        val page = IncrementalPaginationEngine(AndroidBookMeasurer(doc, "Missing")).paginate(doc, null, key).last().pages.first()
+        val surface = AndroidPageRasterizer(doc, key, "Missing").render(page)
+        var ink = 0
+        val endY = (page.blocks.first().y + measured.textTop).toInt().coerceAtMost(surface.bitmap.height)
+        for (y in page.blocks.first().y.toInt() until endY) for (x in 0 until surface.bitmap.width) {
+            if (surface.bitmap.getPixel(x, y) ushr 24 != 0) ink++
+        }
+        assertTrue("Number and vector ornament must be in the prepared raster", ink > 20)
+        assertTrue("Chapter title has breathing room before the body", measured.trailingSpace > 0f)
+    }
+
+    @Test fun longTitleSpendsWhitespaceBeforeOverflowAndKeepsAllTitleAndAuthorText() = runBlocking {
+        val key = LayoutKey(320, 640, PageMode.SINGLE, fontSizeSp = 18f, textScale = 1.5f,
+            topContentInsetDp = 72f).forAnnotation()
+        val short = requireNotNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata("Short title", listOf("An Author")))))
+        val long = requireNotNull(PhysicalAnnotation.create(source().copy(metadata = BookMetadata(
+            "A journey through the distant islands and quiet libraries of the northern seas ".repeat(3),
+            listOf("First Author", "Second Author")))))
+        val shortMeasure = AndroidBookMeasurer(short.document, "Missing").measure(short.document.readingFlow().first(), key) as AndroidTextMeasurement
+        val longMeasure = AndroidBookMeasurer(long.document, "Missing").measure(long.document.readingFlow().first(), key) as AndroidTextMeasurement
+        assertTrue(shortMeasure.textTop > 0f)
+        assertTrue(longMeasure.textTop < shortMeasure.textTop)
+        assertEquals(shortMeasure.layout.paint.textSize, longMeasure.layout.paint.textSize, 0f)
+        val pages = IncrementalPaginationEngine(AndroidBookMeasurer(long.document, "Missing"))
+            .paginate(long.document, null, key).last().pages
+        assertTrue(pages.size > 1)
+        val blocks = long.document.readingFlow().associateBy { it.source.id }
+        val collected = pages.flatMap { it.blocks }.joinToString("") { fragment ->
+            blocks.getValue(fragment.blockId).source.plainText().substring(fragment.startCharOffset, fragment.endCharOffsetExclusive)
+        }
+        assertEquals(long.document.blocks.joinToString("") { it.plainText() }, collected)
+        assertTrue(collected.contains("First Author\nSecond Author"))
     }
 
     private fun source(): BookDocument {
         val rich = buildList<BookBlock> {
             add(BookBlock.Paragraph(BlockId("description-first"), listOf(InlineNode.Text("An opening "),
                 InlineNode.Emphasis(listOf(InlineNode.Text("emphasized phrase"))), InlineNode.Text(" in the description."))))
-            add(BookBlock.Spacer(BlockId("description-space")))
-            repeat(12) { index -> add(BookBlock.Paragraph(BlockId("description-$index"),
+            repeat(4) { index -> add(BookBlock.Paragraph(BlockId("description-$index"),
                 listOf(InlineNode.Text("Description paragraph $index. A quiet library opens toward the garden. ".repeat(6))))) }
         }
-        val first = BlockId("source-first")
-        return BookDocument(BookId("annotated-book"), BookMetadata("Unique book title", annotationBlocks = rich),
-            listOf(BookBlock.Paragraph(first, listOf(InlineNode.Text("Source body. ".repeat(600))))),
-            tableOfContents = listOf(BookTocEntry("Only source chapter", BookLocation(first, 0, 0))))
+        return BookDocument(BookId("annotated-book"), BookMetadata("Unique book title", authors = listOf("Author"), annotationBlocks = rich),
+            listOf(BookBlock.Paragraph(BlockId("source-first"), listOf(InlineNode.Text("Source body. ".repeat(600))))))
     }
 }

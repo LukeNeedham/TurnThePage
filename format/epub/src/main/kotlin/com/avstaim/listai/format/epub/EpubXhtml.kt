@@ -11,6 +11,9 @@ internal class EpubContentState(val limits: EpubParserLimits) {
     val noteTargets = linkedMapOf<String, NoteId>()
     val usedImages = mutableSetOf<String>()
     val firstImagesByPath = mutableMapOf<String, String>()
+    val headingGroups = mutableListOf<BookHeadingGroup>()
+    val titlePageBlockIds = mutableListOf<BlockId>()
+    val epigraphBlockIds = mutableSetOf<BlockId>()
     private var blockCount = 0
     private var globalOffset = 0L
     private var noteOffset = 0L
@@ -25,7 +28,13 @@ internal class EpubContentState(val limits: EpubParserLimits) {
 }
 
 private data class InlineStyle(val kind: String, val link: LinkTarget? = null)
-private data class HtmlFrame(val tag: String, val styles: List<InlineStyle>)
+private class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>) {
+    var partHeadingGroup: Int? = null
+    var partHeadingContainer: HtmlFrame? = null
+    var epilogueHeadingGroup: Int? = null
+    var epilogueHeadingContainer: HtmlFrame? = null
+    var lastHeadingGroup: Int? = null
+}
 private data class PendingAnchor(val key: String, val offset: Int)
 
 internal class XhtmlHandler(
@@ -34,6 +43,7 @@ internal class XhtmlHandler(
     private val images: Map<String, ImageId>,
     private val linear: Boolean,
     private val stylesheets: Map<String, EpubCss> = emptyMap(),
+    private val isTitlePage: Boolean = false,
 ) : EpubHandler() {
     private var depth = 0
     private var bodyDepth = -1
@@ -85,7 +95,7 @@ internal class XhtmlHandler(
         if (properties["font-style"] in setOf("italic", "oblique") && styles.none { it.kind == "em" }) styles += InlineStyle("em")
         if (properties["font-weight"] in setOf("bold", "600", "700", "800", "900") && styles.none { it.kind == "strong" }) styles += InlineStyle("strong")
         if ((properties["text-decoration-line"] ?: properties["text-decoration"]).orEmpty().split(' ').contains("line-through") && styles.none { it.kind == "strike" }) styles += InlineStyle("strike")
-        frames += HtmlFrame(tag, styles)
+        frames += HtmlFrame(tag, styles, attrs.epubType())
         if (tag == "body") {
             bodyDepth = depth
             if (linear) anchors += PendingAnchor(sourceKey(path), 0)
@@ -207,6 +217,62 @@ internal class XhtmlHandler(
     }
     private fun append(block: BookBlock) {
         val location = state.append(block, noteBlocks)
+        if (noteBlocks == null) {
+            val types = frames.flatMap { it.types }.toSet()
+            if ("epigraph" in types) state.epigraphBlockIds += block.id
+            if (isTitlePage || "titlepage" in types) state.titlePageBlockIds += block.id
+            else if (block is BookBlock.Heading) {
+                // The nearest division owns the heading: a nested chapter must not inherit PART.
+                val owner = frames.lastOrNull { frame -> frame.types.any { it in DIVISION_TYPES } }
+                val ownerTypes = owner?.types.orEmpty()
+                // An unmarked nested division is not the epilogue's own heading. Only
+                // explicit semantics on that nested division may start another opening.
+                val epilogueOwnHeading = "epilogue" in ownerTypes && frames
+                    .drop(frames.indexOf(owner) + 1).dropLast(1)
+                    .none { it.tag in setOf("section", "article", "aside", "nav", "footer") }
+                val role = when {
+                    "epigraph" in types -> BookHeadingRole.OTHER
+                    "chapter" in ownerTypes -> BookHeadingRole.CHAPTER
+                    ownerTypes.any { it == "part" || it == "volume" } && owner?.partHeadingGroup == null -> BookHeadingRole.PART
+                    epilogueOwnHeading && owner?.epilogueHeadingGroup == null -> BookHeadingRole.EPILOGUE
+                    ownerTypes.any { it in setOf("prologue", "epilogue", "preface", "foreword", "introduction") } -> BookHeadingRole.OTHER
+                    else -> BookHeadingRole.UNSPECIFIED
+                }
+                val container = frames.dropLast(1).lastOrNull()
+                val lexicalOpeningIndex = container?.lastHeadingGroup?.takeIf { index ->
+                    val group = state.headingGroups[index]
+                    group.blockIds.size == 1 &&
+                        state.blocks.getOrNull(state.blocks.lastIndex - 1)?.let { previous ->
+                            previous.id == group.blockIds.last() &&
+                                (group.role == BookHeadingRole.UNSPECIFIED && isStandalonePartLabel(previous.plainText()) ||
+                                    group.role in setOf(BookHeadingRole.UNSPECIFIED, BookHeadingRole.CHAPTER) &&
+                                    isStandaloneEpilogueLabel(previous.plainText()))
+                        } == true
+                }
+                val existingIndex = lexicalOpeningIndex ?: owner?.partHeadingGroup ?: owner?.epilogueHeadingGroup
+                val previous = existingIndex?.let(state.headingGroups::get)
+                val attachedSubtitle = previous != null && existingIndex == state.headingGroups.lastIndex &&
+                    (existingIndex == lexicalOpeningIndex || owner?.partHeadingContainer === container ||
+                        owner?.epilogueHeadingContainer === container) && block.level > previous.level &&
+                    (role == BookHeadingRole.UNSPECIFIED || epilogueOwnHeading && role == BookHeadingRole.OTHER ||
+                        existingIndex == lexicalOpeningIndex && previous.role == BookHeadingRole.CHAPTER && role == BookHeadingRole.CHAPTER) &&
+                    state.blocks.getOrNull(state.blocks.lastIndex - 1)?.id == previous.blockIds.last() &&
+                    !DIVISION_LABEL.containsMatchIn(block.plainText())
+                if (attachedSubtitle) {
+                    state.headingGroups[requireNotNull(existingIndex)] = requireNotNull(previous).copy(blockIds = previous.blockIds + block.id)
+                } else {
+                    state.headingGroups += BookHeadingGroup(listOf(block.id), block.level, role)
+                    container?.lastHeadingGroup = state.headingGroups.lastIndex
+                    if (role == BookHeadingRole.PART) {
+                        requireNotNull(owner).partHeadingGroup = state.headingGroups.lastIndex
+                        owner.partHeadingContainer = container
+                    } else if (role == BookHeadingRole.EPILOGUE) {
+                        requireNotNull(owner).epilogueHeadingGroup = state.headingGroups.lastIndex
+                        owner.epilogueHeadingContainer = container
+                    }
+                }
+            }
+        }
         val length = block.plainText().length
         anchors.forEach { anchor ->
             val offset = anchor.offset.coerceAtMost(length)
@@ -285,3 +351,5 @@ private class InlineBuffer {
 }
 private val TEXT_BLOCK_TAGS = setOf("p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "li", "dt", "dd")
 private val BLOCK_TAGS = TEXT_BLOCK_TAGS + setOf("body", "section", "article", "div", "blockquote", "ul", "ol", "dl", "table", "tr", "td", "th", "figure", "figcaption", "aside", "header", "footer", "nav")
+private val DIVISION_TYPES = setOf("part", "volume", "chapter", "prologue", "epilogue", "preface", "foreword", "introduction")
+private val DIVISION_LABEL = Regex("^\\s*(?:chapter|глава|part|часть|volume|том|book|книга|epilogue|эпилог)(?:\\s|[.:—–-]|$)", RegexOption.IGNORE_CASE)

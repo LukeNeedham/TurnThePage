@@ -28,8 +28,13 @@ class V11FormatsFlowTest {
 
     @Test fun mixedBatchImportsDeduplicatesReadsSharesAndRestoresBothNewFormats() {
         val controller = (compose.activity.application as ListaiApplication).controller
-        compose.waitUntil(30_000) { !controller.busy.value }
-        compose.runOnUiThread { controller.completeReaderOnboarding(); controller.returnToShelf() }
+        compose.waitUntil(30_000) { !controller.busy.value && !controller.importing.value }
+        compose.runOnUiThread {
+            controller.completeReaderOnboarding()
+            controller.returnToShelf()
+            controller.dismissImportSummary()
+            controller.dismissError()
+        }
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val imports = File(context.cacheDir, "imports").also { it.mkdirs() }
@@ -42,6 +47,17 @@ class V11FormatsFlowTest {
         val bad = File(imports, "v11-bad.fb2").also { it.writeText("<broken/>") }
         val ids = mutableListOf<BookId>()
         try {
+            // A previous interrupted run may have published either fixture before recording its
+            // IDs. Resolve identity from the original content, record each ID immediately, and
+            // remove only these fixtures so the batch always exercises two genuinely new imports.
+            runBlocking {
+                for (source in sources) {
+                    ids += controller.repository.import(source.name) { source.inputStream() }
+                }
+                ids.forEach { controller.repository.delete(it) }
+                assertTrue(controller.repository.books.first().none { it.id in ids })
+            }
+            assertEquals(2, ids.distinct().size)
             val uris = (sources + duplicate + bad).map { FileProvider.getUriForFile(context, "com.avstaim.listai.debug.imports", it) }
             compose.runOnUiThread { controller.importBooks(uris) }
             compose.waitUntil(60_000) { controller.importSummary.value != null && !controller.importing.value }
@@ -51,9 +67,7 @@ class V11FormatsFlowTest {
             assertEquals(1, summary.failed)
             assertNull(controller.error.value)
             compose.runOnUiThread { controller.dismissImportSummary() }
-            // Resolve by original content identity without depending on provider/title language.
-            ids += runBlocking { sources.map { source -> controller.repository.import(source.name) { source.inputStream() } } }
-            assertEquals(2, ids.distinct().size)
+            assertTrue(runBlocking { controller.repository.books.first().map { it.id }.containsAll(ids) })
             for ((index, id) in ids.withIndex()) {
                 compose.runOnUiThread { controller.open(id) }
                 waitForBook(id)
@@ -76,9 +90,16 @@ class V11FormatsFlowTest {
                 compose.waitUntil(15_000) { controller.selection.value == null }
             }
         } finally {
-            compose.runOnUiThread { controller.returnToShelf(); ids.forEach(controller::delete) }
-            compose.waitUntil(15_000) { runBlocking { controller.repository.books.first().none { it.id in ids } } }
-            (sources + duplicate + bad).forEach { it.delete() }
+            try {
+                compose.runOnUiThread { controller.returnToShelf(); controller.dismissImportSummary() }
+                compose.waitUntil(60_000) { !controller.importing.value }
+                runBlocking {
+                    ids.forEach { controller.repository.delete(it) }
+                    assertTrue(controller.repository.books.first().none { it.id in ids })
+                }
+            } finally {
+                (sources + duplicate + bad).forEach { it.delete() }
+            }
         }
     }
 

@@ -90,6 +90,30 @@ internal fun quickBookmarkSingleAtTop(
     gap: Float,
     controlBounds: List<Rect>,
     cutoutBounds: List<Rect>,
+    clockBounds: Rect? = null,
+    minimumTargetSize: Float = targetSize,
+): QuickBookmarkTopGeometry? {
+    require(minimumTargetSize > 0f && minimumTargetSize <= targetSize)
+    val reserved = controlBounds + listOfNotNull(clockBounds)
+    val full = findQuickBookmarkSingleAtTop(pageBounds, targetSize, topOverhang, gap, reserved, cutoutBounds)
+    if (full != null || clockBounds == null) return full
+    // The ribbon remains the same visual size. Only its generous touch box can shrink
+    // to the other top controls' size when the clock and a camera leave a narrow interval.
+    val compact = if (minimumTargetSize < targetSize) findQuickBookmarkSingleAtTop(
+        pageBounds, minimumTargetSize, topOverhang, gap, reserved, cutoutBounds) else null
+    // On an exceptionally narrow leaf the interactive bookmark takes priority. The
+    // caller suppresses a clock intersecting this fallback instead of covering its ink.
+    return compact ?: findQuickBookmarkSingleAtTop(
+        pageBounds, targetSize, topOverhang, gap, controlBounds, cutoutBounds)
+}
+
+private fun findQuickBookmarkSingleAtTop(
+    pageBounds: Rect,
+    targetSize: Float,
+    topOverhang: Float,
+    gap: Float,
+    controlBounds: List<Rect>,
+    cutoutBounds: List<Rect>,
 ): QuickBookmarkTopGeometry? {
     require(!pageBounds.isEmpty)
     require(targetSize > 0f && targetSize <= pageBounds.width && targetSize <= pageBounds.height)
@@ -181,10 +205,10 @@ internal fun QuickBookmarkTab(
             Canvas(Modifier.fillMaxSize()) {
                 // Keep the 32–48 dp box as a forgiving tap target, while the visible strip
                 // retains the restrained proportions of the former passive top indicator.
-                val ribbonWidth = minOf(14f * density.density, size.width * .34f)
+                val ribbonWidth = minOf(14f * density.density, size.width * .44f)
                 val left = (size.width - ribbonWidth) / 2f
                 val top = 0f
-                val bottom = minOf(30f * density.density, size.height * .72f)
+                val bottom = minOf(30f * density.density, size.height)
                 val notch = ribbonWidth * .27f
                 fun ribbonPath(dx: Float = 0f, dy: Float = 0f) = Path().apply {
                     moveTo(left + dx, top + dy)

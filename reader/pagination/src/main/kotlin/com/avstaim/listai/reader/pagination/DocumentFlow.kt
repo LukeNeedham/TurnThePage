@@ -7,17 +7,19 @@ import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.inlineContent
 import com.avstaim.listai.core.model.plainText
 
-fun BookDocument.readingFlow(): List<FlowBlock> = buildList {
+fun BookDocument.readingFlow(includeNativeTitle: Boolean = isFrontmatter): List<FlowBlock> = buildList {
     var offset = 0L
+    val nativeTitleIds = if (includeNativeTitle) emptySet() else titlePageBlockIds.toSet()
     fun visit(block: BookBlock, depth: Int) {
         if (block is BookBlock.Quote) {
             block.blocks.forEach { visit(it, depth + 1) }
         } else {
-            add(FlowBlock(block, offset, depth))
+            if (block.id !in nativeTitleIds) add(FlowBlock(block, offset, depth))
             offset += block.plainText().length + 1L
         }
     }
     blocks.forEach { visit(it, 0) }
+    // A title-only source has no main leaves; its original blocks live in frontmatter.
 }
 
 /** Preserve the model's UTF-16 space, including poem newlines and inline-image alt text. */
@@ -46,5 +48,6 @@ fun List<PageLayout>.pageIndexContaining(location: BookLocation): Int {
         it.blockId == location.blockId && it.endCharOffsetExclusive == location.charOffset
     } }
     if (terminal >= 0) return terminal
-    return indexOfLast { it.start.fallbackGlobalOffset <= location.fallbackGlobalOffset }.coerceAtLeast(0)
+    return indexOfLast { it.kind != PageKind.BLANK && it.start.fallbackGlobalOffset <= location.fallbackGlobalOffset }
+        .takeIf { it >= 0 } ?: indexOfFirst { it.kind != PageKind.BLANK }.coerceAtLeast(0)
 }

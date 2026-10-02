@@ -1,6 +1,7 @@
 package com.avstaim.listai
 
 import com.avstaim.listai.core.model.BookBlock
+import com.avstaim.listai.core.model.BookChapterKind
 import com.avstaim.listai.core.model.ImageId
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -35,6 +36,14 @@ class BundledReadingDocumentTest {
         assertEquals(listOf(3, 3, 3, 0), document.tableOfContents.map { it.children.size })
         assertEquals("Глава первая Письмо с координатами", document.tableOfContents[0].children[0].title)
         assertEquals("Глава девятая Берег, нанесённый заново", document.tableOfContents[2].children[2].title)
+
+        val numberedChapters = document.chapters.filter { it.kind == BookChapterKind.CHAPTER }
+        assertEquals("The epilogue must not change the nine source chapters", (1..9).toList(), numberedChapters.map { it.ordinal })
+        val epilogue = document.chapters.single { it.kind == BookChapterKind.EPILOGUE }
+        assertNull(epilogue.ordinal)
+        assertNull(epilogue.number)
+        assertEquals(document.tableOfContents.last().location.blockId, epilogue.startBlockId)
+        assertEquals(2, epilogue.headingBlockIds.size)
 
         val plainText = document.plainText()
         assertTrue("Demo novella must be long enough for meaningful reading", plainText.length > 30_000)

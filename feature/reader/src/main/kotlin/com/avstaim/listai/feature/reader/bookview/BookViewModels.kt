@@ -193,7 +193,7 @@ internal fun calculateBookCanvasLayout(
     )
 }
 
-private fun singlePageViewport(
+internal fun singlePageViewport(
     canvasSize: Size,
     displayFeature: BookDisplayFeature?,
     outerPaddingPx: Float,

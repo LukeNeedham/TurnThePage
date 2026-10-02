@@ -45,4 +45,5 @@
     <string name="insert_cancel">Cancel — keep my place</string>
     <string name="insert_back">Back to the insert</string>
     <string name="insert_saved_place">Saved place</string>
+    <string name="insert_source_page_range">Text pages: %1$d–%2$d</string>
 </resources>

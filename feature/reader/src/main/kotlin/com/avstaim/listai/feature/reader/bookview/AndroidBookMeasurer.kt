@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
+import android.graphics.Canvas
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.text.LineBreaker
 import android.text.Layout
@@ -20,7 +22,11 @@ import android.text.style.StyleSpan
 import android.text.style.SuperscriptSpan
 import android.text.style.UnderlineSpan
 import com.avstaim.listai.core.designsystem.PlyosTypefaceFamily
+import com.avstaim.listai.core.designsystem.BookOrnament
+import com.avstaim.listai.core.model.BlockId
 import com.avstaim.listai.core.model.BookBlock
+import com.avstaim.listai.core.model.BookChapterKind
+import com.avstaim.listai.core.model.BookPart
 import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -34,15 +40,100 @@ import com.avstaim.listai.reader.pagination.LayoutKey
 import com.avstaim.listai.reader.pagination.MeasuredLine
 import com.avstaim.listai.reader.pagination.MeasurementMetrics
 import com.avstaim.listai.reader.pagination.textContent
+import com.avstaim.listai.reader.pagination.readingFlow
 import java.util.Locale
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-internal data class AndroidTextMeasurement(val layout: StaticLayout) : BlockMeasurement {
+private const val PART_HEADING_LINE_HEIGHT = 1.08f
+
+internal data class AndroidTextMeasurement(val layout: StaticLayout,
+    val chapterHeading: PreparedBlockDecoration? = null, val trailingSpace: Float = 0f,
+    val followingDecoration: PreparedBlockDecoration? = null) : BlockMeasurement {
+    val textTop: Float get() = chapterHeading?.height ?: 0f
     override val width = layout.width.toFloat()
     override val lines = List(layout.lineCount) { index ->
         MeasuredLine(layout.getLineStart(index), layout.getLineEnd(index),
-            layout.getLineTop(index).toFloat(), layout.getLineBottom(index).toFloat())
+            if (index == 0) 0f else layout.getLineTop(index).toFloat() + textTop,
+            layout.getLineBottom(index).toFloat() + textTop + if (index == layout.lineCount - 1) trailingSpace + (followingDecoration?.height ?: 0f) else 0f)
+    }
+}
+
+internal interface PreparedBlockDecoration {
+    val height: Float
+    fun draw(canvas: Canvas)
+}
+
+internal class PreparedChapterHeading(number: String, key: LayoutKey, typefaces: PlyosTypefaceFamily) : PreparedBlockDecoration {
+    private val paint = textPaint(key, Typeface.BOLD, 1.45f, typefaces)
+    private val label = (if (key.localeTag.startsWith("ru")) "Глава " else "Chapter ") + number
+    private val layout = StaticLayout.Builder.obtain(label, 0, label.length, paint, key.contentWidth)
+        .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(false).build()
+    private val top = minOf(key.contentHeight * .065f, 32f * key.density)
+    private val gap = minOf(key.contentHeight * .04f, 24f * key.density)
+    private val ornamentHeight = minOf(12f * key.density, key.contentHeight * .03f)
+    private val ornamentWidth = minOf(96f * key.density, key.contentWidth * .35f)
+    private val ornament = BookOrnament(paint.color)
+    override val height = top + layout.height + gap * 2 + ornamentHeight
+    override fun draw(canvas: Canvas) {
+        val save = canvas.save()
+        canvas.translate(0f, top)
+        layout.draw(canvas)
+        canvas.restoreToCount(save)
+        val left = (layout.width - ornamentWidth) / 2f
+        ornament.draw(canvas, RectF(left, top + layout.height + gap,
+            left + ornamentWidth, top + layout.height + gap + ornamentHeight))
+    }
+}
+
+/** An unnumbered opening prints its real source heading, with only whitespace before it. */
+internal class PreparedEpilogueOpening(key: LayoutKey, textHeight: Int) : PreparedBlockDecoration {
+    override val height = minOf(key.contentHeight * .065f, 32f * key.density,
+        (key.contentHeight - textHeight - key.fontSizeSp * key.density * key.textScale * 4f).coerceAtLeast(0f) * .2f)
+    override fun draw(canvas: Canvas) = Unit
+}
+
+internal class PreparedEpilogueOrnament(key: LayoutKey) : PreparedBlockDecoration {
+    private val gap = minOf(key.contentHeight * .04f, 24f * key.density)
+    private val markHeight = minOf(12f * key.density, key.contentHeight * .03f)
+    private val width = minOf(96f * key.density, key.contentWidth * .35f)
+    private val left = (key.contentWidth - width) / 2f
+    private val ornament = BookOrnament(if (key.darkTheme) 0xFFADBBC7.toInt() else 0xFF64717C.toInt())
+    override val height = gap * 2 + markHeight
+    override fun draw(canvas: Canvas) {
+        ornament.draw(canvas, RectF(left, gap, left + width, gap + markHeight))
+    }
+}
+
+internal class PreparedTitleDecoration(key: LayoutKey, private val opening: Boolean,
+    textHeight: Int) : PreparedBlockDecoration {
+    private val preferredHeight = minOf(key.contentHeight * if (opening) .11f else .12f,
+        (if (opening) 64f else 84f) * key.density)
+    // Preserve the chosen type size; spend the decorative whitespace first when a title is long.
+    private val availableHeight = (key.contentHeight - textHeight -
+        key.fontSizeSp * key.density * key.textScale * if (opening) 3f else 1f).coerceAtLeast(0f)
+    override val height = if (opening) minOf(preferredHeight, availableHeight * .25f)
+        else minOf(preferredHeight, maxOf(16f * key.density, availableHeight * .2f))
+    private val width = minOf(key.contentWidth * .34f, 96f * key.density)
+    private val left = (key.contentWidth - width) / 2f
+    private val ornamentHeight = minOf(12f * key.density, height * .25f)
+    private val ornament = BookOrnament(0xFF64717C.toInt())
+    override fun draw(canvas: Canvas) {
+        if (!opening) ornament.draw(canvas, RectF(left, (height - ornamentHeight) / 2,
+            left + width, (height + ornamentHeight) / 2))
+    }
+}
+
+/** Prepared once with text; the divider itself remains a vector at every viewport size. */
+internal class PreparedPartOrnament(key: LayoutKey) : PreparedBlockDecoration {
+    override val height = minOf(key.contentHeight * .095f, 62f * key.density)
+    private val width = minOf(key.contentWidth * .36f, 104f * key.density)
+    private val markHeight = minOf(12f * key.density, height * .25f)
+    private val left = (key.contentWidth - width) / 2f
+    private val ornament = BookOrnament(if (key.darkTheme) 0xFFADBBC7.toInt() else 0xFF64717C.toInt())
+    override fun draw(canvas: Canvas) {
+        ornament.draw(canvas, RectF(left, (height - markHeight) / 2f,
+            left + width, (height + markHeight) / 2f))
     }
 }
 
@@ -63,11 +154,24 @@ internal class AndroidBookMeasurer(
     private val decodeImages: Boolean = false,
     internal val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
 ) : BlockMeasurer {
+    private val chapterByBlockId = document.chapters.flatMap { chapter -> chapter.headingBlockIds.map { it to chapter } }.toMap()
+    private val partByBlockId = document.parts.flatMap { part -> part.blockIds.map { it to part } }.toMap()
+    private val partHeadingTexts = document.readingFlow().filter { it.source.id in partByBlockId }
+        .associate { it.source.id to it.source.plainText() }
+    private val partTypeSizes = mutableMapOf<Pair<BookPart, LayoutKey>, Map<BlockId, Float>>()
+    private val titleIds = if (document.isFrontmatter) document.titlePageBlockIds.toSet() else emptySet()
     // API 36's IntDefs name LineBreaker constants; these inline to the identical Layout values
     // supported since APIs 23 (break strategy) and 26 (justification). No API 29 object is used.
     @SuppressLint("InlinedApi")
     override fun measure(block: FlowBlock, key: LayoutKey): BlockMeasurement {
         val source = block.source
+        val chapter = chapterByBlockId[source.id]
+        val epilogue = chapter?.kind == BookChapterKind.EPILOGUE
+        val epilogueOpening = epilogue && chapter?.startBlockId == source.id
+        val part = partByBlockId[source.id]
+        val partHeading = part != null && source.id in part.headingBlockIds
+        val title = source.id in titleIds
+        val firstTitle = title && source.id == document.titlePageBlockIds.firstOrNull()
         if (source is BookBlock.Image) return image(source, key)
         if (source is BookBlock.FixedPage) {
             val fit = min(key.contentWidth.toFloat() / source.widthPoints,
@@ -78,23 +182,35 @@ internal class AndroidBookMeasurer(
         }
         val paragraph = source as? BookBlock.Paragraph
         val heading = source is BookBlock.Heading || paragraph?.role == ParagraphRole.SUBTITLE
-        val italic = block.quoteDepth > 0 || source is BookBlock.Poem || paragraph?.role == ParagraphRole.TEXT_AUTHOR
+        val italic = !partHeading && !epilogueOpening && (part != null || chapter != null || title && !firstTitle || block.quoteDepth > 0 || source is BookBlock.Poem || paragraph?.role == ParagraphRole.TEXT_AUTHOR)
         val style = when {
             heading && italic -> Typeface.BOLD_ITALIC
             heading -> Typeface.BOLD
             italic -> Typeface.ITALIC
             else -> Typeface.NORMAL
         }
-        val paint = textPaint(key, style, if (heading) 1.25f else 1f, typefaces)
+        val paint = textPaint(key, style, when {
+            partHeading -> partHeadingSizes(requireNotNull(part), key).getValue(source.id)
+            epilogueOpening -> 1.45f
+            firstTitle -> 1.65f
+            heading -> 1.25f
+            title -> 1.15f
+            else -> 1f
+        }, typefaces)
         val content = source.textContent().toSpannedText(key.darkTheme, typefaces)
+        if (chapter?.startBlockId == source.id && chapter.numberPrefixLength > 0) {
+            // WORD JOINER preserves source UTF-16 coordinates while the number is printed above.
+            val end = chapter.numberPrefixLength.coerceAtMost(content.length)
+            content.replace(0, end, "\u2060".repeat(end))
+        }
         val inset = (key.contentWidth * min(.22f, block.quoteDepth * .05f)).roundToInt()
         val width = (key.contentWidth - inset * 2).coerceAtLeast(1)
-        if (paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0 && content.isNotEmpty()) {
+        if (!title && part == null && paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0 && content.isNotEmpty()) {
             content.setSpan(LeadingMarginSpan.Standard((paint.textSize * 1.3f).toInt(), 0),
                 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         val alignment = when {
-            heading -> Layout.Alignment.ALIGN_CENTER
+            heading || title || part != null -> Layout.Alignment.ALIGN_CENTER
             paragraph?.role == ParagraphRole.TEXT_AUTHOR -> Layout.Alignment.ALIGN_OPPOSITE
             else -> Layout.Alignment.ALIGN_NORMAL
         }
@@ -102,18 +218,59 @@ internal class AndroidBookMeasurer(
             .setAlignment(alignment)
             .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
             .setIncludePad(true)
-            .setLineSpacing(0f, key.lineHeightMultiplier)
+            .setLineSpacing(0f, if (partHeading) PART_HEADING_LINE_HEIGHT else key.lineHeightMultiplier)
             .setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
-            .setHyphenationFrequency(when (key.hyphenationMode) {
+            .setHyphenationFrequency(when {
+                part != null || epilogue -> Layout.HYPHENATION_FREQUENCY_NONE
+                else -> when (key.hyphenationMode) {
                 HyphenationMode.NONE -> Layout.HYPHENATION_FREQUENCY_NONE
                 HyphenationMode.NORMAL -> Layout.HYPHENATION_FREQUENCY_NORMAL
                 HyphenationMode.FULL -> Layout.HYPHENATION_FREQUENCY_FULL
+                }
             })
-            .setJustificationMode(if (paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0)
+            .setJustificationMode(if (!title && part == null && paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0)
                 LineBreaker.JUSTIFICATION_MODE_INTER_WORD else LineBreaker.JUSTIFICATION_MODE_NONE)
             .build()
-        return AndroidTextMeasurement(layout)
+        return AndroidTextMeasurement(layout, when {
+            firstTitle -> PreparedTitleDecoration(key, opening = true, textHeight = layout.height)
+            title && source.id == document.titlePageBlockIds.getOrNull(1) -> PreparedTitleDecoration(key, opening = false, textHeight = layout.height)
+            epilogueOpening -> PreparedEpilogueOpening(key, layout.height)
+            chapter?.startBlockId == source.id -> PreparedChapterHeading(chapter.number ?: requireNotNull(chapter.ordinal).toString(), key, typefaces)
+            else -> null
+        }, trailingSpace = if (chapter != null && chapter.headingBlockIds.last() == source.id)
+            minOf(key.contentHeight * .035f, 22f * key.density) else 0f,
+            followingDecoration = when {
+                epilogueOpening -> PreparedEpilogueOrnament(key)
+                partHeading && source.id == part?.headingBlockIds?.last() -> PreparedPartOrnament(key)
+                else -> null
+            })
     }
+
+    /** Reduce decorative enlargement before allowing a moderate title to span several leaves.
+     * Body/epigraph sizes keep the user's accessibility scale. On a narrow page the decorative
+     * hierarchy yields to legibility; the part heading never becomes smaller than body text.
+     * Truly oversized source text still flows without clipping. */
+    private fun partHeadingSizes(part: BookPart, key: LayoutKey): Map<BlockId, Float> =
+        partTypeSizes.getOrPut(part to key) {
+            var reduction = 1f
+            var sizes = emptyMap<BlockId, Float>()
+            repeat(8) {
+                sizes = part.headingBlockIds.mapIndexed { index, id ->
+                    id to maxOf(1.1f, (if (index == 0) 1.75f else 1.9f) * reduction)
+                }.toMap()
+                val layouts = part.headingBlockIds.map { id ->
+                    val text = partHeadingTexts.getValue(id)
+                    StaticLayout.Builder.obtain(text, 0, text.length,
+                        textPaint(key, Typeface.BOLD, sizes.getValue(id), typefaces), key.contentWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(true)
+                        .setLineSpacing(0f, PART_HEADING_LINE_HEIGHT).build()
+                }
+                val shortLabelFits = partHeadingTexts.getValue(part.startBlockId).length > 24 || layouts.first().lineCount == 1
+                if (shortLabelFits && layouts.sumOf { it.height } <= key.contentHeight * .40f) return@getOrPut sizes
+                reduction *= .90f
+            }
+            sizes
+        }
 
     private fun image(source: BookBlock.Image, key: LayoutKey): AndroidImageMeasurement {
         val bytes = document.imagesById[source.imageId]?.content?.load()

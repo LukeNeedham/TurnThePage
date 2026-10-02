@@ -72,10 +72,11 @@ internal fun inlineNoteLinks(
     fragment: PageBlockLayout,
     layout: StaticLayout,
     references: List<NoteReference>,
+    textTop: Float = 0f,
 ): List<PreparedNoteLink> = buildList {
     val path = Path()
     val selection = RectF()
-    val firstLineTop = layout.getLineTop(fragment.firstLine)
+    val firstLineTop = fragment.measurement.lines[fragment.firstLine].top - textTop
     for (reference in references) {
         val start = max(fragment.startCharOffset, reference.source.charOffset)
         val end = min(fragment.endCharOffsetExclusive, reference.endCharOffsetExclusive)

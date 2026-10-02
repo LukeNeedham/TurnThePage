@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.withTranslation
 import androidx.core.graphics.withSave
 import androidx.core.graphics.createBitmap
@@ -22,8 +23,10 @@ import com.avstaim.listai.core.model.BookDocument
 import com.avstaim.listai.core.model.PageId
 import com.avstaim.listai.core.model.plainText
 import com.avstaim.listai.feature.reader.demo.DemoPageKind
+import com.avstaim.listai.feature.reader.BookImagePreview
 import com.avstaim.listai.reader.pagination.BlockMeasurement
 import com.avstaim.listai.reader.pagination.LayoutKey
+import com.avstaim.listai.reader.pagination.PageKind
 import com.avstaim.listai.reader.pagination.PageLayout
 import com.avstaim.listai.reader.pagination.PageMode
 import com.avstaim.listai.reader.pagination.readingFlow
@@ -48,6 +51,8 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
     val noteReturns: List<PreparedNoteReturn> = emptyList(),
     private val returnInk: List<PreparedNoteReturnInk> = emptyList(),
     private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
+    val kind: PageKind = PageKind.TEXT,
+    val images: List<PreparedBookImage> = emptyList(),
 ) {
     val byteCount: Long get() = bitmap.allocationByteCount.toLong()
     val footerText: String? get() = footer?.text
@@ -67,13 +72,14 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
     }
 
     fun withFooter(value: PageReadingFooter): PaginatedPageSurface {
+        if (kind != PageKind.TEXT) return this
         val layoutKey = requireNotNull(key)
         // Progress can change without changing the visible page label. Pinned wrappers retain
         // their own prepared ruler when a newer pagination snapshot supplies another footer.
         if (value == footer?.value) return this
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey,
             PreparedPageReadingFooter(value, layoutKey, darkTheme, typefaces), noteLinks, noteReturns,
-            returnInk, typefaces)
+            returnInk, typefaces, kind, images)
     }
 
     fun withNoteReturns(values: List<PreparedNoteReturn>): PaginatedPageSurface {
@@ -82,7 +88,16 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         val published = values.toList()
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey, footer,
             noteLinks, published, published.map { PreparedNoteReturnInk(it, layoutKey, typefaces) },
-            typefaces)
+            typefaces, kind, images)
+    }
+
+    fun imageTapRegions(leaf: Rect): List<BookImageHit> {
+        val layoutKey = key ?: return emptyList()
+        return images.map { image ->
+            BookImageHit(imageTapBounds(image.bounds, leaf, layoutKey.pageWidthPx, layoutKey.pageHeightPx),
+                image, BookImagePreview(bitmap.asImageBitmap(), imagePreviewCrop(image.bounds,
+                    layoutKey.pageWidthPx, layoutKey.pageHeightPx, bitmap.width, bitmap.height)))
+        }
     }
 
     fun asBookSurface(number: Int) = DemoPageSurface(pageId, number, DemoPageKind.TEXT,
@@ -175,6 +190,7 @@ internal class AndroidPageRasterizer(
             val canvas = Canvas(bitmap)
             canvas.scale(width.toFloat() / key.pageWidthPx, height.toFloat() / key.pageHeightPx)
             val noteLinks = mutableListOf<PreparedNoteLink>()
+            val images = mutableListOf<PreparedBookImage>()
             for (fragment in page.blocks) {
                 context.ensureActive()
                 val source = requireNotNull(sources[fragment.blockId])
@@ -195,7 +211,14 @@ internal class AndroidPageRasterizer(
                 if (measured is AndroidTextMeasurement) {
                     noteLinks += inlineNoteLinks(fragment, measured.layout,
                         document.noteIndex.referencesIn(fragment.blockId, fragment.startCharOffset,
-                            fragment.endCharOffsetExclusive))
+                            fragment.endCharOffsetExclusive), measured.textTop)
+                }
+                val sourceImage = source.source as? BookBlock.Image
+                if (sourceImage != null && measured is AndroidImageMeasurement && measured.bitmap != null) {
+                    images += PreparedBookImage(
+                        Rect(fragment.x, fragment.y, fragment.x + fragment.width, fragment.y + fragment.height),
+                        sourceImage.imageId, sourceImage.alternativeText,
+                    )
                 }
                 canvas.withTranslation(fragment.x, fragment.y) {
                     canvas.clipRect(0f, 0f, fragment.width, fragment.height)
@@ -203,7 +226,13 @@ internal class AndroidPageRasterizer(
                     when (measured) {
                         is AndroidTextMeasurement -> {
                             canvas.translate(0f, -measured.lines[fragment.firstLine].top)
+                            measured.chapterHeading?.draw(canvas)
+                            canvas.translate(0f, measured.textTop)
                             measured.layout.draw(canvas)
+                            if (fragment.endLineExclusive == measured.lines.size) {
+                                canvas.translate(0f, measured.layout.height.toFloat())
+                                measured.followingDecoration?.draw(canvas)
+                            }
                         }
                         is AndroidImageMeasurement -> {
                             measured.bitmap?.let {
@@ -225,7 +254,8 @@ internal class AndroidPageRasterizer(
             }
             val text = listOf(bodyText, footnotes.accessibleText).filter(String::isNotEmpty).joinToString("\n")
             return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key,
-                noteLinks = noteLinks.toList(), typefaces = typefaces)
+                noteLinks = noteLinks.toList(), typefaces = typefaces, kind = page.kind,
+                images = images.toList())
         } catch (error: Throwable) {
             // This bitmap has never been published and cannot be referenced by the renderer.
             bitmap.recycle()

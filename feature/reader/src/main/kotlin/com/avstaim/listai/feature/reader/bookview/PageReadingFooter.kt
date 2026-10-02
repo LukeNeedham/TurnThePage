@@ -6,7 +6,7 @@ import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Totals refer only to source pages; synthetic contents leaves have their own numbering. */
+/** Folios count physical frontmatter for books with parts; contents keep their labelled counter. */
 internal data class PageReadingFooter(
     val pageNumber: Int,
     val totalPages: Int?,

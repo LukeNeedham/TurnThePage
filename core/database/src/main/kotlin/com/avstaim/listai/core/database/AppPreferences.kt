@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.avstaim.listai.core.model.ReaderPreferences
 import com.avstaim.listai.core.model.ReaderTheme
+import com.avstaim.listai.core.model.ShelfZoom
 import kotlinx.coroutines.flow.map
 
 private val Context.appPreferences by preferencesDataStore("app_state",
@@ -26,7 +27,11 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
     val readerOnboardingCompleted = store.data.map { it[READER_ONBOARDING_COMPLETED] ?: false }
     val reader = store.data.map { values ->
         val size = values[FONT_SIZE]?.takeIf { it.isFinite() && it in 12f..32f } ?: 18f
-        ReaderPreferences(size, ReaderTheme.entries.firstOrNull { it.name == values[THEME] } ?: ReaderTheme.LIGHT)
+        ReaderPreferences(size, ReaderTheme.entries.firstOrNull { it.name == values[THEME] } ?: ReaderTheme.LIGHT,
+            showClock = values[SHOW_CLOCK] ?: true)
+    }
+    val shelfZoom = store.data.map { values ->
+        ShelfZoom.entries.firstOrNull { it.name == values[SHELF_ZOOM] } ?: ShelfZoom.MEDIUM
     }
 
     suspend fun selectBook(id: String?) { store.edit { if (id == null) it.remove(LAST_BOOK) else it[LAST_BOOK] = id } }
@@ -37,8 +42,11 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
         store.edit { values ->
             values[FONT_SIZE] = preferences.fontSizeSp
             values[THEME] = preferences.theme.name
+            values[SHOW_CLOCK] = preferences.showClock
         }
     }
+
+    suspend fun setShelfZoom(zoom: ShelfZoom) { store.edit { it[SHELF_ZOOM] = zoom.name } }
 
     private companion object {
         val LAST_BOOK = stringPreferencesKey("last_book")
@@ -46,5 +54,7 @@ class AppPreferences internal constructor(private val store: DataStore<Preferenc
         val READER_ONBOARDING_COMPLETED = booleanPreferencesKey("reader_onboarding_completed")
         val FONT_SIZE = floatPreferencesKey("reader_font_size_sp")
         val THEME = stringPreferencesKey("reader_theme")
+        val SHOW_CLOCK = booleanPreferencesKey("reader_show_clock")
+        val SHELF_ZOOM = stringPreferencesKey("shelf_zoom")
     }
 }

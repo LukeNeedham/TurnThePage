@@ -8,6 +8,16 @@ data class BookDocument(
     val notes: List<BookNote> = emptyList(),
     val images: List<BookImage> = emptyList(),
     val locationsBySourceId: Map<String, BookLocation> = emptyMap(),
+    /** Presentation metadata only: original blocks and their UTF-16 coordinates stay intact. */
+    val chapters: List<BookChapter> = emptyList(),
+    /** Only source-explicit title pages; matching the book's title is not sufficient. */
+    val titlePageBlockIds: List<BlockId> = emptyList(),
+    /** Explicit presentation breaks do not introduce synthetic source characters. */
+    val pageBreakBefore: Set<BlockId> = emptySet(),
+    /** A supplemental projection displays title blocks outside the main reading flow. */
+    val isFrontmatter: Boolean = false,
+    /** Large divisions and their source-explicit epigraphs, separate from chapter numbering. */
+    val parts: List<BookPart> = emptyList(),
 ) {
     init {
         val mainBlocks = blocks.flattenedBlocks()
@@ -34,6 +44,11 @@ data class BookDocument(
             "Source locations must point to document or note blocks"
         }
         val mainBlockIds = mainBlocks.mapTo(mutableSetOf(), BookBlock::id)
+        require(chapters.flatMap { it.headingBlockIds }.all { it in mainBlockIds })
+        require(parts.flatMap { it.blockIds }.all { it in mainBlockIds })
+        require(parts.flatMap { it.blockIds }.let { it.distinct().size == it.size })
+        require(titlePageBlockIds.distinct().size == titlePageBlockIds.size && titlePageBlockIds.all { it in mainBlockIds })
+        require(pageBreakBefore.all { it in mainBlockIds })
         fun validateToc(entries: List<BookTocEntry>) {
             entries.forEach { entry ->
                 require(entry.location.blockId in mainBlockIds) {

@@ -88,7 +88,7 @@ class PhysicalNotesTest {
         BookPresentation.entries.forEach { mode ->
             assertNull(resolveReaderJump(request, main.copy(complete = false), null, null, mode, notes, tail))
             val resolved = resolveReaderJump(request, main, null, null, mode, notes, tail)!!
-            assertEquals(main.pages.size, resolved.target.semanticPageIndex)
+            assertEquals(main.pages.size, (resolved.target as PhysicalBookState.Open).semanticPageIndex)
             val navigator = PhysicalBookNavigator(main.pages.size + tail.pages.size)
             val next = navigator.transition(PhysicalBookState.Open(0), TurnDirection.FORWARD, mode)
             assertNotNull(next)
@@ -162,6 +162,94 @@ class PhysicalNotesTest {
         assertTrue(bounds.right <= leaf.right)
     }
 
+    @Test fun `return from note continuation keeps exact late call while first notes leaf faces source text`() = runBlocking {
+        val source = mixedBoundaryBook()
+        val notes = section(source)!!
+        val spreadKey = key.copy(pageMode = PageMode.SPREAD)
+        val main = engine.paginate(source, null, spreadKey).last()
+        val tail = engine.paginate(notes.document, null, spreadKey.forNotes()).last()
+        // Place the first notes leaf on the right, opposite the final source page.
+        val contents = PhysicalContents(source, "Contents", "Begin reading", notes)
+        val toc = engine.paginate(contents.document, null, spreadKey).last().takeIf { main.pages.size % 2 == 1 }
+        assertTrue(toc == null || toc.pages.size == 1)
+        val notesStart = main.pages.size + (toc?.pages?.size ?: 0)
+        assertEquals(0, notesStart % 2)
+        assertTrue(tail.pages.size > 3)
+        val calls = source.noteIndex.byId.getValue(NoteId("two")).references
+        val call = calls.last()
+        assertTrue(call.source.charOffset > 4_000)
+        assertNotEquals(calls.first().source, call.source)
+        val beforeVisit = main.pages[main.pages.pageIndexContaining(call.source)].start
+        val position = ReaderPosition(beforeVisit)
+        position.commitJump(ReaderJumpRequest(1, position.progress(source.readingLength()), call.noteId,
+            call.source, notes.targets.getValue(call.noteId)), notes)
+        val visit = position.visit
+        position.commit(PhysicalBookState.Open(notesStart + 1), main, contents, toc, notes, tail)
+        assertEquals(visit, position.visit)
+
+        val boundary = PhysicalBookState.Open(notesStart - 1)
+        assertEquals(listOf(notesStart - 1, notesStart),
+            visiblePageIndices(boundary, BookPresentation.SPREAD, notesStart + tail.pages.size))
+        position.commit(boundary, main, contents, toc, notes, tail)
+        assertEquals("The right leaf still contains the visited notes", visit, position.visit)
+        assertEquals(beforeVisit, position.location)
+        assertEquals(tail.pages.first().start, position.noteLocation)
+        val printedReturn = notes.returns(tail.pages.first(), tail.key, position.visit).single()
+        assertEquals(call.source, notes.returnOrigin(printedReturn.noteId, position.visit))
+
+        val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
+        val saved = with(ReaderPosition.Saver) { scope.save(position) }!!
+        val restored = ReaderPosition.Saver.restore(saved)!!
+        val resizedKey = key.copy(pageWidthPx = 260, fontSizeSp = 26f)
+        val resizedMain = engine.paginate(source, beforeVisit, resizedKey).last()
+        val resizedTail = engine.paginate(notes.document, restored.noteLocation, resizedKey.forNotes()).last()
+        val restoredState = restored.initialState(resizedMain, notes = notes, notesSnapshot = resizedTail)
+        assertEquals(PhysicalBookState.Open(resizedMain.pages.size), restoredState)
+        assertEquals(visit, restored.visit)
+        val origin = notes.returnOrigin(printedReturn.noteId, restored.visit)!!
+        val returning = ReaderJumpRequest(2, restored.progress(source.readingLength()).copy(location = origin),
+            returningFromNote = true)
+        val jump = resolveReaderJump(returning, resizedMain, null, null, BookPresentation.SINGLE, notes, resizedTail)!!
+        val actualPage = (jump.target as PhysicalBookState.Open).semanticPageIndex
+        assertTrue(resizedMain.pages[actualPage].blocks.any { fragment ->
+            fragment.blockId == call.source.blockId && call.source.charOffset in
+                fragment.startCharOffset until fragment.endCharOffsetExclusive
+        })
+        // Frontmatter can put this exact call on a right leaf; a return must not replace its
+        // semantic target with the canonical left-hand spread anchor.
+        val frontmatterCount = if (actualPage % 2 == 0) 2 else 1
+        val spreadJump = resolveReaderJump(returning, resizedMain, null, null, BookPresentation.SPREAD,
+            notes, resizedTail, annotationPageCount = frontmatterCount)!!
+        val rightLeaf = actualPage + frontmatterCount
+        assertEquals(PhysicalBookState.Open(rightLeaf), spreadJump.target)
+        assertEquals(listOf(rightLeaf - 1, rightLeaf), visiblePageIndices(spreadJump.target,
+            BookPresentation.SPREAD, frontmatterCount + resizedMain.pages.size + resizedTail.pages.size))
+        restored.commitJump(returning, notes)
+        assertEquals(call.source, restored.location)
+        assertNull(restored.visit)
+
+        position.commit(PhysicalBookState.Open(notesStart - 3), main, contents, toc, notes, tail)
+        assertNull("Leaving every notes leaf ends the visit", position.visit)
+        assertNull(position.noteLocation)
+    }
+
+    @Test fun `natural mixed source and notes spread without a visit keeps main reading progress`() = runBlocking {
+        val source = mixedBoundaryBook()
+        val notes = section(source)!!
+        val spreadKey = key.copy(pageMode = PageMode.SPREAD)
+        val main = engine.paginate(source, null, spreadKey).last()
+        val tail = engine.paginate(notes.document, null, spreadKey.forNotes()).last()
+        val contents = PhysicalContents(source, "Contents", "Begin reading", notes)
+        val toc = engine.paginate(contents.document, null, spreadKey).last().takeIf { main.pages.size % 2 == 1 }
+        val notesStart = main.pages.size + (toc?.pages?.size ?: 0)
+        val position = ReaderPosition(main.pages.first().start)
+        position.commit(PhysicalBookState.Open(notesStart - 1), main, contents, toc, notes, tail)
+        assertEquals(main.pages.last().start, position.location)
+        assertNull(position.visit)
+        assertNull(position.noteLocation)
+        assertEquals(notes.firstCall(NoteId("one")), notes.returnOrigin(NoteId("one"), position.visit))
+    }
+
     @Test fun `several notes share one single line return below content and above page number`() = runBlocking {
         val source = book()
         val notes = section(source)!!
@@ -200,5 +288,21 @@ class PhysicalNotesTest {
             BookNote(first, listOf(firstBlock), "1"),
             BookNote(NoteId("two"), listOf(BookBlock.Quote(BlockId("quote"), listOf(quotedBlock))), "An explanation"),
             BookNote(NoteId("unlinked"), listOf(unlinkedBlock))))
+    }
+
+    private fun mixedBoundaryBook(): BookDocument {
+        val note = NoteId("two")
+        fun marker() = InlineNode.Link(LinkTarget.Note(note), listOf(InlineNode.Text("2")))
+        val main = BookBlock.Paragraph(BlockId("long-source"), listOf(InlineNode.Text("😀 First note "),
+            InlineNode.Link(LinkTarget.Note(NoteId("one")), listOf(InlineNode.Text("1"))),
+            InlineNode.Text(" Early call "), marker(),
+            InlineNode.Text(" Text before the repeated call. ".repeat(160)), marker(),
+            InlineNode.Text(" Text after the repeated call. ".repeat(50))))
+        return BookDocument(BookId("mixed-notes-boundary"), BookMetadata("Notes boundary"), listOf(main),
+            notes = listOf(
+                BookNote(NoteId("one"), listOf(BookBlock.Paragraph(BlockId("first-short-note"),
+                    listOf(InlineNode.Text("Short first note."))))),
+                BookNote(note, listOf(BookBlock.Paragraph(BlockId("second-long-note"),
+                    listOf(InlineNode.Text("Long second note continuation. ".repeat(200))))))))
     }
 }

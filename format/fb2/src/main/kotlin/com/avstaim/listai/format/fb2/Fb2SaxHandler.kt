@@ -12,6 +12,11 @@ import com.avstaim.listai.core.model.BookNote
 import com.avstaim.listai.core.model.BookPoemStanza
 import com.avstaim.listai.core.model.BookSequence
 import com.avstaim.listai.core.model.BookTocEntry
+import com.avstaim.listai.core.model.BookHeadingGroup
+import com.avstaim.listai.core.model.BookHeadingRole
+import com.avstaim.listai.core.model.isStandaloneEpilogueLabel
+import com.avstaim.listai.core.model.chapterOpenings
+import com.avstaim.listai.core.model.partOpenings
 import com.avstaim.listai.core.model.ImageId
 import com.avstaim.listai.core.model.InlineNode
 import com.avstaim.listai.core.model.LinkTarget
@@ -33,6 +38,7 @@ internal class Fb2SaxHandler(
     private val elements = mutableListOf<String>()
     private val mainBlocks = mutableListOf<RawBlock>()
     private val tableOfContents = mutableListOf<RawTocEntry>()
+    private val headingGroups = mutableListOf<BookHeadingGroup>()
     private val notes = mutableListOf<RawNote>()
     private val binaries = mutableListOf<RawBinary>()
     private val anchorsToBlockKey = linkedMapOf<String, String>()
@@ -341,6 +347,8 @@ internal class Fb2SaxHandler(
             notes = modelNotes,
             images = modelImages,
             locationsBySourceId = locationsBySourceId,
+            chapters = chapterOpenings(modelBlocks, headingGroups),
+            parts = partOpenings(modelBlocks, headingGroups),
         )
     }
 
@@ -485,12 +493,15 @@ internal class Fb2SaxHandler(
         if (loose != null && currentTitle.lines.isEmpty()) {
             currentTitle.lines += RawLine(listOf(RawInline.Text(loose)), currentTitle.sourceId)
         }
+        val headingIds = mutableListOf<BlockId>()
         currentTitle.lines.forEachIndexed { index, line ->
             val normalized = normalizeInline(line.content)
             if (normalized.isNotEmpty()) {
+                val key = blockIds.next()
+                headingIds += BlockId(key)
                 addBlock(
                     RawBlock.Heading(
-                        key = blockIds.next(),
+                        key = key,
                         sourceIds = listOfNotNull(line.sourceId, currentTitle.sourceId.takeIf { index == 0 }),
                         level = currentTitle.level,
                         content = normalized,
@@ -498,8 +509,14 @@ internal class Fb2SaxHandler(
                 )
             }
         }
+        if (!requireNotNull(body).isNotes && sections.isNotEmpty() && headingIds.isNotEmpty()) {
+            headingGroups += BookHeadingGroup(headingIds, currentTitle.level,
+                if (sections.any { it !== sections.last && it.epilogueLabel }) BookHeadingRole.OTHER else BookHeadingRole.UNSPECIFIED)
+        }
         sections.lastOrNull()?.let { section ->
             if (section.title == null) {
+                section.epilogueLabel = currentTitle.lines.firstOrNull()?.content?.rawPlainText()
+                    ?.let(::isStandaloneEpilogueLabel) == true
                 section.title = currentTitle.lines
                     .joinToString(separator = " ") { it.content.rawPlainText() }
                     .normalizedText()
@@ -767,6 +784,7 @@ private data class SectionContext(
     val toc: MutableList<RawTocEntry> = mutableListOf(),
     val noteAliases: MutableList<String> = mutableListOf(),
     var title: String? = null,
+    var epilogueLabel: Boolean = false,
 )
 
 private data class QuoteContext(
