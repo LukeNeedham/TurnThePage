@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 CERT_SHA256 = "3a3154d0b98e97a93182f399539d03a96701c8319ec4d88833c0c23a090e81a8"
 
@@ -28,6 +29,16 @@ def build_release(repo, env):
     subprocess.run(["bash", str(repo / ".sourcecraft/check-r8.sh"), "release"],
                    cwd=repo, env=env, check=True)
     return reports
+
+
+def archive_r8_reports(reports, destination):
+    if destination.exists():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".r8-", dir=destination.parent) as temporary:
+        staged = Path(temporary) / "reports"
+        shutil.copytree(reports, staged)
+        staged.rename(destination)
 
 
 def main():
@@ -94,8 +105,7 @@ def main():
         output = repo / "out/release" / f"listai-{version}.apk"
         output.parent.mkdir(parents=True, exist_ok=True)
         saved_reports = output.with_name(f"listai-{version}-r8") / digest
-        if not saved_reports.exists():
-            shutil.copytree(reports, saved_reports)
+        archive_r8_reports(reports, saved_reports)
         shutil.copy2(apk, output)
         apk = output
     if args.action == "build":

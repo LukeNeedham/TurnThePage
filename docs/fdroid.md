@@ -79,6 +79,25 @@ shrinking. Собственные широкие keep/dontwarn не добавл
 Неподписанный APK уменьшился с примерно 12,1 МБ до 4,1 МБ.
 Пакет, версия 1.1 / код 15 и опубликованный тег не менялись.
 
+Повторный полный локальный `fdroid build --test --verbose --stop
+com.avstaim.listai:15` с fdroidserver 2.4.5 прошёл: 345 задач, source scanner
+и binary scanner без отключения проверок. Lint, rewritemeta и JSON Schema
+также прошли. Неподписанный APK — 4 109 707 байт, SHA-256:
+`fcca38a40fe0e3fd685034da80b09d864ef09e69e7a32ce355b9565d86312321`.
+Это native local build, а не официальная VM F-Droid.
+
+Минифицированный benchmark-вариант 1.1 прошёл внешний тест на API 26 и 36:
+импорт FB2/EPUB/PDF, перелистывание в обе стороны, сохранение страницы после
+остановки процесса и холодного запуска, успешный импорт PDF после повреждённого.
+
+Рецепт обновлён коммитом
+[`f1d20961`](https://gitlab.com/avstaim/fdroiddata/-/commit/f1d209618751f567680caa13c0954eb5f96db4c3).
+[Ответ linsui](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/50461#note_3950924814)
+содержит результаты и запрос повторного CI. Новый
+[fork pipeline #2910592981](https://gitlab.com/avstaim/fdroiddata/-/pipelines/2910592981)
+остановлен GitLab identity verification до запуска задач (0 jobs).
+Ожидается запуск pipeline со стороны сопровождающего F-Droid.
+
 ## Подпись
 
 Рецепт предусматривает подпись F-Droid. Подпись разработчика из SourceCraft
