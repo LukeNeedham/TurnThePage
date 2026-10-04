@@ -17,6 +17,19 @@ def run(args, env):
     return subprocess.run([str(a) for a in args], env=env, check=True, capture_output=True)
 
 
+def build_release(repo, env):
+    reports = repo / "app/build/outputs/mapping/release"
+    # Missing outputs force Gradle to regenerate reports, so a previous optimized
+    # build cannot hide R8 being disabled in this build.
+    if reports.exists():
+        shutil.rmtree(reports)
+    subprocess.run([str(repo / "gradlew"), "--console=plain", "--no-configuration-cache",
+                    ":app:assembleRelease"], cwd=repo, env=env, check=True)
+    subprocess.run(["bash", str(repo / ".sourcecraft/check-r8.sh"), "release"],
+                   cwd=repo, env=env, check=True)
+    return reports
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, epilog=(
         "Overrides: JAVA_HOME, ANDROID_HOME/ANDROID_SDK_ROOT, LISTAI_BUILD_TOOLS, "
@@ -63,8 +76,7 @@ def main():
                           "alias": alias, "certificateSha256": CERT_SHA256}, ensure_ascii=False, indent=2))
         return
     if args.action == "build":
-        subprocess.run([str(repo / "gradlew"), "--console=plain", "--no-configuration-cache",
-                        ":app:assembleRelease"], cwd=repo, env=env, check=True)
+        reports = build_release(repo, env)
     apk = (args.apk or repo / "app/build/outputs/apk/release/app-release.apk").resolve()
     metadata = run([build_tools / "aapt2", "dump", "badging", apk], env).stdout.decode()
     match = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", metadata, re.M)
@@ -77,12 +89,15 @@ def main():
     if [s.lower() for s in certificates] != [CERT_SHA256]:
         raise ValueError("APK is not signed with the permanent Listai key")
     run([build_tools / "zipalign", "-c", "-P", "16", "4", apk], env)
+    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     if args.action == "build":
         output = repo / "out/release" / f"listai-{version}.apk"
         output.parent.mkdir(parents=True, exist_ok=True)
+        saved_reports = output.with_name(f"listai-{version}-r8") / digest
+        if not saved_reports.exists():
+            shutil.copytree(reports, saved_reports)
         shutil.copy2(apk, output)
         apk = output
-    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     if args.action == "build":
         apk.with_suffix(".apk.sha256").write_text(f"{digest}  {apk.name}\n")
     print(json.dumps({"apk": str(apk), "version": version, "versionCode": code,

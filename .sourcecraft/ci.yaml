@@ -32,13 +32,16 @@ workflows:
             script:
               - >-
                 ./gradlew --no-daemon --console=plain --stacktrace
-                :app:assembleRelease
+                :app:assembleRelease :app:assembleBenchmark
                 :app:assembleDebugAndroidTest :feature:reader:assembleDebugAndroidTest
                 :core:files:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest
                 :benchmark:assemble
+              - bash .sourcecraft/check-r8.sh release benchmark
             artifacts:
               paths:
                 - app/build/outputs/apk/release
+                - app/build/outputs/mapping/release
+                - app/build/outputs/mapping/benchmark
 
           - name: unit-tests
             script:

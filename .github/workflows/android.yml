@@ -47,6 +47,9 @@ jobs:
           :core:files:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest
           :benchmark:assemble
 
+      - name: Verify release and benchmark optimization
+        run: bash .sourcecraft/check-r8.sh release benchmark
+
       - name: Upload reports and APKs
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,6 +59,8 @@ jobs:
           path: |
             **/build/outputs/apk/**
             **/build/outputs/bundle/**
+            app/build/outputs/mapping/release/**
+            app/build/outputs/mapping/benchmark/**
             **/build/reports/**
             **/build/test-results/**
 

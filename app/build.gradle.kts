@@ -55,7 +55,8 @@ android {
             isPseudoLocalesEnabled = true
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             if (releaseSigningValues.all { !it.isNullOrBlank() }) {
                 signingConfig = signingConfigs.getByName("releaseExternal")
             }

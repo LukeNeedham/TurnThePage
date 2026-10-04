@@ -9,7 +9,7 @@
 
 - Приложение: `com.avstaim.listai`, версия `1.1`, код `15`, Android API 26–36.
 - Публичный Git: `https://git.sourcecraft.dev/avstaim/listai.git`.
-- Коммит сборки: `88d8b70d785f868c1d747bba1eb6d3fee90d84f1`.
+- Коммит сборки: `fefeb767880f40aa1b74248bc58b77ba7def2435`.
 - [Рецепт сборки](fdroid/com.avstaim.listai.yml) совпадает с отправленным в F-Droid.
 - [Лицензии](licenses.md): Apache-2.0 для кода, CC-BY-4.0 для собственной книги
   и иллюстраций; сторонние материалы сохраняют свои лицензии.
@@ -17,13 +17,16 @@
   скриншоты и changelog `15.txt`. Скриншоты унаследованы из проверенной карточки 1.0;
   новые кадры в рамках подготовки F-Droid не создавались.
 
-Коммит после релиза добавляет лицензии, уведомления в APK и Fastlane metadata.
+Коммит после релиза добавляет лицензии, уведомления в APK, Fastlane metadata
+и полную оптимизацию R8 кода и ресурсов по просьбе сопровождающего linsui.
 Опубликованный тег `v1.1` остаётся на прежнем коммите. Для последующих выпусков
 настроено получение версии из `gradle.properties` и обновление по тегам `v*`.
 
 ## Проверка
 
-Прошли `fdroid lint`, `fdroid rewritemeta` и настоящий локальный
+### Первоначальная заявка
+
+Для исходного коммита `88d8b70d785f868c1d747bba1eb6d3fee90d84f1` прошли `fdroid lint`, `fdroid rewritemeta` и настоящий локальный
 `fdroid build --test --verbose --stop com.avstaim.listai:15` с fdroidserver 2.4.5,
 официальным gradlew-fdroid, JDK 21, Gradle 9.5.1 и SDK 36.
 `fdroid checkupdates --allow-dirty com.avstaim.listai` также прошёл: теги и
@@ -59,7 +62,22 @@ GitLab был остановлен требованием проверки ак�
 Полная проверка JSON Schema из упавшего pipeline и текущей `master`
 воспроизводит ошибку старого значения и принимает исправленное.
 Также повторно прошли `fdroid lint` и `fdroid rewritemeta --list`.
-В описании заявки запрошен повторный запуск CI на стороне F-Droid.
+После исправления сопровождающим удаления Gradle wrapper прошли все 9 заданий
+[pipeline F-Droid #2892671505](https://gitlab.com/fdroid/fdroiddata/-/pipelines/2892671505)
+на коммите рецепта `6ce41ba7fe843d11abeca85eeeb26c4124d77628`.
+
+### R8, 4 октября 2026
+
+По [просьбе linsui](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/50461#note_3946449241)
+включены `isMinifyEnabled`, `isShrinkResources` и R8 full mode с
+`proguard-android-optimize.txt`. AGP 9.2.1 также включает optimized resource
+shrinking. Собственные широкие keep/dontwarn не добавлялись. Изменение перенесено
+на исходники 1.1 отдельным коммитом `fefeb767880f40aa1b74248bc58b77ba7def2435`;
+основная ветка сохраняет эту настройку для будущих выпусков.
+
+Чистые `:app:assembleRelease`, `:app:assembleBenchmark` и `:app:test` прошли.
+Неподписанный APK уменьшился с примерно 12,1 МБ до 4,1 МБ.
+Пакет, версия 1.1 / код 15 и опубликованный тег не менялись.
 
 ## Подпись
 

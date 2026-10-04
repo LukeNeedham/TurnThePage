@@ -15,6 +15,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Reuse the tiny, licensed format fixtures in the external release smoke test.
+    sourceSets.named("main") {
+        assets.srcDir("../app/src/androidTest/assets")
+    }
+
     // Measure the non-debuggable application, while allowing test instrumentation.
     buildTypes {
         create("benchmark") {

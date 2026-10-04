@@ -67,7 +67,14 @@ python3 .agents/skills/listai-release/scripts/release.py build
 
 `build` использует opt-in signing из `app/build.gradle.kts`, отключает configuration
 cache для сборки с паролем, проверяет сертификат, пакет, версию, код версии и zipalign.
-Результат: `out/release/listai-<version>.apk` и `.apk.sha256`.
+Каждый release всегда использует полную оптимизацию R8 и ресурсов; `build` удаляет
+старые отчёты R8 перед сборкой и выполняет `.sourcecraft/check-r8.sh release` после неё.
+Не отключать shrinking, optimization, obfuscation, full mode или optimized resource
+shrinking; не добавлять широкие project keep/dontwarn ради прохождения сборки.
+Результат: `out/release/listai-<version>.apk`, `.apk.sha256` и каталог
+`out/release/listai-<version>-r8/<apkSHA256>/` с mapping и отчётами именно этого APK.
+Повторные сборки версии сохраняют отдельные каталоги по SHA-256 подписанного APK;
+существующие отчёты не заменяются. Сохранять их вместе с APK для разбора падений.
 Проверка готового APK без изменения файлов: `release.py verify --apk <path>`.
 Переопределения путей перечислены в `release.py --help`; пароли в аргументы не вставлять.
 
