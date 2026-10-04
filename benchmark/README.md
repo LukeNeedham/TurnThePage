@@ -25,6 +25,14 @@ All timings are emulator observations, not physical-device smoothness claims.
 
 The suite includes:
 
+- `MinifiedReleaseSmokeTest.importsTurnsAndRestoresInOptimizedApp`: an external
+  functional smoke test of the optimized, non-debuggable app. It imports FB2,
+  EPUB and PDF through the shipping content-URI entry point, turns pages in both
+  directions, and verifies the saved page after force-stop and cold launch.
+  A malformed PDF immediately precedes the valid PDF to exercise the API 26/27
+  isolated parser service. It reuses the licensed fixtures from the app's test
+  assets and saves screenshots/hierarchy in the benchmark APK's external
+  `release-smoke` directory. It requires no macrobenchmark warning suppression.
 - `StartupBenchmark.coldStartupIntoImportedBook`: five cold launches with no
   precompilation. `StartupTimingMetric` measures the initial displayed frame.
   The measured block also waits for actual imported source ink, a completed page
