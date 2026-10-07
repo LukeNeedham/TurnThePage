@@ -2,6 +2,10 @@ Turn the Page (Листай) is an offline Android reader with a physical paper 
 
 Import FB2, FB2.ZIP, EPUB 2/3 and PDF books, multiple files or a folder including subfolders. Reorder books by dragging their covers, and share a copy of a book through Android.
 
+Find books by title or author, including books inside stacks. Drag books together into named stacks for an author, series or genre, reorder them or return them to the shelf. Pinch the shelf to choose one of three zoom levels. Search is available in the library.
+
 Features include book covers, physical page turns, bookmarks, saved reading progress, light/dark/system themes, Russian and English UI, and adjustable typography for FB2 and EPUB. PDF preserves its original page layout; PDF zoom, text search and font changes are not supported. DRM-protected EPUB and password-protected PDF files are not supported.
+
+Descriptions, title pages and contents are physical book pages. Chapters and parts have vector ornaments; titles begin on the right in a spread, while phones skip layout-only blank pages. Open FB2 and EPUB illustrations fullscreen and zoom with a pinch or double tap. A small clock at the page edge can be disabled.
 
 No account, ads, tracking or internet connection is required. Books and reading state are stored locally. When sharing, the app you choose receives temporary access to a copy of the selected book. Removing a book from the library leaves the original file intact. Android 8.0 or newer is required.

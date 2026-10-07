@@ -11,9 +11,10 @@
 Текущая версия проекта — **1.5**, Android 8.0+.
 [Что нового в 1.5](docs/releases/1.5.md).
 
-[Скачать опубликованный APK 1.1](https://sourcecraft.dev/avstaim/listai/releases/v1.1)
-· [Изменения 1.1](docs/releases/1.1.md).
-Код версии 1.5 находится в `main`; её APK ещё не опубликован в релизах.
+[Скачать APK 1.5](https://sourcecraft.dev/avstaim/listai/releases/v1.5)
+· [RuStore](https://www.rustore.ru/catalog/app/com.avstaim.listai)
+· [F-Droid](https://f-droid.org/packages/com.avstaim.listai/).
+Обновления в каталогах магазинов появляются после их проверки и публикации.
 
 [Конфиденциальность](docs/privacy.md) · [Условия использования](docs/terms.md)
 · [Лицензии](docs/licenses.md)

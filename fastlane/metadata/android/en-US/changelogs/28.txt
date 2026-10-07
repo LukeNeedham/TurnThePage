@@ -1,0 +1,1 @@
+Library search, three shelf zoom levels and named book stacks with animated drag and drop. New title, chapter, part and epilogue layouts with vector ornaments, permanent contents pages and precise returns from notes. Optional clock and fullscreen illustrations with zoom. Fixed themes, blank pages on phones and returning to the book on the shelf.
