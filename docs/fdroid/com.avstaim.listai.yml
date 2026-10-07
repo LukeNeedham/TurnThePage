@@ -22,7 +22,7 @@ Builds:
 
   - versionName: '1.5'
     versionCode: 28
-    commit: v1.5
+    commit: 80df6dee81c1c460c3e95f9cb5f3a8f63ee6ec01
     subdir: app
     gradle:
       - yes
