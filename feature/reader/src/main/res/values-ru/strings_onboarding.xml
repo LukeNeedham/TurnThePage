@@ -9,10 +9,24 @@
     <string name="reader_onboarding_left_detail">Коснитесь левого края книги, чтобы вернуться назад.</string>
     <string name="reader_onboarding_right_title">Ещё один способ листать</string>
     <string name="reader_onboarding_right_detail">Коснитесь правого края книги, чтобы читать дальше.</string>
+    <string name="reader_onboarding_bookmarks_title">Сохраните место</string>
+    <string name="reader_onboarding_bookmarks_detail">Коснитесь ленты у верхнего края страницы, чтобы поставить или убрать закладку. Пункт «Закладки» в меню книги позволяет вернуться к сохранённым местам.</string>
+    <string name="reader_onboarding_illustrations_title">Рассмотрите иллюстрации</string>
+    <string name="reader_onboarding_illustrations_detail">В FB2 и EPUB коснитесь иллюстрации, чтобы открыть её. Увеличивайте двумя пальцами или двойным касанием, перемещайте изображение. Удержание иллюстрации на странице показывает быстрый просмотр.</string>
+    <string name="reader_onboarding_stacks_title">На полке: стопки</string>
+    <string name="reader_onboarding_stacks_detail">Удержите обложку и перенесите на центр другой. Дождитесь подсказки, отпустите и назовите стопку. Касание открывает стопку; удержание без переноса — её меню.</string>
+    <string name="reader_onboarding_search_title">На полке: поиск</string>
+    <string name="reader_onboarding_search_detail">Коснитесь лупы или потяните вниз начало полки. Ищите по названию, автору или серии — книги внутри стопок тоже найдутся.</string>
+    <string name="reader_onboarding_shelf_zoom_title">На полке: ближе и дальше</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Сведите пальцы, чтобы видеть больше книг, разведите — чтобы приблизить обложки. У полки три масштаба. Повторить обучение можно через «Как читать» в меню книги или настройках полки.</string>
     <string name="reader_onboarding_counter">%1$d из %2$d</string>
+    <string name="reader_onboarding_text_zoom_title">Текст крупнее</string>
+    <string name="reader_onboarding_text_zoom_detail">Разведите два пальца на странице, чтобы увеличить текст; сведите, чтобы уменьшить. Размер изменится, когда вы отпустите пальцы. Место чтения и выбранный размер сохраняются.</string>
+    <string name="reader_onboarding_pdf_zoom_title">PDF в деталях</string>
+    <string name="reader_onboarding_pdf_zoom_detail">Сведите или разведите два пальца на странице PDF, чтобы открыть увеличенный просмотр. Меняйте масштаб двумя пальцами и перемещайте страницу. Двойной тап вписывает страницу целиком или снова увеличивает. Закройте просмотр или нажмите «Назад», чтобы вернуться на ту же страницу.</string>
     <string name="reader_onboarding_skip">Пропустить</string>
     <string name="reader_onboarding_next">Далее</string>
     <string name="reader_onboarding_done">Читать</string>
-    <string name="reader_onboarding_replay">Как листать книгу</string>
-    <string name="reader_onboarding_replay_detail">Показать подсказки ещё раз</string>
+    <string name="reader_onboarding_replay">Как читать</string>
+    <string name="reader_onboarding_replay_detail">Жесты, закладки и библиотека</string>
 </resources>

@@ -15,13 +15,26 @@ class ReaderOnboardingTest {
 
     @Test fun `matching actions walk through centre both drags and both outer edges`() {
         var session = ReaderOnboardingSession().prepare(false, 0L)
-        for (step in ReaderOnboardingStep.entries) {
+        for (step in ReaderOnboardingStep.entries.filter { it.gestureLesson }) {
             assertEquals(step, session.step)
             assertEquals(session, session.performed(null))
             ReaderOnboardingStep.entries.filter { it != step }.forEach { wrong ->
                 assertEquals(session, session.performed(wrong))
             }
             session = session.performed(step)
+        }
+        assertEquals(ReaderOnboardingStep.BOOKMARKS, session.step)
+        assertFalse(session.finished)
+    }
+
+    @Test fun `feature tips stay on their step during reading gestures and complete with next`() {
+        var session = ReaderOnboardingSession(ReaderOnboardingStep.BOOKMARKS.ordinal)
+        for (step in ReaderOnboardingStep.entries.filter { !it.gestureLesson }) {
+            assertEquals(step, session.step)
+            ReaderOnboardingStep.entries.forEach { gesture ->
+                assertEquals(session, session.performed(gesture))
+            }
+            session = session.next()
         }
         assertTrue(session.finished)
         assertNull(session.step)
@@ -54,6 +67,9 @@ class ReaderOnboardingTest {
         val restored = ReaderOnboardingSession(original.stepIndex, original.finished, original.replayRequest)
         assertEquals(ReaderOnboardingStep.DRAG_BACKWARD, restored.prepare(true, 7L).step)
         assertEquals(original, restored.prepare(null, 7L))
+        val featureTip = original.copy(stepIndex = ReaderOnboardingStep.STACKS.ordinal)
+        val restoredTip = ReaderOnboardingSession(featureTip.stepIndex, featureTip.finished, featureTip.replayRequest)
+        assertEquals(ReaderOnboardingStep.STACKS, restoredTip.prepare(true, 7L).step)
     }
 
     @Test fun `readiness temporarily pauses guide without completing it`() {

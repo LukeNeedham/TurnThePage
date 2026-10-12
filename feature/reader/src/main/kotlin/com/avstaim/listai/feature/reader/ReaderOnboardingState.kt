@@ -16,7 +16,10 @@ import androidx.compose.ui.geometry.Size
 import com.avstaim.listai.feature.reader.bookview.readerMenuTapBounds
 import kotlin.math.abs
 
-enum class ReaderOnboardingStep { MENU, DRAG_FORWARD, DRAG_BACKWARD, TAP_LEFT, TAP_RIGHT }
+enum class ReaderOnboardingStep(val gestureLesson: Boolean = false) {
+    MENU(true), DRAG_FORWARD(true), DRAG_BACKWARD(true), TAP_LEFT(true), TAP_RIGHT(true),
+    BOOKMARKS, ILLUSTRATIONS, STACKS, SEARCH, SHELF_ZOOM, TEXT_ZOOM, PDF_ZOOM,
+}
 
 /** This state owns instructions only. It has no book location and cannot turn a page. */
 internal data class ReaderOnboardingSession(
@@ -39,7 +42,7 @@ internal data class ReaderOnboardingSession(
     }
 
     fun performed(gesture: ReaderOnboardingStep?): ReaderOnboardingSession =
-        if (gesture != null && gesture == step) next() else this
+        if (gesture != null && gesture.gestureLesson && gesture == step) next() else this
 
     fun finish(): ReaderOnboardingSession = copy(stepIndex = -1, finished = true)
 }

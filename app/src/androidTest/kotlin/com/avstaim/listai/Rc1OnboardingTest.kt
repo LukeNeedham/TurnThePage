@@ -166,7 +166,7 @@ class Rc1OnboardingTest {
         compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
     }
 
-    @Test fun realCentreTapBothDragsAndBothEdgeTapsAdvanceTheGuideAndTheBook() {
+    @Test fun realGesturesAdvanceTheFirstFiveStepsAndInformationContinuesOnlyWithNext() {
         val fixture = ReaderFixture(completed = false)
         install(fixture)
         awaitStep(1)
@@ -194,12 +194,43 @@ class Rc1OnboardingTest {
         awaitStep(5)
         waitForBook()
         book().performTouchInput { click(Offset(width * .92f, height * .5f)) }
+        awaitStep(ReaderOnboardingStep.BOOKMARKS.ordinal + 1)
+        waitForBook()
+        assertEquals("The fifth gesture must leave the information guide open", 0, fixture.completions)
+
+        // Information steps leave normal reading gestures available, without treating
+        // another real page turn as completion of their instructions.
+        val beforeOrdinaryTurn = semanticLocation()
+        book().performTouchInput {
+            swipe(Offset(width * .77f, height * .5f), Offset(width * .23f, height * .5f), 850L)
+        }
+        waitForBook()
+        awaitStep(ReaderOnboardingStep.BOOKMARKS.ordinal + 1)
+        assertNotEquals(beforeOrdinaryTurn, semanticLocation())
+        assertEquals(0, fixture.completions)
+
+        val source = fixture.progress.value.location
+        val displayedSource = semanticLocation()
+        val informationSteps = ReaderOnboardingStep.entries.drop(ReaderOnboardingStep.BOOKMARKS.ordinal)
+        assertEquals(7, informationSteps.size)
+        informationSteps.forEachIndexed { index, step ->
+            awaitStep(step.ordinal + 1)
+            compose.mainClock.advanceTimeBy(2_000)
+            compose.waitForIdle()
+            assertEquals("Showing $step must retain the source place", source, fixture.progress.value.location)
+            assertEquals(displayedSource, semanticLocation())
+            compose.onNodeWithTag("reader_onboarding_next").performClick()
+            waitForBook()
+            assertEquals("Next on $step must retain the source place", source, fixture.progress.value.location)
+            assertEquals(displayedSource, semanticLocation())
+            if (index < informationSteps.lastIndex) assertEquals(0, fixture.completions)
+        }
         compose.waitUntil(5_000) { fixture.completions == 1 }
         compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
         assertEquals(0, fixture.shelfReturns)
     }
 
-    @Test fun unfinishedGuideRestoresItsStepBackDismissesAndSettingsCanReplayAfterCompletion() {
+    @Test fun unfinishedGuideRestoresGestureAndInformationStepsAndBothReplayLinksRemainAvailable() {
         val fixture = ReaderFixture(completed = false)
         install(fixture)
         awaitStep(1)
@@ -217,6 +248,28 @@ class Rc1OnboardingTest {
             fixture.emitted.value = true
         }
         awaitStep(3)
+        waitForBook()
+        val source = fixture.progress.value.location
+        val displayedSource = semanticLocation()
+        repeat(ReaderOnboardingStep.STACKS.ordinal - 2) {
+            compose.onNodeWithTag("reader_onboarding_next").performClick()
+        }
+        awaitStep(ReaderOnboardingStep.STACKS.ordinal + 1)
+        assertEquals(source, fixture.progress.value.location)
+        assertEquals(displayedSource, semanticLocation())
+        compose.runOnIdle {
+            saved = fixture.registry.value.performSave()
+            fixture.emitted.value = false
+        }
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            fixture.registry.value = SaveableStateRegistry(saved) { true }
+            fixture.emitted.value = true
+        }
+        awaitStep(ReaderOnboardingStep.STACKS.ordinal + 1)
+        waitForBook()
+        assertEquals("Restoring an information step must retain the source place", source, fixture.progress.value.location)
+        assertEquals(displayedSource, semanticLocation())
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitUntil(5_000) { fixture.completions == 1 }
         compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
@@ -229,9 +282,25 @@ class Rc1OnboardingTest {
         compose.onNodeWithTag("reader_show_hints").performScrollTo().performClick()
         awaitStep(1)
         assertTrue(fixture.completed.value == true)
+        assertEquals(source, fixture.progress.value.location)
+        assertEquals(displayedSource, semanticLocation())
         compose.onNodeWithTag("reader_onboarding_skip").performClick()
         compose.waitUntil(5_000) { fixture.completions == 2 }
         compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
+
+        // The same full guide is reachable directly from the main paper insert.
+        waitForBook()
+        book().performTouchInput { click(center) }
+        compose.onNodeWithTag("reader_paper_insert").assertIsDisplayed()
+        compose.onNodeWithTag("reader_insert_guide").performScrollTo().assertIsDisplayed().performClick()
+        awaitStep(1)
+        assertTrue(fixture.completed.value == true)
+        assertEquals("Menu replay must retain the source place", source, fixture.progress.value.location)
+        assertEquals(displayedSource, semanticLocation())
+        compose.onNodeWithTag("reader_onboarding_skip").performClick()
+        compose.waitUntil(5_000) { fixture.completions == 3 }
+        compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
+        assertEquals(0, fixture.shelfReturns)
     }
 
     private fun install(fixture: ReaderFixture) {
@@ -258,7 +327,8 @@ class Rc1OnboardingTest {
     }
 
     private fun awaitStep(step: Int) {
-        val expected = compose.activity.getString(com.avstaim.listai.feature.reader.R.string.reader_onboarding_counter, step, 5)
+        val expected = compose.activity.getString(com.avstaim.listai.feature.reader.R.string.reader_onboarding_counter,
+            step, ReaderOnboardingStep.entries.size)
         compose.waitUntil(30_000) {
             compose.onAllNodesWithTag("reader_onboarding_step").fetchSemanticsNodes().any {
                 it.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { emptyList() }

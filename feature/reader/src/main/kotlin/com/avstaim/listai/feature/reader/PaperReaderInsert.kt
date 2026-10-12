@@ -92,9 +92,10 @@ fun PaperReaderInsert(
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier.widthIn(max = 640.dp), contentAlignment = Alignment.Center) {
         val wide = maxWidth >= 560.dp && section == PaperInsertSection.MENU && navigation != null
-        val compact = maxHeight < 620.dp
+        val compact = maxHeight < if (section == PaperInsertSection.MENU) 740.dp else 620.dp
         val inset = if (maxWidth < 340.dp) 20.dp else 26.dp
-        Column(Modifier.widthIn(max = if (wide) 620.dp else 420.dp).fillMaxWidth().heightIn(max = 680.dp)
+        Column(Modifier.widthIn(max = if (wide) 620.dp else 420.dp).fillMaxWidth()
+            .heightIn(max = if (section == PaperInsertSection.MENU) 760.dp else 680.dp)
             .shadow(18.dp, InsertPaperShape, ambientColor = Color(0xFF102A41), spotColor = Color(0xFF102A41))
             .clip(InsertPaperShape).background(colors.surface).drawBehind {
                 val edge = colors.outlineVariant.copy(alpha = .48f)
@@ -138,6 +139,9 @@ fun PaperReaderInsert(
                         ContentsTab(onGoToToc, compact)
                         onReturnFromToc?.let {
                             InkAction(stringResource(R.string.insert_return_from_toc), "reader_insert_return_from_toc", it, PaperIcon.Return)
+                        }
+                        onShowHints?.let {
+                            ReadingGuideInvitation(it, "reader_insert_guide", compact)
                         }
                     }
                     if (wide) {
@@ -247,6 +251,10 @@ fun PaperSettingsSheet(
 private fun PaperSettingsContent(preferences: ReaderPreferences,
     onPreferencesChange: (ReaderPreferences) -> Unit, onShowHints: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
+    onShowHints?.let {
+        ReadingGuideInvitation(it, "reader_show_hints")
+        InkRule()
+    }
     Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         IconPress(PaperIcon.Minus, stringResource(R.string.insert_font_smaller), "reader_font_smaller", {
@@ -286,9 +294,22 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
                 contentDescription = clockLabel
             })
     }
-    onShowHints?.let {
-        InkRule()
-        InkAction(stringResource(R.string.rc1_show_hints), "reader_show_hints", it, PaperIcon.Contents)
+}
+
+@Composable
+private fun ReadingGuideInvitation(onClick: () -> Unit, tag: String, compact: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag).clip(ContentsTabShape)
+        .clickable(role = Role.Button, onClick = onClick).padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        PaperInkIcon(PaperIcon.Description, Modifier.size(20.dp), colors.primary)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(stringResource(R.string.reader_onboarding_replay), color = colors.primary,
+                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.bodyLarge)
+            if (!compact) Text(stringResource(R.string.reader_onboarding_replay_detail),
+                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+        PaperInkIcon(PaperIcon.Forward, Modifier.size(18.dp), colors.primary)
     }
 }
 

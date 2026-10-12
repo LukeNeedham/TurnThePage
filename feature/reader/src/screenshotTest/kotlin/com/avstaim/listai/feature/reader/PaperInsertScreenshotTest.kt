@@ -57,6 +57,8 @@ fun InsertSystemScreenshots() { InsertPreview(PaperInsertSection.SETTINGS, syste
 
 @PreviewTest
 @Preview(name = "Reading card — small phone en", widthDp = 320, heightDp = 568, locale = "en")
+@Preview(name = "Reading card — short phone en", widthDp = 412, heightDp = 700, locale = "en")
+@Preview(name = "Вкладка — невысокий экран ru", widthDp = 412, heightDp = 700, locale = "ru", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Preview(name = "Вкладка — узкий экран ru", widthDp = 320, heightDp = 568, locale = "ru", uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Preview(name = "Reading card — landscape en", widthDp = 740, heightDp = 360, locale = "en")
 @Preview(name = "Вкладка — альбомная ru", widthDp = 740, heightDp = 360, locale = "ru", uiMode = Configuration.UI_MODE_NIGHT_YES)
@@ -108,7 +110,8 @@ private fun InsertPreview(section: PaperInsertSection, system: Boolean = false) 
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
             PaperReaderInsert(ReaderPreferences(theme = if (system) ReaderTheme.SYSTEM else if (dark) ReaderTheme.DARK else ReaderTheme.LIGHT),
                 {}, snippets.mapIndexed { i, text -> Bookmark("mark$i", document.id, BookLocation(BlockId("p$i"), 0, i * 1000L), 0, text) },
-                {}, {}, {}, {}, {}, {}, null, navigation, {}, Modifier.padding(18.dp), initialSection = section)
+                {}, {}, {}, {}, {}, {}, null, navigation, {}, Modifier.padding(18.dp), initialSection = section,
+                onShowHints = {})
         }
     }
 }

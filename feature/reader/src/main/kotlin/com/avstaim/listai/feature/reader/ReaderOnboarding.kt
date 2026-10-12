@@ -12,7 +12,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -89,7 +91,7 @@ fun Modifier.readerOnboardingGestures(state: ReaderOnboardingState): Modifier =
             }
         }
 
-/** A translucent drawn hand and a small loose paper note over the actual reading surface. */
+/** Gesture lessons use a drawn hand; feature tips use only the loose paper note. */
 @Composable
 fun ReaderOnboardingOverlay(
     state: ReaderOnboardingState,
@@ -100,11 +102,6 @@ fun ReaderOnboardingOverlay(
     if (!state.visible) return
     val step = state.step ?: return
     BackHandler { state.dismiss() }
-    val phase by key(step) {
-        val motion = rememberInfiniteTransition(label = "reading gesture demonstration")
-        motion.animateFloat(0f, 1f,
-            infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "finger position")
-    }
     val paper = if (darkTheme) Color(0xFF2E3D4B) else Color(0xFFF5F8FB)
     val ink = if (darkTheme) Color(0xFFDEE7F0) else Color(0xFF203447)
     val accent = if (darkTheme) Color(0xFFA6CAE8) else Color(0xFF355F84)
@@ -115,11 +112,26 @@ fun ReaderOnboardingOverlay(
         ReaderOnboardingStep.DRAG_BACKWARD -> R.string.reader_onboarding_backward_title to R.string.reader_onboarding_backward_detail
         ReaderOnboardingStep.TAP_LEFT -> R.string.reader_onboarding_left_title to R.string.reader_onboarding_left_detail
         ReaderOnboardingStep.TAP_RIGHT -> R.string.reader_onboarding_right_title to R.string.reader_onboarding_right_detail
+        ReaderOnboardingStep.BOOKMARKS -> R.string.reader_onboarding_bookmarks_title to R.string.reader_onboarding_bookmarks_detail
+        ReaderOnboardingStep.ILLUSTRATIONS -> R.string.reader_onboarding_illustrations_title to R.string.reader_onboarding_illustrations_detail
+        ReaderOnboardingStep.STACKS -> R.string.reader_onboarding_stacks_title to R.string.reader_onboarding_stacks_detail
+        ReaderOnboardingStep.SEARCH -> R.string.reader_onboarding_search_title to R.string.reader_onboarding_search_detail
+        ReaderOnboardingStep.SHELF_ZOOM -> R.string.reader_onboarding_shelf_zoom_title to R.string.reader_onboarding_shelf_zoom_detail
+        ReaderOnboardingStep.TEXT_ZOOM -> R.string.reader_onboarding_text_zoom_title to R.string.reader_onboarding_text_zoom_detail
+        ReaderOnboardingStep.PDF_ZOOM -> R.string.reader_onboarding_pdf_zoom_title to R.string.reader_onboarding_pdf_zoom_detail
     }
     BoxWithConstraints(modifier.fillMaxSize().testTag("reader_onboarding")) {
         val compact = maxHeight < 500.dp
-        Canvas(Modifier.fillMaxSize()) {
-            drawGuideFinger(step, illustrationProgress ?: phase, accent, paper)
+        val scroll = key(step) { rememberScrollState() }
+        if (step.gestureLesson) {
+            val phase by key(step) {
+                val motion = rememberInfiniteTransition(label = "reading gesture demonstration")
+                motion.animateFloat(0f, 1f,
+                    infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "finger position")
+            }
+            Canvas(Modifier.fillMaxSize()) {
+                drawGuideFinger(step, illustrationProgress ?: phase, accent, paper)
+            }
         }
         Column(Modifier.align(Alignment.BottomCenter).safeDrawingPadding()
             .padding(horizontal = 20.dp, vertical = if (compact) 10.dp else 24.dp)
@@ -133,6 +145,7 @@ fun ReaderOnboardingOverlay(
             }
             .pointerInput(Unit) { detectTapGestures {} }
             .semantics { liveRegion = LiveRegionMode.Polite }
+            .verticalScroll(scroll)
             .padding(start = 18.dp, end = 14.dp, top = if (compact) 9.dp else 14.dp, bottom = 2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(title), Modifier.weight(1f), color = ink,
@@ -153,7 +166,7 @@ fun ReaderOnboardingOverlay(
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = state::next, modifier = Modifier.testTag("reader_onboarding_next")) {
-                    Text(stringResource(if (step == ReaderOnboardingStep.TAP_RIGHT)
+                    Text(stringResource(if (step == ReaderOnboardingStep.entries.last())
                         R.string.reader_onboarding_done else R.string.reader_onboarding_next), color = accent,
                         fontWeight = FontWeight.SemiBold)
                 }
@@ -175,6 +188,7 @@ private fun DrawScope.drawGuideFinger(step: ReaderOnboardingStep, phase: Float, 
         ReaderOnboardingStep.DRAG_BACKWARD -> .23f
         ReaderOnboardingStep.TAP_LEFT -> .08f
         ReaderOnboardingStep.TAP_RIGHT -> .92f
+        else -> return
     }
     val toX = when (step) {
         ReaderOnboardingStep.DRAG_FORWARD -> .27f
