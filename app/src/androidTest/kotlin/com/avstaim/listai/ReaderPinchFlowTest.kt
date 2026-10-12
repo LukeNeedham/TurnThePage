@@ -1,11 +1,16 @@
 package com.avstaim.listai
 
+import android.graphics.Color
 import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.os.ParcelFileDescriptor
 import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsConfiguration
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -21,15 +26,20 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Real two-finger text input through production ReaderScreen. */
+/** Real two-finger input through production ReaderScreen, including native PDF rasters. */
 @RunWith(AndroidJUnit4::class)
 class ReaderPinchFlowTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val files = mutableListOf<File>()
+
+    @After fun removeFixtures() { files.forEach(File::delete) }
+
     @Test fun textPinchesGrowAndShrinkTypeInBothLayoutsWithoutChangingTheSourceAnchor() {
         for ((mode, dark) in listOf(ReaderPresentationMode.SINGLE to false, ReaderPresentationMode.SPREAD to true)) {
             val fixture = textFixture()
@@ -115,6 +125,48 @@ class ReaderPinchFlowTest {
         assertSource(before, fixture)
     }
 
+    @Test fun pdfPinchOpensTheTouchedPageThenZoomAndPanPreservePlaceAndFont() {
+        for ((mode, dark) in listOf(ReaderPresentationMode.SINGLE to false, ReaderPresentationMode.SPREAD to true)) {
+            val fixture = pdfFixture()
+            show(fixture, mode, dark)
+            compose.waitUntil(30_000) { config()[ReaderPdfBounds].isNotEmpty() }
+            val before = checkpoint(fixture)
+            val pdf = config()
+            val bounds = pdf[ReaderPdfBounds].last()
+            val pageIndex = pdf[ReaderPdfPageIndices].last()
+            capture("pdf-${mode.name.lowercase()}-book")
+            pinch(book(), bounds, .10f, .20f)
+            awaitPdf()
+            capture("pdf-${mode.name.lowercase()}-height")
+            assertEquals("The touched physical leaf chooses its PDF page", pageIndex + 1,
+                compose.onNodeWithTag("reader_pdf_viewer").fetchSemanticsNode().config[ReaderPdfPageNumber])
+            val fittedZoom = pdfZoom()
+            assertTrue("The authored landscape page initially fills the available height", fittedZoom > 1f)
+            assertEquals(18f, fixture.preferences.value.fontSizeSp, .001f)
+            assertTrue("PDF magnification never rewrites text preferences", fixture.changes.isEmpty())
+
+            val content = compose.onNodeWithTag("reader_pdf_content")
+            val viewport = content.fetchSemanticsNode().size
+            pinch(content, Rect(0f, 0f, viewport.width.toFloat(), viewport.height.toFloat()), .08f, .12f)
+            compose.waitUntil(10_000) { pdfZoom() > fittedZoom }
+            val zoomed = pdfZoom()
+            val offset = pdfOffset()
+            content.performTouchInput {
+                swipe(Offset(width * .50f, height * .5f), Offset(width * .68f, height * .60f), 300)
+            }
+            assertEquals("Panning retains the PDF scale", zoomed, pdfZoom(), .001f)
+            assertNotEquals("A magnified authored page can be panned", offset, pdfOffset())
+            capture("pdf-${mode.name.lowercase()}-pan")
+            assertEquals(before.progress, fixture.progress.get())
+            assertEquals(18f, fixture.preferences.value.fontSizeSp, .001f)
+            if (mode == ReaderPresentationMode.SINGLE) compose.onNodeWithTag("reader_pdf_close").performClick()
+            else systemBack()
+            compose.waitUntil(15_000) { compose.onAllNodesWithTag("reader_pdf_viewer").fetchSemanticsNodes().isEmpty() }
+            compose.waitUntil(30_000) { resting() }
+            assertSource(before, fixture)
+        }
+    }
+
     private fun show(fixture: Fixture, mode: ReaderPresentationMode, dark: Boolean) {
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value && !controller.importing.value }
@@ -150,6 +202,20 @@ class ReaderPinchFlowTest {
             up(0)
             up(1)
         }
+    }
+
+    private fun awaitPdf() = compose.waitUntil(15_000) {
+        compose.onAllNodesWithTag("reader_pdf_viewer").fetchSemanticsNodes().singleOrNull()?.config
+            ?.getOrElse(ReaderImageTransition) { 0f } == 1f &&
+            compose.onAllNodesWithTag("reader_pdf_content").fetchSemanticsNodes().singleOrNull()?.config
+                ?.getOrElse(SemanticsActions.CustomActions) { emptyList() }?.isNotEmpty() == true
+    }
+    private fun pdfZoom() = compose.onNodeWithTag("reader_pdf_content").fetchSemanticsNode().config[ReaderImageZoom]
+    private fun pdfOffset() = compose.onNodeWithTag("reader_pdf_content").fetchSemanticsNode().config[ReaderImageOffset]
+    private fun systemBack() {
+        ParcelFileDescriptor.AutoCloseInputStream(InstrumentationRegistry.getInstrumentation().uiAutomation
+            .executeShellCommand("input keyevent KEYCODE_BACK")).use { it.readBytes() }
+        compose.waitForIdle()
     }
 
     private fun capture(name: String) {
@@ -198,6 +264,27 @@ class ReaderPinchFlowTest {
             listOf(InlineNode.Text("Paragraph $index keeps the same source through text reflow and two-finger reading gestures. ".repeat(40)))) }
         val location = BookLocation(blocks[4].id, 137, blocks.take(4).sumOf { it.plainText().length + 1L } + 137)
         return Fixture(BookDocument(BookId("pinch-${UUID.randomUUID()}"), BookMetadata("Reading zoom"), blocks), location)
+    }
+
+    private fun pdfFixture(): Fixture {
+        val file = File.createTempFile("listai-reader-pinch-", ".pdf", compose.activity.cacheDir)
+        files += file
+        val pdf = PdfDocument()
+        try {
+            repeat(2) { index ->
+                val page = pdf.startPage(PdfDocument.PageInfo.Builder(800, 600, index + 1).create())
+                page.canvas.drawColor(Color.WHITE)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(42, 72, 99); textSize = 44f }
+                page.canvas.drawText("Authored PDF page ${index + 1}", 40f, 80f, paint)
+                page.canvas.drawRect(90f, 160f, 650f, 470f, paint)
+                pdf.finishPage(page)
+            }
+            file.outputStream().use(pdf::writeTo)
+        } finally { pdf.close() }
+        val blocks = List(2) { index -> BookBlock.FixedPage(BlockId("pinch-pdf-$index"), file.absolutePath,
+            "application/pdf", index, 800, 600) }
+        return Fixture(BookDocument(BookId("pinch-pdf-${UUID.randomUUID()}"), BookMetadata("PDF zoom"), blocks),
+            BookLocation(blocks.first().id, 0, 0L))
     }
 
     private class Fixture(val document: BookDocument, location: BookLocation) {

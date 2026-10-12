@@ -1,0 +1,8 @@
+<resources>
+    <string name="reader_pdf_viewer_title">Страница PDF</string>
+    <string name="reader_pdf_page_description">Страница PDF %1$d</string>
+    <string name="reader_pdf_open">Увеличить страницу PDF</string>
+    <string name="reader_pdf_close">Вернуться к книге</string>
+    <string name="reader_pdf_zoom_reset">Показать страницу PDF целиком</string>
+    <string name="reader_pdf_unavailable">Не удалось открыть страницу PDF</string>
+</resources>

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
@@ -102,6 +103,8 @@ import com.avstaim.listai.feature.reader.ReaderNotesLocation
 import com.avstaim.listai.feature.reader.ReaderNoteVisit
 import com.avstaim.listai.feature.reader.ReaderImageBounds
 import com.avstaim.listai.feature.reader.ReaderImageIds
+import com.avstaim.listai.feature.reader.ReaderPdfBounds
+import com.avstaim.listai.feature.reader.ReaderPdfPageIndices
 import com.avstaim.listai.feature.reader.readerTopControlLayout
 import com.avstaim.listai.feature.reader.demo.DemoPageUiModel
 import com.avstaim.listai.reader.rendering.geometry.PageCurlGeometryEngine
@@ -190,6 +193,7 @@ internal fun PhysicalBookView(
     onImageHoldStart: ((BookImageHit) -> Unit)? = null,
     onImageHoldEnd: (() -> Unit)? = null,
     onFontZoom: ((Float) -> Unit)? = null,
+    onPdfPageZoom: ((PdfPageHit) -> Unit)? = null,
     onReturnToShelf: (() -> Unit)? = null,
     onNavigateToLocation: ((BookLocation) -> Unit)? = null,
     onNavigationState: ((ReaderNavigationState) -> Unit)? = null,
@@ -236,6 +240,7 @@ internal fun PhysicalBookView(
     val imageHoldCallback by rememberUpdatedState(onImageHoldStart)
     val imageHoldEndCallback by rememberUpdatedState(onImageHoldEnd)
     val fontZoomCallback by rememberUpdatedState(onFontZoom)
+    val pdfZoomCallback by rememberUpdatedState(onPdfPageZoom)
     val shelfCallback by rememberUpdatedState(onReturnToShelf)
     val navigateCallback by rememberUpdatedState(onNavigateToLocation)
     val navigationCallback by rememberUpdatedState(onNavigationState)
@@ -690,6 +695,7 @@ internal fun PhysicalBookView(
         val forwardAction = stringResource(R.string.reader_turn_forward_action)
         val backwardAction = stringResource(R.string.reader_turn_backward_action)
         val imageAction = stringResource(R.string.reader_image_open)
+        val pdfAction = stringResource(R.string.reader_pdf_open)
         val idleSurfaces = visibleBookSurfaces(
             pages = preparedPages, coverSurface = coverSurface, state = bookState,
             presentation = presentation, navigator = navigator,
@@ -822,6 +828,14 @@ internal fun PhysicalBookView(
                 surface.paginated?.imageTapRegions(leaf).orEmpty()
             }
         }
+        val pdfRegions = remember(bookState, visiblePageLeaves) {
+            visiblePageLeaves.flatMap { (leaf, surface) ->
+                surface.paginated?.fixedPageTapRegions(leaf).orEmpty()
+            }
+        }
+        fun pdfAt(point: Offset): PdfPageHit? = visiblePageLeaves.firstOrNull { (leaf, _) ->
+            leaf.contains(point)
+        }?.let { (leaf, surface) -> surface.paginated?.fixedPageTapRegions(leaf)?.firstOrNull() }
         val semanticsModifier = Modifier.semantics {
             contentDescription = bookDescription
             stateDescription = stateText
@@ -837,6 +851,8 @@ internal fun PhysicalBookView(
             this[ReaderNoteReturns] = noteReturns.map { it.first }
             this[ReaderImageBounds] = imageRegions.map { it.bounds }
             this[ReaderImageIds] = imageRegions.map { it.image.imageId.value }
+            this[ReaderPdfBounds] = pdfRegions.map { it.bounds }
+            this[ReaderPdfPageIndices] = pdfRegions.map { it.page.pageIndex }
             this[ReaderNoteReturnTargets] = noteReturns.map { it.second.noteId.value }
             this[ReaderNotesLocation] = readingPosition?.noteLocation?.let {
                 "${readingPosition.noteId?.value}|${it.blockId.value}:${it.charOffset}:${it.fallbackGlobalOffset}"
@@ -897,6 +913,13 @@ internal fun PhysicalBookView(
                         true
                     })
                 }
+                if (pdfZoomCallback != null && !physicalTurnActive && jumpPreparing == null &&
+                    !closingBook) pdfRegions.forEach { hit ->
+                    add(CustomAccessibilityAction("$pdfAction: ${hit.page.pageIndex + 1}") {
+                        pdfZoomCallback?.invoke(hit)
+                        true
+                    })
+                }
                 if (canTurn(TurnDirection.FORWARD)) {
                     add(CustomAccessibilityAction(forwardAction) {
                         launchAutomaticTurn(TurnDirection.FORWARD)
@@ -926,6 +949,7 @@ internal fun PhysicalBookView(
                     gestureActive = true
                     var imageHeld = false
                     val pinch = ReaderPinchSession()
+                    var pdfZoomTarget: PdfPageHit? = null
                     try {
                         // An in-flight settle blocks another single-finger action, but a
                         // second finger may cancel its uncommitted destination for a pinch.
@@ -973,6 +997,9 @@ internal fun PhysicalBookView(
                                         imageHeld = false
                                         imageHoldEndCallback?.invoke()
                                     }
+                                    // The first touched physical leaf chooses a PDF source even
+                                    // when its lower margin lies outside the authored raster.
+                                    pdfZoomTarget = pdfAt(down.position) ?: pdfAt(event.calculateCentroid())
                                     cancelUncommittedTurn()
                                     gestureActive = true
                                 }
@@ -980,8 +1007,9 @@ internal fun PhysicalBookView(
                                 if (pinchUpdate.finished) {
                                     gestureActive = false
                                     pinchUpdate.completedFactor?.let { factor ->
-                                        if ((bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary) &&
-                                            sourceFlow.orEmpty().none { it.source is com.avstaim.listai.core.model.BookBlock.FixedPage })
+                                        val pdf = pdfZoomTarget
+                                        if (pdf != null) pdfZoomCallback?.invoke(pdf)
+                                        else if (bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary)
                                             fontZoomCallback?.invoke(factor)
                                     }
                                     return@awaitEachGesture

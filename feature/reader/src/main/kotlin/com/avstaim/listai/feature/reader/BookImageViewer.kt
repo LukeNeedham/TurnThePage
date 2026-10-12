@@ -114,34 +114,69 @@ internal fun BookImageViewer(
         val loaded by produceState<BookImageLoad>(BookImageLoad.Loading, image) {
             value = BookImageLoad.Ready(withContext(Dispatchers.IO) { decodeBookViewerImage(image) })
         }
-        val progress = remember { Animatable(0f) }
-        var closeRequested by remember { mutableStateOf(false) }
-        val desiredVisible = visible && !closeRequested
-        val completed by rememberUpdatedState(onDismissCompleted)
-        val requested by rememberUpdatedState(onDismissRequested)
-        LaunchedEffect(desiredVisible) {
-            progress.animateTo(if (desiredVisible) 1f else 0f, tween(260, easing = FastOutSlowInEasing))
-            if (!desiredVisible) completed()
-        }
-        BookImageViewerContent(
+        BookImageViewerFrame(
             bitmap = (loaded as? BookImageLoad.Ready)?.bitmap,
             alternativeText = alternativeText,
-            onDismiss = {
-                if (!closeRequested) {
-                    closeRequested = true
-                    requested?.invoke()
-                }
-            },
             isLoading = loaded is BookImageLoad.Loading,
             imageId = image.id.value,
+            onDismissCompleted = onDismissCompleted,
             devicePosture = devicePosture,
             sourceBounds = sourceBounds,
             preview = preview,
-            transitionProgress = progress.value,
+            visible = visible,
             transientPreview = transientPreview,
-            externalHeld = transientPreview && desiredVisible,
+            onDismissRequested = onDismissRequested,
         )
     }
+}
+
+/** Images and fixed PDF pages share transitions, gestures and accessible controls. */
+@Composable
+internal fun BookImageViewerFrame(
+    bitmap: ImageBitmap?,
+    alternativeText: String?,
+    onDismissCompleted: () -> Unit,
+    isLoading: Boolean = false,
+    imageId: String? = null,
+    devicePosture: DevicePosture = DevicePosture.Unknown,
+    sourceBounds: Rect? = null,
+    preview: BookImagePreview? = null,
+    visible: Boolean = true,
+    transientPreview: Boolean = false,
+    onDismissRequested: (() -> Unit)? = null,
+    pdfPageNumber: Int? = null,
+    darkTheme: Boolean = true,
+) {
+    val progress = remember { Animatable(0f) }
+    var closeRequested by remember { mutableStateOf(false) }
+    val desiredVisible = visible && !closeRequested
+    val completed by rememberUpdatedState(onDismissCompleted)
+    val requested by rememberUpdatedState(onDismissRequested)
+    LaunchedEffect(desiredVisible) {
+        progress.animateTo(if (desiredVisible) 1f else 0f, tween(260, easing = FastOutSlowInEasing))
+        if (!desiredVisible) completed()
+    }
+    BookImageViewerContent(
+        bitmap = bitmap,
+        alternativeText = alternativeText,
+        onDismiss = {
+            if (!closeRequested) {
+                closeRequested = true
+                requested?.invoke()
+            }
+        },
+        isLoading = isLoading,
+        imageId = imageId,
+        devicePosture = devicePosture,
+        sourceBounds = sourceBounds,
+        preview = preview,
+        transitionProgress = progress.value,
+        transientPreview = transientPreview,
+        externalHeld = transientPreview && desiredVisible,
+        pdfPageNumber = pdfPageNumber,
+        fitHeightOnOpen = pdfPageNumber != null,
+        darkTheme = darkTheme,
+    )
 }
 
 /** Deterministic motion frames and crop rendering can be inspected without worker or window callbacks. */
@@ -161,14 +196,18 @@ internal fun BookImageViewerContent(
     initialHeld: Boolean = false,
     externalHeld: Boolean = transientPreview,
     modifier: Modifier = Modifier,
+    pdfPageNumber: Int? = null,
+    fitHeightOnOpen: Boolean = false,
+    darkTheme: Boolean = true,
 ) {
     BackHandler(onBack = onDismiss)
-    val imageLabel = alternativeText?.takeIf { it.isNotBlank() } ?: stringResource(R.string.reader_image_description)
-    val paneLabel = stringResource(R.string.reader_image_viewer_title)
-    val closeLabel = stringResource(R.string.reader_image_close)
+    val imageLabel = alternativeText?.takeIf { it.isNotBlank() } ?: if (pdfPageNumber != null)
+        stringResource(R.string.reader_pdf_page_description, pdfPageNumber) else stringResource(R.string.reader_image_description)
+    val paneLabel = stringResource(if (pdfPageNumber != null) R.string.reader_pdf_viewer_title else R.string.reader_image_viewer_title)
+    val closeLabel = stringResource(if (pdfPageNumber != null) R.string.reader_pdf_close else R.string.reader_image_close)
     val zoomInLabel = stringResource(R.string.reader_image_zoom_in)
     val zoomOutLabel = stringResource(R.string.reader_image_zoom_out)
-    val resetLabel = stringResource(R.string.reader_image_zoom_reset)
+    val resetLabel = stringResource(if (pdfPageNumber != null) R.string.reader_pdf_zoom_reset else R.string.reader_image_zoom_reset)
     val inspection = LocalInspectionMode.current
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -176,6 +215,7 @@ internal fun BookImageViewerContent(
     var viewportBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
     val displayFeatureInWindow = remember(devicePosture) { devicePosture.toBookDisplayFeatureInWindow() }
     var transform by remember(initialTransform) { mutableStateOf(initialTransform) }
+    var initialFitApplied by remember { mutableStateOf(false) }
     var isHeld by remember(initialHeld) { mutableStateOf(initialHeld) }
     var holdBase by remember(initialHeld, initialTransform) {
         mutableStateOf(if (initialHeld) initialTransform else null)
@@ -190,15 +230,16 @@ internal fun BookImageViewerContent(
     val ink = Color(0xFFE0E8EF)
     val blocksInput = Modifier.pointerInput(Unit) { detectTapGestures { } }
     BoxWithConstraints(modifier.fillMaxSize().clipToBounds()
-        .background(Color(0xFF141B23).copy(alpha = progress))
+        .background((if (darkTheme) Color(0xFF141B23) else Color(0xFF2B4051)).copy(alpha = progress))
         .onGloballyPositioned { viewportBoundsInWindow = it.boundsInWindow() }
-        .testTag("reader_image_viewer")
+        .testTag(if (pdfPageNumber != null) "reader_pdf_viewer" else "reader_image_viewer")
         .semantics {
             paneTitle = paneLabel
             isTraversalGroup = true
             readerImageTransition = progress
             readerImageHeld = externalHeld || isHeld
             imageId?.let { readerImageId = it }
+            pdfPageNumber?.let { readerPdfPageNumber = it }
         }.then(blocksInput)) {
         val fullSize = Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
         val left = safeInsets.getLeft(density, layoutDirection).toFloat().coerceIn(0f, fullSize.width)
@@ -216,12 +257,17 @@ internal fun BookImageViewerContent(
             bookImageViewport(segment.width, segment.height, preview?.source?.width ?: bitmap?.width ?: 0,
                 preview?.source?.height ?: bitmap?.height ?: 0)
         }
-        val base = holdBase ?: transform
+        val readyForPane = inspection || displayFeatureInWindow?.avoidsContent != true || viewportBoundsInWindow != null
+        val base = holdBase ?: if (fitHeightOnOpen && readyForPane && !initialFitApplied && geometry.fittedHeight > 0f)
+            pdfPageInitialZoom(geometry) else transform
         val heldTarget = geometry.transform(base, holdPoint?.x ?: geometry.width / 2f,
             holdPoint?.y ?: geometry.height / 2f, zoomFactor = 1.8f)
         val displayedTransform = geometry.constrain(interpolateBookImageZoom(base, heldTarget, holdProgress.value))
-        LaunchedEffect(geometry) {
-            transform = geometry.constrain(transform)
+        LaunchedEffect(geometry, fitHeightOnOpen, readyForPane) {
+            if (fitHeightOnOpen && readyForPane && !initialFitApplied && geometry.fittedHeight > 0f) {
+                transform = pdfPageInitialZoom(geometry)
+                initialFitApplied = true
+            } else transform = geometry.constrain(transform)
             holdBase = holdBase?.let(geometry::constrain)
         }
         val fittedSize = IntSize(geometry.fittedWidth.roundToInt().coerceAtLeast(1),
@@ -230,7 +276,6 @@ internal fun BookImageViewerContent(
             ((segment.height - fittedSize.height) / 2f).roundToInt())
         val fitted = Rect(segment.left + fittedOffset.x, segment.top + fittedOffset.y,
             segment.left + fittedOffset.x + fittedSize.width, segment.top + fittedOffset.y + fittedSize.height)
-        val readyForPane = inspection || displayFeatureInWindow?.avoidsContent != true || viewportBoundsInWindow != null
         val drawingProgress = if (readyForPane) progress else 0f
         val target = bookImageTransitionBounds(sourceBounds,
             bookImageZoomBounds(fitted, displayedTransform, segment.center), drawingProgress)
@@ -280,13 +325,14 @@ internal fun BookImageViewerContent(
                         centroid.x - segment.left, centroid.y - segment.top, pan.x, pan.y, zoom)
                 }
             }
-        Canvas(Modifier.fillMaxSize().testTag("reader_image_content")
+        Canvas(Modifier.fillMaxSize().testTag(if (pdfPageNumber != null) "reader_pdf_content" else "reader_image_content")
             .semantics {
                 contentDescription = imageLabel
                 readerImageZoom = displayedTransform.scale
                 readerImageOffset = Offset(displayedTransform.x, displayedTransform.y)
                 readerImageHeld = externalHeld || isHeld
                 imageId?.let { readerImageId = it }
+                pdfPageNumber?.let { readerPdfPageNumber = it }
                 if (gestureEnabled && !isHeld && holdBase == null) customActions = listOf(
                     CustomAccessibilityAction(zoomInLabel) {
                         transform = geometry.transform(transform, geometry.width / 2f, geometry.height / 2f, zoomFactor = 1.5f)
@@ -333,13 +379,13 @@ internal fun BookImageViewerContent(
                 if (isLoading && !hasImage) {
                     CircularProgressIndicator(Modifier.align(Alignment.Center).size(40.dp), color = ink)
                 } else if (!isLoading && bitmap == null) {
-                    Text(stringResource(R.string.reader_image_unavailable),
+                    Text(stringResource(if (pdfPageNumber != null) R.string.reader_pdf_unavailable else R.string.reader_image_unavailable),
                         Modifier.align(Alignment.Center).padding(32.dp), color = ink)
                 }
                 if (!transientPreview) IconButton(onClick = onDismiss, enabled = progress == 1f,
                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp)
                         .background(Color(0xE62C3846), CircleShape)
-                        .testTag("reader_image_close")
+                        .testTag(if (pdfPageNumber != null) "reader_pdf_close" else "reader_image_close")
                         .semantics { contentDescription = closeLabel }) {
                     PaperInkIcon(PaperIcon.Close, Modifier.size(24.dp), ink)
                 }

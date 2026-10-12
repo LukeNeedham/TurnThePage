@@ -50,6 +50,12 @@ private data class SelectedBookImage(
     val visible: Boolean = true,
 )
 
+private data class SelectedPdfPage(
+    val hit: PdfPageHit,
+    val sourceBounds: Rect?,
+    val visible: Boolean = true,
+)
+
 /** Deterministic renderer fixture, retained for geometry regressions. */
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -105,6 +111,8 @@ fun ReaderScreen(
     var navigation by remember(document, readerSession) { mutableStateOf<ReaderNavigationState?>(null) }
     var bookmarkableLocation by remember(document, readerSession) { mutableStateOf<BookLocation?>(null) }
     var selectedImage by remember(document, readerSession) { mutableStateOf<SelectedBookImage?>(null) }
+    var selectedPdf by remember(document, readerSession) { mutableStateOf<SelectedPdfPage?>(null) }
+    val mediaOpen = selectedImage != null || selectedPdf != null
     val firstChapterLocation = remember(document) { document.firstChapterLocation() }
     val hasDescription = remember(document) { PhysicalAnnotation.create(document)?.hasDescription == true }
     val progressCallback by rememberUpdatedState(onProgressChanged)
@@ -117,7 +125,7 @@ fun ReaderScreen(
     val externalOpeningPending = onboardingReplayRequest > 0L &&
         handledExternalReplay != onboardingReplayRequest && !atReadingPage
     val onboarding = rememberReaderOnboardingState(onboardingCompleted,
-        readerReady = transitionCoverProgress == null && !closingBook && !insertOpen && selectedImage == null &&
+        readerReady = transitionCoverProgress == null && !closingBook && !insertOpen && !mediaOpen &&
             !externalOpeningPending && !hintsOpening && checkpoint.cover == CoverPosition.OPEN &&
             navigation != null,
         replayRequest = onboardingReplayRequest + localReplay, onComplete = onOnboardingComplete)
@@ -170,7 +178,7 @@ fun ReaderScreen(
         // Keep the origin until the return commits; a cancelled curl remains in this visit.
         navigate(origin, returningFromContents = true)
     }
-    BackHandler(enabled = active && !insertOpen && !onboarding.visible && selectedImage == null) {
+    BackHandler(enabled = active && !insertOpen && !onboarding.visible && !mediaOpen) {
         if (checkpoint.tocEntryIndex != null) returnFromContents() else onReturnToShelf()
     }
 
@@ -194,10 +202,12 @@ fun ReaderScreen(
     }
     LaunchedEffect(active, closingBook) {
         if (!active || closingBook) selectedImage = selectedImage?.copy(visible = false)
+        if (!active || closingBook) selectedPdf = selectedPdf?.copy(visible = false)
     }
     LaunchedEffect(imageViewportSize, devicePosture) {
         // A new paper layout can move the source; fade out instead of returning to stale bounds.
         selectedImage = selectedImage?.copy(visible = false, sourceBounds = null)
+        selectedPdf = selectedPdf?.copy(visible = false, sourceBounds = null)
     }
     Box(modifier.fillMaxSize().drawBehind { drawReaderBackdrop(darkTheme) }
         .readerOnboardingGestures(onboarding)
@@ -219,7 +229,7 @@ fun ReaderScreen(
         val bookOrigin = Offset(left, 0f)
         val paperInsets = ReaderCutoutInsets(top = top,
             cutouts = nativeCutouts.map { it.translate(-bookOrigin) })
-        Box(Modifier.fillMaxSize().then(if (selectedImage != null) Modifier.clearAndSetSemantics {} else Modifier)) {
+        Box(Modifier.fillMaxSize().then(if (mediaOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
             key(document.id) {
                 PhysicalBookView(
                     pages = emptyList(), document = document,
@@ -255,6 +265,7 @@ fun ReaderScreen(
                             if (size != preferences.fontSizeSp) onPreferencesChange(preferences.copy(fontSizeSp = size))
                         }
                     },
+                    onPdfPageZoom = { hit -> selectedPdf = SelectedPdfPage(hit, hit.bounds.translate(bookOrigin)) },
                     darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
                     onAddBookmark = onAddBookmarkAt,
                     onDeleteBookmark = onDeleteBookmark,
@@ -280,7 +291,7 @@ fun ReaderScreen(
                     },
                     onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
                     navigationRequest = navigationRequest,
-                    noteBackEnabled = !insertOpen && selectedImage == null,
+                    noteBackEnabled = !insertOpen && !mediaOpen,
                     onNavigationRequestConsumed = { sequence ->
                         if (navigationRequest?.sequence == sequence) navigationRequest = null
                     },
@@ -300,7 +311,7 @@ fun ReaderScreen(
                                 if (darkTheme) ReaderTheme.LIGHT else ReaderTheme.DARK)) },
                             onContents = ::openContents,
                             showClock = preferences.showClock,
-                            active = active && selectedImage == null && !closingBook && transitionCoverProgress == null,
+                            active = active && !mediaOpen && !closingBook && transitionCoverProgress == null,
                             onCloseBook = onReturnToShelf, modifier = Modifier.fillMaxSize(), onMenu = ::openMenu)
                     },
                     closedBookControls = { bookBounds, viewportBounds, physicalPresentation,
@@ -384,6 +395,20 @@ fun ReaderScreen(
                 visible = selected.visible, transientPreview = selected.transient,
                 onDismissRequested = { selectedImage = selectedImage?.copy(visible = false) })
         }
+        selectedPdf?.let { selected ->
+            selected.sourceBounds?.let { source ->
+                val mask = source.inflate(1f)
+                Box(Modifier.fillMaxSize().drawBehind {
+                    drawRect(if (darkTheme) DarkPaper else WhitePaper,
+                        topLeft = mask.topLeft, size = mask.size)
+                })
+            }
+            PdfPageViewer(selected.hit.page,
+                onDismissCompleted = { selectedPdf = null }, devicePosture = devicePosture,
+                sourceBounds = selected.sourceBounds, preview = selected.hit.preview,
+                visible = selected.visible, darkTheme = darkTheme,
+                onDismissRequested = { selectedPdf = selectedPdf?.copy(visible = false) })
+        }
     }
 }
 
@@ -463,6 +488,8 @@ val ReaderNotesLocation = SemanticsPropertyKey<String>("ReaderNotesLocation")
 val ReaderNoteVisit = SemanticsPropertyKey<String>("ReaderNoteVisit")
 val ReaderImageBounds = SemanticsPropertyKey<List<Rect>>("ReaderImageBounds")
 val ReaderImageIds = SemanticsPropertyKey<List<String>>("ReaderImageIds")
+val ReaderPdfBounds = SemanticsPropertyKey<List<Rect>>("ReaderPdfBounds")
+val ReaderPdfPageIndices = SemanticsPropertyKey<List<Int>>("ReaderPdfPageIndices")
 
 // Legacy test identifier; no production fullscreen control exists.
 const val READER_FULLSCREEN_BUTTON_TAG = "reader_fullscreen_button"

@@ -53,6 +53,7 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
     private val typefaces: PlyosTypefaceFamily = PlyosTypefaceFamily.systemSerif,
     val kind: PageKind = PageKind.TEXT,
     val images: List<PreparedBookImage> = emptyList(),
+    val fixedPages: List<PreparedPdfPage> = emptyList(),
 ) {
     val byteCount: Long get() = bitmap.allocationByteCount.toLong()
     val footerText: String? get() = footer?.text
@@ -79,7 +80,7 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         if (value == footer?.value) return this
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey,
             PreparedPageReadingFooter(value, layoutKey, darkTheme, typefaces), noteLinks, noteReturns,
-            returnInk, typefaces, kind, images)
+            returnInk, typefaces, kind, images, fixedPages)
     }
 
     fun withNoteReturns(values: List<PreparedNoteReturn>): PaginatedPageSurface {
@@ -88,7 +89,7 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         val published = values.toList()
         return PaginatedPageSurface(pageId, bitmap, accessibleText, darkTheme, layoutKey, footer,
             noteLinks, published, published.map { PreparedNoteReturnInk(it, layoutKey, typefaces) },
-            typefaces, kind, images)
+            typefaces, kind, images, fixedPages)
     }
 
     fun imageTapRegions(leaf: Rect): List<BookImageHit> {
@@ -96,6 +97,15 @@ internal class PaginatedPageSurface(val pageId: PageId, val bitmap: Bitmap, val 
         return images.map { image ->
             BookImageHit(imageTapBounds(image.bounds, leaf, layoutKey.pageWidthPx, layoutKey.pageHeightPx),
                 image, BookImagePreview(bitmap.asImageBitmap(), imagePreviewCrop(image.bounds,
+                    layoutKey.pageWidthPx, layoutKey.pageHeightPx, bitmap.width, bitmap.height)))
+        }
+    }
+
+    fun fixedPageTapRegions(leaf: Rect): List<PdfPageHit> {
+        val layoutKey = key ?: return emptyList()
+        return fixedPages.map { prepared ->
+            PdfPageHit(imageTapBounds(prepared.bounds, leaf, layoutKey.pageWidthPx, layoutKey.pageHeightPx),
+                prepared.page, BookImagePreview(bitmap.asImageBitmap(), imagePreviewCrop(prepared.bounds,
                     layoutKey.pageWidthPx, layoutKey.pageHeightPx, bitmap.width, bitmap.height)))
         }
     }
@@ -191,12 +201,17 @@ internal class AndroidPageRasterizer(
             canvas.scale(width.toFloat() / key.pageWidthPx, height.toFloat() / key.pageHeightPx)
             val noteLinks = mutableListOf<PreparedNoteLink>()
             val images = mutableListOf<PreparedBookImage>()
+            val fixedPages = mutableListOf<PreparedPdfPage>()
             for (fragment in page.blocks) {
                 context.ensureActive()
                 val source = requireNotNull(sources[fragment.blockId])
                 val fixedPage = source.source as? BookBlock.FixedPage
                 if (fixedPage != null) {
                     rasterizeFixedPage(fixedPage, fragment, bitmap, key)
+                    fixedPages += PreparedPdfPage(
+                        Rect(fragment.x, fragment.y, fragment.x + fragment.width, fragment.y + fragment.height),
+                        fixedPage,
+                    )
                     continue
                 }
                 val measured = measurements[fragment.blockId] ?: measurer.measure(
@@ -255,7 +270,7 @@ internal class AndroidPageRasterizer(
             val text = listOf(bodyText, footnotes.accessibleText).filter(String::isNotEmpty).joinToString("\n")
             return PaginatedPageSurface(page.id, bitmap, text, key.darkTheme, key,
                 noteLinks = noteLinks.toList(), typefaces = typefaces, kind = page.kind,
-                images = images.toList())
+                images = images.toList(), fixedPages = fixedPages.toList())
         } catch (error: Throwable) {
             // This bitmap has never been published and cannot be referenced by the renderer.
             bitmap.recycle()

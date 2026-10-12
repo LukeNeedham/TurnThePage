@@ -3,6 +3,7 @@ package com.avstaim.listai.feature.reader.bookview
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntRect
 import com.avstaim.listai.core.model.ImageId
+import com.avstaim.listai.core.model.BookBlock
 import com.avstaim.listai.feature.reader.BookImagePreview
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -18,6 +19,15 @@ internal data class PreparedBookImage(
 internal data class BookImageHit(
     val bounds: Rect,
     val image: PreparedBookImage,
+    val preview: BookImagePreview,
+)
+
+/** Fixed source page and its prepared pixels; zoom never has to inspect a curl frame. */
+internal data class PreparedPdfPage(val bounds: Rect, val page: BookBlock.FixedPage)
+
+internal data class PdfPageHit(
+    val bounds: Rect,
+    val page: BookBlock.FixedPage,
     val preview: BookImagePreview,
 )
 

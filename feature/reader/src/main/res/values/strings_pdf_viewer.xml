@@ -1,0 +1,8 @@
+<resources>
+    <string name="reader_pdf_viewer_title">PDF page</string>
+    <string name="reader_pdf_page_description">PDF page %1$d</string>
+    <string name="reader_pdf_open">Zoom PDF page</string>
+    <string name="reader_pdf_close">Return to the book</string>
+    <string name="reader_pdf_zoom_reset">Show the whole PDF page</string>
+    <string name="reader_pdf_unavailable">Unable to open this PDF page</string>
+</resources>
