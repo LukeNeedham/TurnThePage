@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_paginating">Préparation des pages…</string>
+    <string name="reader_pagination_failed">Impossible de préparer ce livre.</string>
+    <string name="reader_missing_image">Image indisponible</string>
+    <string name="reader_page_progress">Page %1$d sur %2$d</string>
+    <string name="reader_page_progress_pending">Page %1$d · préparation des pages restantes</string>
+    <string name="reader_page_number">%1$d</string>
+    <string name="reader_book_accessibility">Livre physique interactif</string>
+    <string name="reader_turn_forward_action">Passer à la page suivante</string>
+    <string name="reader_turn_backward_action">Revenir à la page précédente</string>
+    <string name="reader_front_cover_state">Première de couverture</string>
+    <string name="reader_back_cover_state">Quatrième de couverture</string>
+    <string name="reader_back_boundary_state">Fin des pages imprimées</string>
+    <string name="reader_enter_fullscreen">Passer en plein écran</string>
+    <string name="reader_exit_fullscreen">Quitter le plein écran</string>
+</resources>

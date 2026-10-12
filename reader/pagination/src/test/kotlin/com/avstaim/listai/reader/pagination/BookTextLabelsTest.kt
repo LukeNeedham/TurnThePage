@@ -38,4 +38,12 @@ class BookTextLabelsTest {
         assertEquals("1 weitere Anmerkung", labels.moreNotes(1))
         assertEquals("12 weitere Anmerkungen", labels.moreNotes(12))
     }
+
+    @Test fun frenchBookCaptionsKeepTheNumberAndUseSingularNotes() {
+        val labels = bookTextLabels("fr")
+        assertEquals("Chapitre IV", labels.chapter("IV"))
+        assertEquals("Illustration", labels.illustration)
+        assertEquals("1 autre note", labels.moreNotes(1))
+        assertEquals("12 autres notes", labels.moreNotes(12))
+    }
 }

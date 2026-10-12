@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_top_bookmarks">Marque-pages</string>
+    <string name="reader_top_light">Activer le thème clair</string>
+    <string name="reader_top_dark">Activer le thème sombre</string>
+    <string name="reader_top_contents">Sommaire</string>
+    <string name="reader_top_close">Fermer le livre et revenir à l’étagère</string>
+</resources>

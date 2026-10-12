@@ -31,11 +31,14 @@ private val esBookText = BookTextLabels("Capítulo", "Ilustración", "%d nota m�
 
 private val deBookText = BookTextLabels("Kapitel", "Abbildung", "%d weitere Anmerkung", "%d weitere Anmerkungen")
 
+private val frBookText = BookTextLabels("Chapitre", "Illustration", "%d autre note", "%d autres notes")
+
 fun bookTextLabels(localeTag: String): BookTextLabels = when (
     localeTag.substringBefore('-').substringBefore('_').lowercase(Locale.ROOT)
 ) {
     "ru" -> russianBookText
     "es" -> esBookText
     "de" -> deBookText
+    "fr" -> frBookText
     else -> englishBookText
 }

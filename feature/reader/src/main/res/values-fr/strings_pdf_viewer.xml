@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_pdf_viewer_title">Page PDF</string>
+    <string name="reader_pdf_page_description">Page PDF %1$d</string>
+    <string name="reader_pdf_open">Agrandir la page PDF</string>
+    <string name="reader_pdf_close">Revenir au livre</string>
+    <string name="reader_pdf_zoom_reset">Afficher la page PDF entière</string>
+    <string name="reader_pdf_unavailable">Impossible d’ouvrir cette page PDF</string>
+</resources>
