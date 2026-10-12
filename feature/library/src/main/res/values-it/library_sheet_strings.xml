@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="library_stack_name_clear">Cancella il nome della pila</string>
+    <string name="library_sheet_book_label">LIBRO</string>
+    <string name="library_sheet_stack_label">PILA</string>
+    <string name="library_sheet_create_title">Nuova pila</string>
+    <string name="library_sheet_create_hint">Dalle un nome e scegli i libri.</string>
+    <string name="library_sheet_add_hint">Scegli i libri per «%1$s».</string>
+    <string name="library_sheet_search_hint">Trova un libro o un autore</string>
+    <string name="library_sheet_found_count">Libri: %1$d</string>
+    <string name="library_sheet_select_all">Seleziona tutto</string>
+    <string name="library_sheet_minimum">Scegli almeno due libri.</string>
+    <string name="library_sheet_create_count">Crea · %1$d</string>
+    <string name="library_sheet_create">Crea</string>
+    <string name="library_sheet_add_count">Aggiungi · %1$d</string>
+    <plurals name="library_sheet_book_count">
+        <item quantity="one">%1$d libro</item>
+        <item quantity="many">%1$d libri</item>
+        <item quantity="other">%1$d libri</item>
+    </plurals>
+</resources>

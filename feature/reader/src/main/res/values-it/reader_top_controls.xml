@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_top_bookmarks">Segnalibri</string>
+    <string name="reader_top_light">Usa il tema chiaro</string>
+    <string name="reader_top_dark">Usa il tema scuro</string>
+    <string name="reader_top_contents">Indice</string>
+    <string name="reader_top_close">Chiudi il libro e torna allo scaffale</string>
+</resources>

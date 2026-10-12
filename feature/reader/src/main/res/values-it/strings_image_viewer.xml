@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_image_viewer_title">Illustrazione del libro</string>
+    <string name="reader_image_description">Illustrazione</string>
+    <string name="reader_image_open">Apri illustrazione</string>
+    <string name="reader_image_close">Chiudi illustrazione</string>
+    <string name="reader_image_zoom_in">Ingrandisci</string>
+    <string name="reader_image_zoom_out">Riduci</string>
+    <string name="reader_image_zoom_reset">Adatta l’illustrazione allo schermo</string>
+    <string name="reader_image_unavailable">Impossibile aprire questa illustrazione</string>
+</resources>

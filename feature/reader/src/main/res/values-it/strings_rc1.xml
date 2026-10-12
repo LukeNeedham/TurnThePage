@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_annotation_state">Descrizione</string>
+    <string name="reader_front_endpaper_state">Pagina di guardia iniziale vuota</string>
+    <string name="rc1_close_settings">Chiudi impostazioni</string>
+    <string name="rc1_show_hints">Mostra i suggerimenti sui gesti</string>
+    <string name="rc1_reader_menu">Menu di lettura</string>
+    <string name="rc1_closed_read">Leggi</string>
+    <string name="rc1_closed_description">Descrizione</string>
+    <string name="rc1_closed_shelf">Sullo scaffale</string>
+    <string name="rc1_closed_settings">Impostazioni</string>
+    <string name="rc1_closed_contents">Indice</string>
+    <string name="rc1_closed_bookmarks">Segnalibri</string>
+</resources>
