@@ -115,6 +115,11 @@
 - `:format:epub` — чистый Kotlin/SAX: ZIP-контейнер, package/spine, XHTML,
   EPUB 2 NCX и EPUB 3 navigation преобразуются в прежний `BookDocument`.
   Исходные anchors измеряются в UTF-16; контейнер и XML ограничены по ресурсам.
+  После декодирования потоковый фильтр удаляет известные стандартные DOCTYPE
+  XHTML/HTML5/NCX без чтения DTD. В XHTML с таким объявлением фиксированные
+  именованные символы преобразуются в числовые ссылки до SAX; пользовательские
+  DTD, внутренние subsets и external entities запрещены. Комментарии, CDATA
+  и processing instructions сохраняются буквально; лимиты ZIP/XML не меняются.
 - `:format:pdf` — Android-адаптер seekable `PdfRenderer`. Модель содержит нейтральные
   `BookBlock.FixedPage` с устойчивыми идентификаторами исходных страниц. Пагинация
   сохраняет одну исходную страницу на лист; растеризация выполняется в worker перед

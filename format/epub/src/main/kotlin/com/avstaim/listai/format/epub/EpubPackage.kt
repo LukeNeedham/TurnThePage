@@ -36,8 +36,8 @@ internal class EpubXml(private val limits: EpubParserLimits) {
             "http://apache.org/xml/features/nonvalidating/load-external-dtd" to false,
         ).forEach { (name, enabled) ->
             try { reader.setFeature(name, enabled) } catch (_: SAXException) {
-                // Android Expat differs from the JVM. The decoded guard rejects DOCTYPE and the
-                // resolver rejects external entities regardless of optional SAX feature support.
+                // Android Expat differs from the JVM. The decoded guard removes only known inert
+                // doctypes and rejects DTDs; the resolver blocks entities regardless of feature support.
             }
         }
         reader.entityResolver = handler

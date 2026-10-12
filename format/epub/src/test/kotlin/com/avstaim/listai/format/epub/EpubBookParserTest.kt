@@ -301,7 +301,48 @@ class EpubBookParserTest {
         }
     }
 
-    @Test fun `DTD and external entity declarations are rejected including UTF16`() {
+    @Test fun `legacy XHTML and NCX doctypes open with decoded entities and stable anchors`() = runBlocking {
+        val body = "<h1 id='start'>Chapter</h1><p>A😀&nbsp;<span id='mark'>text</span>&mdash;&ldquo;end&rdquo; <a href='#mark'>back</a></p>"
+        val declaration = """<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>"""
+        val document = parser.parse(book(
+            chapters = mapOf("chapter" to declaration + xhtml(body)),
+            spineAttributes = "toc='ncx'",
+            extraManifest = "<item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/>",
+            extras = mapOf("OPS/toc.ncx" to """<!DOCTYPE ncx PUBLIC '-//NISO//DTD ncx 2005-1//EN' 'http://www.daisy.org/z3986/2005/ncx-2005-1.dtd'><ncx xmlns='http://www.daisy.org/z3986/2005/ncx/'><navMap><navPoint><navLabel><text>Opening</text></navLabel><content src='chapter.xhtml#mark'/></navPoint></navMap></ncx>""".toByteArray()),
+        ).inputStream())
+        val ordinary = parser.parse(book(chapters = mapOf("chapter" to xhtml(body
+            .replace("&nbsp;", "&#160;").replace("&mdash;", "&#8212;")
+            .replace("&ldquo;", "&#8220;").replace("&rdquo;", "&#8221;")))).inputStream())
+        assertEquals(ordinary.blocks, document.blocks)
+        assertEquals(ordinary.locationsBySourceId, document.locationsBySourceId)
+        assertEquals("A😀\u00a0text—“end” back", document.blocks.last().plainText())
+        val anchor = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", "mark"))
+        assertEquals(4, anchor.charOffset)
+        assertEquals(anchor, document.tableOfContents.single().location)
+        assertEquals(LinkTarget.Internal(anchor), (document.blocks.last() as BookBlock.Paragraph)
+            .content.filterIsInstance<InlineNode.Link>().single().target)
+    }
+
+    @Test fun `HTML5 navigation and literal doctypes inside comments CDATA and instructions open`() = runBlocking {
+        val document = parser.parse(book(
+            chapters = mapOf("chapter" to "<?publisher test?><!-- literal <!DOCTYPE example> -->" + xhtml("<p id='start'><![CDATA[<!DOCTYPE html> &nbsp;]]></p>")),
+            extraManifest = "<item id='nav' href='nav.xhtml' media-type='application/xhtml+xml' properties='nav'/>",
+            extras = mapOf("OPS/nav.xhtml" to ("<!DOCTYPE html>" + xhtml("<nav epub:type='toc'><ol><li><a href='chapter.xhtml#start'>One&nbsp;page</a></li></ol></nav>")).toByteArray()),
+        ).inputStream())
+        assertEquals("<!DOCTYPE html> &nbsp;", document.blocks.single().plainText())
+        assertEquals("One\u00a0page", document.tableOfContents.single().title)
+    }
+
+    @Test fun `unknown entities malformed doctypes and oversized declaration remain typed failures`() {
+        malformed(book(chapters = mapOf("chapter" to "<!DOCTYPE html>" + xhtml("<p>&unknown;</p>"))))
+        malformed(book(chapters = mapOf("chapter" to "<!DOCTYPE html SYSTEM 'https://example.invalid/custom.dtd'>" + xhtml("<p>Text</p>"))))
+        malformed(book(chapters = mapOf("chapter" to "<!DOCTYPE html []>" + xhtml("<p>Text</p>"))))
+        assertThrows(BookParseException.ResourceLimitExceeded::class.java) {
+            runBlocking { parser.parse(book(chapters = mapOf("chapter" to "<!DOCTYPE html ${" ".repeat(8_192)}>" + xhtml("<p>Text</p>"))).inputStream()) }
+        }
+    }
+
+    @Test fun `DTD subsets and external entity declarations are rejected including UTF16`() {
         val hostile = """<!DOCTYPE html [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><html xmlns='http://www.w3.org/1999/xhtml'><body><p>&xxe;</p></body></html>"""
         malformed(book(chapters = mapOf("chapter" to hostile)))
         val utf16 = "<?xml version='1.0' encoding='UTF-16'?>$hostile".toByteArray(Charsets.UTF_16)
