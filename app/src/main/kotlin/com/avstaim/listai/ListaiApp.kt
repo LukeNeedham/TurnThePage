@@ -93,6 +93,7 @@ fun ListaiApp(
     var hintsRequest by rememberSaveable { mutableStateOf(0L) }
     val busy by controller.busy.collectAsState()
     val importing by controller.importing.collectAsState()
+    var importDialogDismissed by rememberSaveable(importing) { mutableStateOf(false) }
     val error by controller.error.collectAsState()
     val importProgress by controller.importProgress.collectAsState()
     val importSummary by controller.importSummary.collectAsState()
@@ -126,7 +127,9 @@ fun ListaiApp(
 
     fun returnToShelf() {
         if (returning) return
-        if (phase == ShelfReaderPhase.SHELF && selectedId == null) return
+        if (phase == ShelfReaderPhase.SHELF && selectedId == null && !busy && !importing) return
+        controller.cancelPendingOpen()
+        if (importing) importDialogDismissed = true
         if (selectedId == null) {
             controller.returnToShelf()
             phase = ShelfReaderPhase.SHELF
@@ -249,7 +252,7 @@ fun ListaiApp(
         }
     }
     SideEffect { onReaderVisibleChange(selection != null && !busy) }
-    BackHandler(enabled = selection != null || phase != ShelfReaderPhase.SHELF) { returnToShelf() }
+    BackHandler(enabled = busy || importing || selection != null || phase != ShelfReaderPhase.SHELF) { returnToShelf() }
     BackHandler(enabled = shelfSettingsOpen && phase == ShelfReaderPhase.SHELF) { shelfSettingsOpen = false }
 
     Box(modifier.fillMaxSize().drawBehind { drawListaiBackdrop(darkTheme) }
@@ -387,8 +390,8 @@ fun ListaiApp(
                 }} else null)
         }
     }
-    if (importing) {
-        AlertDialog(onDismissRequest = {},
+    if (importing && !importDialogDismissed) {
+        AlertDialog(onDismissRequest = ::returnToShelf,
             title = { Text(stringResource(R.string.library_import_title)) },
             text = { Text(stringResource(R.string.library_import_count, importProgress.completed)) },
             confirmButton = { TextButton(onClick = controller::cancelImport) {

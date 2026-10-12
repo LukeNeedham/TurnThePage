@@ -67,6 +67,7 @@ class LibraryController(
             }
         }
         enqueue {
+            val request = openRequest
             try {
                 repository.initialize()
                 scope.launch(Dispatchers.IO) {
@@ -79,8 +80,8 @@ class LibraryController(
                     preferences.selectBook(sample.value)
                     preferences.markInitialized()
                 }
-                preferences.lastBook.first()?.let { id ->
-                    try { select(BookId(id)) } catch (failure: Exception) {
+                preferences.lastBook.first()?.takeIf { request == openRequest }?.let { id ->
+                    try { select(BookId(id)) { request == openRequest } } catch (failure: Exception) {
                         preferences.clearBookIfSelected(id)
                         throw failure
                     }
@@ -118,9 +119,12 @@ class LibraryController(
     }
     fun completeReaderOnboarding() = enqueue { preferences.completeReaderOnboarding() }
 
+    /** Invalidate pending parses/import auto-open before the visible book finishes closing. */
+    internal fun cancelPendingOpen() { openRequest++ }
+
     fun returnToShelf() {
         // A back press during parsing invalidates its eventual selection as well.
-        openRequest++
+        cancelPendingOpen()
         val selectedId = _selection.value?.opened?.book?.id
         val shelfProgress = checkpoint?.resetRearCoverForShelf()
         if (selectedId != null && shelfProgress != null) {
@@ -164,6 +168,7 @@ class LibraryController(
             _error.value = R.string.library_import_in_progress
             return
         }
+        val request = ++openRequest
         _importing.value = true
         _importProgress.value = ImportProgress()
         _importSummary.value = null
@@ -215,7 +220,7 @@ class LibraryController(
                         }
                     }
                 }
-                if (!batch && failed == 0) singleId?.let(::open)
+                if (!batch && failed == 0 && request == openRequest) singleId?.let(::open)
             } catch (cancel: CancellationException) {
                 cancelled = true
                 throw cancel
