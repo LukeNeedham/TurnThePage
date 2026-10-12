@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_annotation_state">Sinopsis</string>
+    <string name="reader_front_endpaper_state">Guarda delantera en blanco</string>
+    <string name="rc1_close_settings">Cerrar ajustes</string>
+    <string name="rc1_show_hints">Mostrar indicaciones de gestos</string>
+    <string name="rc1_reader_menu">Menú de lectura</string>
+    <string name="rc1_closed_read">Leer</string>
+    <string name="rc1_closed_description">Descripción</string>
+    <string name="rc1_closed_shelf">En la estantería</string>
+    <string name="rc1_closed_settings">Ajustes</string>
+    <string name="rc1_closed_contents">Índice</string>
+    <string name="rc1_closed_bookmarks">Marcapáginas</string>
+</resources>

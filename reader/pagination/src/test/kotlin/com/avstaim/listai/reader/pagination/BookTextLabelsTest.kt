@@ -22,4 +22,12 @@ class BookTextLabelsTest {
         for (count in listOf(2, 4, 22, 104)) assertEquals("Ещё $count примечания", labels.moreNotes(count))
         for (count in listOf(0, 5, 11, 12, 14, 111, 112)) assertEquals("Ещё $count примечаний", labels.moreNotes(count))
     }
+
+    @Test fun spanishBookCaptionsKeepTheNumberAndUseSingularNotes() {
+        val labels = bookTextLabels("es")
+        assertEquals("Capítulo IV", labels.chapter("IV"))
+        assertEquals("Ilustración", labels.illustration)
+        assertEquals("1 nota más", labels.moreNotes(1))
+        assertEquals("12 notas más", labels.moreNotes(12))
+    }
 }

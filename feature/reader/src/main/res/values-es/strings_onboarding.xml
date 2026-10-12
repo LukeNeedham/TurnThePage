@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_onboarding_menu_title">Tu menú de lectura</string>
+    <string name="reader_onboarding_menu_detail">Toca el centro del libro para abrir el menú.</string>
+    <string name="reader_onboarding_forward_title">Pasa una página</string>
+    <string name="reader_onboarding_forward_detail">Arrastra la página hacia la izquierda para seguir leyendo.</string>
+    <string name="reader_onboarding_backward_title">Vuelve atrás</string>
+    <string name="reader_onboarding_backward_detail">Arrastra la página hacia la derecha para volver atrás.</string>
+    <string name="reader_onboarding_left_title">También puedes tocar</string>
+    <string name="reader_onboarding_left_detail">Toca el borde exterior izquierdo para volver atrás.</string>
+    <string name="reader_onboarding_right_title">Otra forma de avanzar</string>
+    <string name="reader_onboarding_right_detail">Toca el borde exterior derecho para pasar a la página siguiente.</string>
+    <string name="reader_onboarding_bookmarks_title">Guarda tu lugar</string>
+    <string name="reader_onboarding_bookmarks_detail">Toca la cinta en la parte superior de la página para añadir o quitar un marcapáginas. Abre Marcapáginas en el menú de lectura para volver a un lugar guardado.</string>
+    <string name="reader_onboarding_illustrations_title">Mira más de cerca</string>
+    <string name="reader_onboarding_illustrations_detail">En los libros FB2 y EPUB, toca una ilustración para abrirla. Haz el gesto de pinza o toca dos veces para ajustar el zoom; después, arrastra para ver los detalles. Mantén pulsada una ilustración en la página para ver una vista previa rápida.</string>
+    <string name="reader_onboarding_stacks_title">En la estantería: pilas</string>
+    <string name="reader_onboarding_stacks_detail">Mantén pulsada una portada y arrástrala al centro de otra. Espera a que aparezca la indicación, suelta y dale un nombre a la pila. Toca una pila para abrirla; mantén pulsado y suelta sin arrastrar para abrir su menú.</string>
+    <string name="reader_onboarding_search_title">En la estantería: búsqueda</string>
+    <string name="reader_onboarding_search_detail">Toca la lupa o desliza hacia abajo desde la parte superior de la estantería. Busca por título, autor o serie; también se incluyen los libros de las pilas.</string>
+    <string name="reader_onboarding_shelf_zoom_title">En la estantería: más cerca o más lejos</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Junta dos dedos para ver más libros; sepáralos para acercar las portadas. La estantería tiene tres niveles de zoom. Puedes volver aquí desde Guía de lectura en el menú del libro o en los ajustes de la estantería.</string>
+    <string name="reader_onboarding_counter">%1$d de %2$d</string>
+    <string name="reader_onboarding_text_zoom_title">Texto más grande</string>
+    <string name="reader_onboarding_text_zoom_detail">Separa dos dedos sobre la página para aumentar el texto; júntalos para reducirlo. El tamaño cambia cuando levantas los dedos. Tu lugar de lectura y el tamaño elegido se guardan.</string>
+    <string name="reader_onboarding_pdf_zoom_title">Lee un PDF de cerca</string>
+    <string name="reader_onboarding_pdf_zoom_detail">Haz el gesto de pinza en una página del PDF para abrirla en una vista ampliada. Ajusta el zoom con dos dedos y arrastra para desplazarte. Toca dos veces para ver la página entera o ampliarla de nuevo. Cierra la vista o pulsa Atrás para volver a la misma página.</string>
+    <string name="reader_onboarding_skip">Omitir</string>
+    <string name="reader_onboarding_next">Siguiente</string>
+    <string name="reader_onboarding_done">Empezar a leer</string>
+    <string name="reader_onboarding_replay">Guía de lectura</string>
+    <string name="reader_onboarding_replay_detail">Gestos, marcapáginas y tu biblioteca</string>
+</resources>
