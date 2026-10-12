@@ -14,6 +14,7 @@ import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextDirectionHeuristics
+import android.text.TextUtils
 import android.text.style.LeadingMarginSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
@@ -197,7 +198,13 @@ internal class AndroidBookMeasurer(
             title -> 1.15f
             else -> 1f
         }, typefaces)
-        val content = source.textContent().toSpannedText(key.darkTheme, typefaces)
+        val justifiedBody = !title && part == null && paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0
+        val sourceContent = source.textContent().toSpannedText(key.darkTheme, typefaces)
+        val displayText = if (justifiedBody) dialogueDisplayText(sourceContent) else sourceContent
+        val content = if (displayText === sourceContent) sourceContent else SpannableStringBuilder(displayText).also {
+            // Copy ranges after the 1:1 substitution, including spans that cover only the gap.
+            TextUtils.copySpansFrom(sourceContent, 0, sourceContent.length, Any::class.java, it, 0)
+        }
         if (chapter?.startBlockId == source.id && chapter.numberPrefixLength > 0) {
             // WORD JOINER preserves source UTF-16 coordinates while the number is printed above.
             val end = chapter.numberPrefixLength.coerceAtMost(content.length)
@@ -205,7 +212,7 @@ internal class AndroidBookMeasurer(
         }
         val inset = (key.contentWidth * min(.22f, block.quoteDepth * .05f)).roundToInt()
         val width = (key.contentWidth - inset * 2).coerceAtLeast(1)
-        if (!title && part == null && paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0 && content.isNotEmpty()) {
+        if (justifiedBody && content.isNotEmpty()) {
             content.setSpan(LeadingMarginSpan.Standard((paint.textSize * 1.3f).toInt(), 0),
                 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
@@ -228,7 +235,7 @@ internal class AndroidBookMeasurer(
                 HyphenationMode.FULL -> Layout.HYPHENATION_FREQUENCY_FULL
                 }
             })
-            .setJustificationMode(if (!title && part == null && paragraph?.role == ParagraphRole.BODY && block.quoteDepth == 0)
+            .setJustificationMode(if (justifiedBody)
                 LineBreaker.JUSTIFICATION_MODE_INTER_WORD else LineBreaker.JUSTIFICATION_MODE_NONE)
             .build()
         return AndroidTextMeasurement(layout, when {
