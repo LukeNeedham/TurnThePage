@@ -215,7 +215,7 @@ private class FootnotePlanner(
         currentCoroutineContext().ensureActive()
         return measurements.getOrPut(reference.noteId) {
             val original = document.noteIndex.byId.getValue(reference.noteId).previewContent
-                .ifEmpty { listOf(InlineNode.Text(if (key.localeTag.startsWith("ru")) "Иллюстрация" else "Illustration")) }
+                .ifEmpty { listOf(InlineNode.Text(bookTextLabels(key.localeTag).illustration)) }
             val text = original.plainText()
             var end = minOf(text.length, MAX_PREVIEW_CHARS)
             if (end in 1 until text.length && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
@@ -269,7 +269,7 @@ private class FootnotePlanner(
     }
 
     private fun overflowRow(reference: NoteReference, count: Int): PlannedNote {
-        val label = if (key.localeTag.startsWith("ru")) "Ещё $count примечаний" else "$count more notes"
+        val label = bookTextLabels(key.localeTag).moreNotes(count)
         val content = listOf(InlineNode.Text(label))
         val measured = measurer.measure(footnoteFlowBlock(reference.noteId, content), previewKey)
         return PlannedNote(reference, PreviewMeasurement(content,

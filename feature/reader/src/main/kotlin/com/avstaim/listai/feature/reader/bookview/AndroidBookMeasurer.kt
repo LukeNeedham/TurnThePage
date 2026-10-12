@@ -38,6 +38,7 @@ import com.avstaim.listai.reader.pagination.BlockMeasurer
 import com.avstaim.listai.reader.pagination.FlowBlock
 import com.avstaim.listai.reader.pagination.HyphenationMode
 import com.avstaim.listai.reader.pagination.LayoutKey
+import com.avstaim.listai.reader.pagination.bookTextLabels
 import com.avstaim.listai.reader.pagination.MeasuredLine
 import com.avstaim.listai.reader.pagination.MeasurementMetrics
 import com.avstaim.listai.reader.pagination.textContent
@@ -67,7 +68,7 @@ internal interface PreparedBlockDecoration {
 
 internal class PreparedChapterHeading(number: String, key: LayoutKey, typefaces: PlyosTypefaceFamily) : PreparedBlockDecoration {
     private val paint = textPaint(key, Typeface.BOLD, 1.45f, typefaces)
-    private val label = (if (key.localeTag.startsWith("ru")) "Глава " else "Chapter ") + number
+    private val label = bookTextLabels(key.localeTag).chapter(number)
     private val layout = StaticLayout.Builder.obtain(label, 0, label.length, paint, key.contentWidth)
         .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(false).build()
     private val top = minOf(key.contentHeight * .065f, 32f * key.density)
