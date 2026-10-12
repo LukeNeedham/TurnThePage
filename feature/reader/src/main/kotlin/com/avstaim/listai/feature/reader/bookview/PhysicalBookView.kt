@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -188,6 +189,7 @@ internal fun PhysicalBookView(
     onImageTap: ((BookImageHit) -> Unit)? = null,
     onImageHoldStart: ((BookImageHit) -> Unit)? = null,
     onImageHoldEnd: (() -> Unit)? = null,
+    onFontZoom: ((Float) -> Unit)? = null,
     onReturnToShelf: (() -> Unit)? = null,
     onNavigateToLocation: ((BookLocation) -> Unit)? = null,
     onNavigationState: ((ReaderNavigationState) -> Unit)? = null,
@@ -233,6 +235,7 @@ internal fun PhysicalBookView(
     val imageCallback by rememberUpdatedState(onImageTap)
     val imageHoldCallback by rememberUpdatedState(onImageHoldStart)
     val imageHoldEndCallback by rememberUpdatedState(onImageHoldEnd)
+    val fontZoomCallback by rememberUpdatedState(onFontZoom)
     val shelfCallback by rememberUpdatedState(onReturnToShelf)
     val navigateCallback by rememberUpdatedState(onNavigateToLocation)
     val navigationCallback by rememberUpdatedState(onNavigationState)
@@ -922,11 +925,11 @@ internal fun PhysicalBookView(
                     }
                     gestureActive = true
                     var imageHeld = false
+                    val pinch = ReaderPinchSession()
                     try {
-                        if (jumpPreparing != null || dragSession != null || settleSession != null) {
-                            waitUntilReleased(down.id)
-                            return@awaitEachGesture
-                        }
+                        // An in-flight settle blocks another single-finger action, but a
+                        // second finger may cancel its uncommitted destination for a pinch.
+                        val singleGestureBlocked = jumpPreparing != null || dragSession != null || settleSession != null
                         val closedBackground = layout.isClosedBookBackground(bookState, down.position)
                         val central = readerMenuTapBounds(canvasSize).contains(down.position)
                         if (!layout.containsPage(down.position) && !central && !closedBackground) {
@@ -941,12 +944,11 @@ internal fun PhysicalBookView(
                         var movedBeyondTapSlop = false
                         var direction: TurnDirection? = null
                         val touchedImage = imageRegions.firstOrNull { it.bounds.contains(down.position) }
-                        var holdEligible = touchedImage != null && imageHoldCallback != null &&
+                        var holdEligible = !singleGestureBlocked && touchedImage != null && imageHoldCallback != null &&
                             noteReturns.none { it.first.contains(down.position) } &&
                             noteLinks.none { it.first.contains(down.position) }
-                        var imageGestureCancelled = false
 
-                        while (current.pressed) {
+                        while (current.pressed || pinch.claimed) {
                             val event = if (holdEligible) {
                                 val remaining = (viewConfiguration.longPressTimeoutMillis -
                                     (current.uptimeMillis - down.uptimeMillis)).coerceAtLeast(1)
@@ -959,18 +961,44 @@ internal fun PhysicalBookView(
                                 imageHoldCallback?.invoke(requireNotNull(touchedImage))
                                 continue
                             }
+                            val pinchUpdate = pinch.update(
+                                pressedPointers = event.changes.count { it.pressed },
+                                incrementalFactor = event.calculateZoom(),
+                                cancelled = event.changes.any { !it.pressed && it.previousPressed && it.isConsumed },
+                            )
+                            if (pinchUpdate.ownsGesture) {
+                                if (pinchUpdate.cancelPageTurn) {
+                                    holdEligible = false
+                                    if (imageHeld) {
+                                        imageHeld = false
+                                        imageHoldEndCallback?.invoke()
+                                    }
+                                    cancelUncommittedTurn()
+                                    gestureActive = true
+                                }
+                                event.changes.forEach { it.consume() }
+                                if (pinchUpdate.finished) {
+                                    gestureActive = false
+                                    pinchUpdate.completedFactor?.let { factor ->
+                                        if ((bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary) &&
+                                            sourceFlow.orEmpty().none { it.source is com.avstaim.listai.core.model.BookBlock.FixedPage })
+                                            fontZoomCallback?.invoke(factor)
+                                    }
+                                    return@awaitEachGesture
+                                }
+                                continue
+                            }
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             // Android CANCEL is an already-consumed release, never a tap/turn.
                             if (!change.pressed && change.isConsumed) {
                                 dragSession = null
                                 return@awaitEachGesture
                             }
-                            if (touchedImage != null && event.changes.count { it.pressed } > 1) {
-                                holdEligible = false
-                                imageGestureCancelled = true
-                                dragSession = null
+                            if (singleGestureBlocked) {
+                                current = change
+                                continue
                             }
-                            if (imageHeld || imageGestureCancelled) {
+                            if (imageHeld) {
                                 event.changes.forEach { it.consume() }
                                 current = change
                                 continue
@@ -1018,7 +1046,7 @@ internal fun PhysicalBookView(
                             current = change
                         }
 
-                        if (imageHeld || imageGestureCancelled) return@awaitEachGesture
+                        if (imageHeld || singleGestureBlocked) return@awaitEachGesture
                         if (!dragging) {
                             if (!movedBeyondTapSlop && down.uptimeMillis + viewConfiguration.longPressTimeoutMillis >= current.uptimeMillis) {
                                 val indices = visiblePageIndices(bookState, presentation, preparedPages.size)
@@ -1085,6 +1113,7 @@ internal fun PhysicalBookView(
                             )
                         }
                     } catch (cancelled: CancellationException) {
+                        pinch.cancel()
                         dragSession = null
                         throw cancelled
                     } finally {

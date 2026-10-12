@@ -249,6 +249,12 @@ fun ReaderScreen(
                     },
                     devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
                     outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
+                    onFontZoom = { factor ->
+                        if (factor.isFinite() && factor > 0f) {
+                            val size = readerFontSizeAfterZoom(preferences.fontSizeSp, factor)
+                            if (size != preferences.fontSizeSp) onPreferencesChange(preferences.copy(fontSizeSp = size))
+                        }
+                    },
                     darkTheme = darkTheme, includeContents = true, bookmarks = bookmarks,
                     onAddBookmark = onAddBookmarkAt,
                     onDeleteBookmark = onDeleteBookmark,
