@@ -72,6 +72,30 @@ class BookChapterTest {
         assertNull(epilogue.ordinal)
     }
 
+    @Test fun `translated part chapter and epilogue labels preserve their source anchors`() {
+        for ((part, chapter, epilogue) in listOf(
+            Triple("Teil I", "Kapitel IV", "Epilog"),
+            Triple("Partie I", "Chapitre IV", "Épilogue"),
+            Triple("Parte I", "Capitolo IV", "Epilogo"),
+            Triple("Parte I", "Capítulo IV", "Epílogo"),
+        )) {
+            val headings = listOf(heading("part", part, 1), heading("chapter", chapter, 2),
+                heading("epilogue", epilogue, 1), heading("subtitle", "The light", 1))
+            val groups = listOf(group(headings[0]), group(headings[1]),
+                BookHeadingGroup(listOf(headings[2].id, headings[3].id), 1))
+            val openings = chapterOpenings(headings, groups)
+            assertEquals(part, listOf("chapter", "epilogue"), openings.map { it.startBlockId.value })
+            assertEquals(listOf(1, null), openings.map { it.ordinal })
+            assertEquals("IV", openings.first().number)
+            assertEquals(chapter.length, openings.first().numberPrefixLength)
+            assertEquals(BookChapterKind.EPILOGUE, openings.last().kind)
+            assertEquals(listOf(headings[2].id, headings[3].id), openings.last().headingBlockIds)
+            assertEquals(listOf(headings[0].id), partOpenings(headings, groups).single().headingBlockIds)
+            assertTrue(isStandaloneEpilogueLabel(" $epilogue. "))
+            assertFalse(isStandaloneEpilogueLabel("$epilogue of a journey"))
+        }
+    }
+
     private fun heading(id: String, text: String, level: Int) =
         BookBlock.Heading(BlockId(id), level, listOf(InlineNode.Text(text)))
     private fun group(heading: BookBlock.Heading) = BookHeadingGroup(listOf(heading.id), heading.level)

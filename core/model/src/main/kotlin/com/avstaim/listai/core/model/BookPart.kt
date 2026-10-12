@@ -23,7 +23,7 @@ private const val RUSSIAN_PART_NUMBERS =
         "двадцат(?:ая|ый)|тридцат(?:ая|ый)|сороков(?:ая|ой)|пятидесят(?:ая|ый)|шестидесят(?:ая|ый)|семидесят(?:ая|ый)|восьмидесят(?:ая|ый)|девяност(?:ая|ый)|сот(?:ая|ый)|" +
         "двадцать|тридцать|сорок|пятьдесят|шестьдесят|семьдесят|восемьдесят|девяносто|сто"
 private val partNumber = Regex(
-    "^\\s*(?:part|book|volume|часть|книга|том)\\s+(?:[0-9]+|[IVXLCDM]+|" +
+    "^\\s*(?:part|book|volume|часть|книга|том|teil|partie|parte)\\s+(?:[0-9]+|[IVXLCDM]+|" +
         "(?:$ENGLISH_PART_NUMBERS)(?:[ -]+(?:$ENGLISH_PART_NUMBERS))*|" +
         "(?:$RUSSIAN_PART_NUMBERS)(?:[ -]+(?:$RUSSIAN_PART_NUMBERS))*)(?=\\s|[.:—–-]|$)",
     RegexOption.IGNORE_CASE,
