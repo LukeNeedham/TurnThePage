@@ -43,22 +43,27 @@ class AndroidPaginationTest {
             val pages = snapshot.pages
             val dividerIndex = pages.indexOfFirst { it.kind == PageKind.PART_TITLE }
             val divider = pages[dividerIndex]
-            assertEquals(0, (dividerIndex + layout.leadingPageCount) % 2)
             assertEquals(listOf(part.id, title.id, epigraph.id, author.id), divider.blocks.map { it.blockId })
             assertTrue(divider.blocks.first().y > layout.contentTop)
             val rasterizer = AndroidPageRasterizer(document, layout, "Нет изображения", typefaces = bookTypefaces())
             val rendered = rasterizer.render(divider).withFooter(PageReadingFooter(2, pages.size, .2f))
             assertNull(rendered.footerText)
             assertTrue(rendered.accessibleText.contains("На живой они дышат."))
-            val blank = rasterizer.render(pages[dividerIndex + 1]).withFooter(PageReadingFooter(3, pages.size, .3f))
-            assertEquals(PageKind.BLANK, blank.kind)
-            assertEquals("", blank.accessibleText)
-            assertNull(blank.footerText)
-            val pixels = IntArray(blank.bitmap.width * blank.bitmap.height)
-            blank.bitmap.getPixels(pixels, 0, blank.bitmap.width, 0, 0, blank.bitmap.width, blank.bitmap.height)
-            assertTrue(pixels.all { it == 0 })
             val chapterIndex = pages.indexOfFirst { it.blocks.firstOrNull()?.blockId == chapter.id }
-            assertEquals(0, (chapterIndex + layout.leadingPageCount) % 2)
+            if (mode == PageMode.SPREAD) {
+                assertEquals(0, (dividerIndex + layout.leadingPageCount) % 2)
+                val blank = rasterizer.render(pages[dividerIndex + 1]).withFooter(PageReadingFooter(3, pages.size, .3f))
+                assertEquals(PageKind.BLANK, blank.kind)
+                assertEquals("", blank.accessibleText)
+                assertNull(blank.footerText)
+                val pixels = IntArray(blank.bitmap.width * blank.bitmap.height)
+                blank.bitmap.getPixels(pixels, 0, blank.bitmap.width, 0, 0, blank.bitmap.width, blank.bitmap.height)
+                assertTrue(pixels.all { it == 0 })
+                assertEquals(0, (chapterIndex + layout.leadingPageCount) % 2)
+            } else {
+                assertFalse(pages.any { it.kind == PageKind.BLANK })
+                assertEquals(dividerIndex + 1, chapterIndex)
+            }
             val measurement = AndroidBookMeasurer(document, "Нет изображения", typefaces = bookTypefaces())
                 .measure(document.readingFlow().first(), layout) as AndroidTextMeasurement
             assertTrue(measurement.layout.paint.textSize > layout.fontSizeSp * 1.45f)
