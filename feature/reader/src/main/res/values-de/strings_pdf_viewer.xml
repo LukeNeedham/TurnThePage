@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pdf_viewer_title">PDF-Seite</string>
+    <string name="reader_pdf_page_description">PDF-Seite %1$d</string>
+    <string name="reader_pdf_open">PDF-Seite vergrößern</string>
+    <string name="reader_pdf_close">Zurück zum Buch</string>
+    <string name="reader_pdf_zoom_reset">Ganze PDF-Seite anzeigen</string>
+    <string name="reader_pdf_unavailable">Diese PDF-Seite konnte nicht geöffnet werden</string>
+</resources>

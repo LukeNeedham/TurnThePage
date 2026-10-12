@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_description_heading">Beschreibung</string>
+    <string name="reader_title_page">Titelseite</string>
+    <string name="reader_show_clock">Uhr anzeigen</string>
+</resources>

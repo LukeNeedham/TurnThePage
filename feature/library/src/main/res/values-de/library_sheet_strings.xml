@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_stack_name_clear">Stapelnamen löschen</string>
+    <string name="library_sheet_book_label">BUCH</string>
+    <string name="library_sheet_stack_label">STAPEL</string>
+    <string name="library_sheet_create_title">Neuer Stapel</string>
+    <string name="library_sheet_create_hint">Gib ihm einen Namen und wähle deine Bücher.</string>
+    <string name="library_sheet_add_hint">Wähle Bücher für „%1$s“.</string>
+    <string name="library_sheet_search_hint">Buch oder Autor suchen</string>
+    <string name="library_sheet_found_count">Bücher: %1$d</string>
+    <string name="library_sheet_select_all">Alle auswählen</string>
+    <string name="library_sheet_minimum">Wähle mindestens zwei Bücher.</string>
+    <string name="library_sheet_create_count">Erstellen · %1$d</string>
+    <string name="library_sheet_create">Erstellen</string>
+    <string name="library_sheet_add_count">Hinzufügen · %1$d</string>
+    <plurals name="library_sheet_book_count">
+        <item quantity="one">%1$d Buch</item>
+        <item quantity="other">%1$d Bücher</item>
+    </plurals>
+</resources>

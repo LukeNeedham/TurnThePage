@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_notes">Anmerkungen</string>
+    <string name="reader_note_number">Anmerkung %1$d</string>
+    <string name="reader_note_return">zurück zum Text</string>
+</resources>

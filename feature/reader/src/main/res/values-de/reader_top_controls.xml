@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_top_bookmarks">Lesezeichen</string>
+    <string name="reader_top_light">Helles Design verwenden</string>
+    <string name="reader_top_dark">Dunkles Design verwenden</string>
+    <string name="reader_top_contents">Inhalt</string>
+    <string name="reader_top_close">Buch schließen und ins Bücherregal zurückkehren</string>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_annotation_state">Buchbeschreibung</string>
+    <string name="reader_front_endpaper_state">Leeres vorderes Vorsatzblatt</string>
+    <string name="rc1_close_settings">Einstellungen schließen</string>
+    <string name="rc1_show_hints">Gestenhinweise anzeigen</string>
+    <string name="rc1_reader_menu">Lesemenü</string>
+    <string name="rc1_closed_read">Lesen</string>
+    <string name="rc1_closed_description">Beschreibung</string>
+    <string name="rc1_closed_shelf">Ins Bücherregal</string>
+    <string name="rc1_closed_settings">Einstellungen</string>
+    <string name="rc1_closed_contents">Inhalt</string>
+    <string name="rc1_closed_bookmarks">Lesezeichen</string>
+</resources>
