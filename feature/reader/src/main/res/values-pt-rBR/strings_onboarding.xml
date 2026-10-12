@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reader_onboarding_menu_title">Seu menu de leitura</string>
+    <string name="reader_onboarding_menu_detail">Toque no centro do livro para abrir o menu.</string>
+    <string name="reader_onboarding_forward_title">Vire uma página</string>
+    <string name="reader_onboarding_forward_detail">Arraste a página para a esquerda para continuar lendo.</string>
+    <string name="reader_onboarding_backward_title">Volte uma página</string>
+    <string name="reader_onboarding_backward_detail">Arraste a página para a direita para voltar.</string>
+    <string name="reader_onboarding_left_title">Um toque também funciona</string>
+    <string name="reader_onboarding_left_detail">Toque na borda externa esquerda para voltar.</string>
+    <string name="reader_onboarding_right_title">Outra forma de avançar</string>
+    <string name="reader_onboarding_right_detail">Toque na borda externa direita para ir à próxima página.</string>
+    <string name="reader_onboarding_bookmarks_title">Guarde seu lugar</string>
+    <string name="reader_onboarding_bookmarks_detail">Toque na fita no alto da página para adicionar ou remover um marcador. Abra Marcadores no menu de leitura para voltar a um local salvo.</string>
+    <string name="reader_onboarding_illustrations_title">Veja de perto</string>
+    <string name="reader_onboarding_illustrations_detail">Nos livros FB2 e EPUB, toque em uma ilustração para abri-la. Faça o gesto de pinça ou toque duas vezes para ajustar o zoom; depois, arraste para ver os detalhes. Mantenha o dedo sobre uma ilustração na página para ver uma prévia rápida.</string>
+    <string name="reader_onboarding_stacks_title">Na estante: pilhas</string>
+    <string name="reader_onboarding_stacks_detail">Mantenha o dedo sobre uma capa e arraste-a para o centro de outra. Aguarde a indicação, solte e dê um nome à pilha. Toque em uma pilha para abri-la; mantenha o dedo pressionado e solte sem arrastar para abrir o menu.</string>
+    <string name="reader_onboarding_search_title">Na estante: busca</string>
+    <string name="reader_onboarding_search_detail">Toque na lupa ou puxe para baixo no topo da estante. Busque por título, autor ou série; os livros nas pilhas também aparecem nos resultados.</string>
+    <string name="reader_onboarding_shelf_zoom_title">Na estante: mais perto ou mais longe</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Aproxime dois dedos para ver mais livros; afaste-os para ver as capas de perto. A estante tem três níveis de zoom. Você pode voltar aqui pelo Guia de leitura no menu do livro ou nas configurações da estante.</string>
+    <string name="reader_onboarding_counter">%1$d de %2$d</string>
+    <string name="reader_onboarding_text_zoom_title">Texto maior</string>
+    <string name="reader_onboarding_text_zoom_detail">Afaste dois dedos sobre a página para aumentar o texto; aproxime-os para diminuí-lo. O tamanho muda quando você levanta os dedos. Seu local de leitura e o tamanho escolhido são salvos.</string>
+    <string name="reader_onboarding_pdf_zoom_title">Leia um PDF de perto</string>
+    <string name="reader_onboarding_pdf_zoom_detail">Faça o gesto de pinça em uma página do PDF para abri-la em uma visualização ampliada. Ajuste o zoom com dois dedos e arraste para se mover pela página. Toque duas vezes para mostrar a página inteira ou ampliá-la de novo. Feche a visualização ou pressione Voltar para retornar à mesma página.</string>
+    <string name="reader_onboarding_skip">Pular</string>
+    <string name="reader_onboarding_next">Próximo</string>
+    <string name="reader_onboarding_done">Começar a ler</string>
+    <string name="reader_onboarding_replay">Guia de leitura</string>
+    <string name="reader_onboarding_replay_detail">Gestos, marcadores e sua biblioteca</string>
+</resources>
