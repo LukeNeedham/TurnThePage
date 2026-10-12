@@ -73,13 +73,7 @@ class LibraryController(
                 scope.launch(Dispatchers.IO) {
                     while (isActive && repository.backfillMetadata() > 0) yield()
                 }
-                if (!preferences.initialized.first()) {
-                    val sample = repository.import("stage4_reading_sample.fb2") {
-                        context.resources.openRawResource(R.raw.stage4_reading_sample)
-                    }
-                    preferences.selectBook(sample.value)
-                    preferences.markInitialized()
-                }
+                importBundledReadingBookOnce(context, repository, preferences)
                 preferences.lastBook.first()?.takeIf { request == openRequest }?.let { id ->
                     try { select(BookId(id)) { request == openRequest } } catch (failure: Exception) {
                         preferences.clearBookIfSelected(id)
