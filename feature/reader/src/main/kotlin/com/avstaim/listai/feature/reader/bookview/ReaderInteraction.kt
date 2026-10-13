@@ -23,8 +23,8 @@ internal fun pageNumberTapBounds(paper: Rect, key: LayoutKey): Rect {
 
 /** One centre belongs to the viewport, including the physical spine and hinge gap. */
 internal fun readerMenuTapBounds(viewport: Size): Rect = Rect(
-    viewport.width * .38f, viewport.height * .24f,
-    viewport.width * .62f, viewport.height * .76f,
+    viewport.width * .36f, viewport.height * .23f,
+    viewport.width * .64f, viewport.height * .77f,
 )
 
 internal fun BookCanvasLayout.closedBookBounds(state: PhysicalBookState): Rect? = when (state) {

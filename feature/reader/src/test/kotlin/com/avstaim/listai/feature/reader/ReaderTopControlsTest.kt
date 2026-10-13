@@ -18,6 +18,18 @@ class ReaderTopControlsTest {
             insets.cutouts.forEach { assertFalse("Button $button overlaps cutout $it", button.overlaps(it)) }
         }
         layout.buttons.zipWithNext().forEach { (a, b) -> assertFalse(a.overlaps(b)) }
+        layout.touchBounds.forEachIndexed { index, target ->
+            val ink = layout.buttons[index]
+            assertTrue(target.left <= ink.left && target.right >= ink.right &&
+                target.top <= ink.top && target.bottom >= ink.bottom)
+            assertTrue(target.width <= ink.width + 4f * density + .001f)
+            assertTrue(target.height <= ink.height + 4f * density + .001f)
+            assertTrue(paper.any { target.left >= it.left && target.right <= it.right &&
+                target.top >= it.top && target.bottom <= it.bottom })
+            assertTrue(insets.cutouts.none(target::overlaps))
+            assertTrue(layout.clockBounds?.overlaps(target) != true)
+        }
+        layout.touchBounds.zipWithNext().forEach { (a, b) -> assertFalse(a.overlaps(b)) }
         layout.clockBounds?.let { clock ->
             assertTrue(paper.any { clock.left >= it.left && clock.right <= it.right && clock.top >= it.top && clock.bottom <= it.bottom })
             assertTrue("Clock must preserve the gap above the text", clock.bottom + 14f * density <= layout.contentTop)

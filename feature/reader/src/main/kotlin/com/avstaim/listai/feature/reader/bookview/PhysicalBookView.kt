@@ -938,7 +938,7 @@ internal fun PhysicalBookView(
                 pageControlsLayout, pageControls != null, quickBookmarkPlacement?.bounds) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    if (pageControls != null && pageControlsLayout.buttons.any { it.contains(down.position) }) {
+                    if (pageControls != null && pageControlsLayout.touchBounds.any { it.contains(down.position) }) {
                         waitUntilReleased(down.id)
                         return@awaitEachGesture
                     }

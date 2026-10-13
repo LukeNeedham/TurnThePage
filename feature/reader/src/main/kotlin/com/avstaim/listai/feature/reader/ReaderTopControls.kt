@@ -34,6 +34,7 @@ internal data class ReaderTopControlLayout(
     val onCoverMaterial: Boolean = false,
     val onWhitePaper: Boolean = false,
     val clockBounds: Rect? = null,
+    val touchBounds: List<Rect> = buttons,
 )
 
 /** Two/three ink marks at the paper edges with the camera and fold kept clear. */
@@ -109,7 +110,30 @@ internal fun readerTopControlLayout(width: Float, insets: ReaderCutoutInsets, de
             Rect(center - availableWidth / 2, clockTop, center + availableWidth / 2, clockTop + clockHeight)
         }.minByOrNull { abs(it.center.x - paper.center.x) }
     }
-    return ReaderTopControlLayout(contentTop, buttons, clockBounds = clock)
+    // A small invisible allowance makes the ink easier to tap without moving it,
+    // increasing the text inset, or reaching into a cutout or neighbouring action.
+    val touchBounds = buttons.map { button ->
+        val paper = paperBounds.first { it.contains(button.center) }
+        val allowance = 2f * density
+        var target = Rect(maxOf(paper.left, button.left - allowance),
+            maxOf(paper.top, button.top - allowance),
+            minOf(paper.right, button.right + allowance),
+            minOf(paper.bottom, button.bottom + allowance))
+        val obstacles = buttons.filter { it != button } + insets.cutouts + listOfNotNull(clock)
+        obstacles.forEach { obstacle ->
+            if (target.overlaps(obstacle)) {
+                target = when {
+                    obstacle.right <= button.left -> target.copy(left = maxOf(target.left, obstacle.right))
+                    obstacle.left >= button.right -> target.copy(right = minOf(target.right, obstacle.left))
+                    obstacle.bottom <= button.top -> target.copy(top = maxOf(target.top, obstacle.bottom))
+                    obstacle.top >= button.bottom -> target.copy(bottom = minOf(target.bottom, obstacle.top))
+                    else -> button
+                }
+            }
+        }
+        target
+    }
+    return ReaderTopControlLayout(contentTop, buttons, clockBounds = clock, touchBounds = touchBounds)
 }
 
 @Composable
@@ -151,16 +175,23 @@ internal fun ReaderTopControls(
                     .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() }))
         }
         layout.buttons.forEachIndexed { index, bounds ->
-            Box(Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
-                .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
+            val target = layout.touchBounds[index]
+            Box(Modifier.absoluteOffset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
+                .size(with(density) { target.width.toDp() }, with(density) { target.height.toDp() })
                 .clickable(enabled = enabled, interactionSource = remember { MutableInteractionSource() },
                     indication = null, role = Role.Button, onClickLabel = labels[index], onClick = actions[index])
                 .semantics { contentDescription = labels[index] }
-                .testTag(tags[index]), contentAlignment = Alignment.Center) {
-                PaperInkIcon(icons[index], Modifier.size(with(density) {
-                    minOf(19.dp.toPx(), bounds.height * .72f, bounds.width * .72f).toDp()
-                }), color = if ((darkTheme && !layout.onWhitePaper) || layout.onCoverMaterial) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
-                    else androidx.compose.ui.graphics.Color(0xFF63717B))
+                .testTag(tags[index])) {
+                Box(Modifier.absoluteOffset {
+                    IntOffset(bounds.left.roundToInt() - target.left.roundToInt(),
+                        bounds.top.roundToInt() - target.top.roundToInt())
+                }.size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() }),
+                    contentAlignment = Alignment.Center) {
+                    PaperInkIcon(icons[index], Modifier.size(with(density) {
+                        minOf(19.dp.toPx(), bounds.height * .72f, bounds.width * .72f).toDp()
+                    }), color = if ((darkTheme && !layout.onWhitePaper) || layout.onCoverMaterial) androidx.compose.ui.graphics.Color(0xFFA6B3BF)
+                        else androidx.compose.ui.graphics.Color(0xFF63717B))
+                }
             }
         }
       }
