@@ -29,7 +29,7 @@ Builds:
 
   - versionName: '1.6'
     versionCode: 29
-    commit: v1.6
+    commit: b7bf096cb707d254d8352cc756f11df6367a26f9
     subdir: app
     gradle:
       - yes
