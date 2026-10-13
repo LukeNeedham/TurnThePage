@@ -35,6 +35,7 @@ class Rc12TitleRectoTest {
         show(ReaderPresentationMode.SPREAD, description = true, dark = false)
         assertRectoTitle()
         assertEquals(listOf("BLANK", "TEXT"), config()[ReaderPaperKinds])
+        assertLeftControls()
         assertEquals("", config()[ReaderVisibleFooters])
         capture("spread-padded-title-light")
         turn(false)
@@ -45,6 +46,7 @@ class Rc12TitleRectoTest {
         assertRectoTitle()
         turn(true)
         compose.waitUntil(30_000) { resting() && progress.get().tocEntryIndex != null }
+        assertLeftControls()
         assertFalse(text().any { it.contains(title) })
         capture("spread-contents-after-title")
         turn(false)
@@ -126,6 +128,16 @@ class Rc12TitleRectoTest {
         assertTrue("Book title is printed on the right leaf", text().last().contains(title))
         assertTrue(text().last().contains("Джордж Лукас"))
         assertTrue(text().last().contains("Алан Дин Фостер"))
+        assertLeftControls()
+    }
+
+    private fun assertLeftControls() {
+        val origin = compose.onNodeWithTag("book_view_demo").fetchSemanticsNode().boundsInRoot.topLeft
+        val left = config()[ReaderPaperBounds].first().translate(origin)
+        listOf("reader_top_close", "reader_top_contents", "reader_clock").forEach { tag ->
+            assertTrue("$tag is anchored to the left leaf including the blank facing the title",
+                left.contains(compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.center))
+        }
     }
 
     private fun switchMode(value: ReaderPresentationMode) {

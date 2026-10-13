@@ -74,6 +74,8 @@ class Rc6PartOpeningFlowTest {
         assertEquals("The divider is the right leaf of a spread", 2, visibleText().size)
         assertTrue(visibleText().last().contains("Часть вторая"))
         assertEquals("PART_TITLE", config()[ReaderPaperKinds].last())
+        val controls = controlBounds()
+        assertControlsOnSpread()
         val original = visibleText()
         capture("spread-part-dark")
         turn(forward = true)
@@ -82,11 +84,19 @@ class Rc6PartOpeningFlowTest {
         assertTrue("The part title's verso is blank", visibleText().first().isBlank())
         assertTrue("The following chapter starts on the right", visibleText().last().contains("Глава четвёртая"))
         assertEquals(listOf("BLANK", "TEXT"), config()[ReaderPaperKinds])
+        assertEquals("An empty verso cannot relocate printed controls, clock or bookmark", controls, controlBounds())
+        assertControlsOnSpread()
         val printedNumber = Regex("[0-9]+").find(config()[ReaderVisibleFooters])?.value?.toInt()
         assertNotNull(printedNumber)
         assertEquals("A physical right-hand chapter has an odd folio", 1, requireNotNull(printedNumber) % 2)
         assertEquals("Only the chapter prints a folio", 1, config()[ReaderPageNumberBounds].size)
         capture("spread-blank-and-chapter-dark")
+        val chapterText = visibleText()
+        turn(forward = true)
+        compose.waitUntil(30_000) { resting() && visibleText() != chapterText }
+        assertEquals("The next ordinary spread uses the same controls", controls, controlBounds())
+        turn(forward = false)
+        awaitText("Глава четвёртая")
         val chapterAnchor = progress.get().location
         assertNotNull(chapterAnchor)
         assertEquals(chapter.blockId, chapterAnchor?.blockId)
@@ -185,6 +195,27 @@ class Rc6PartOpeningFlowTest {
         }
         assertFalse(text.contains("Глава четвёртая"))
         assertFalse(text.contains("Вторая половина оставалась труднее"))
+    }
+
+    private fun controlBounds() = listOf("reader_top_close", "reader_top_contents",
+        "reader_top_settings", "reader_top_theme", "reader_top_bookmarks", "reader_clock", "reader_quick_bookmark")
+        .filter { it != "reader_clock" || compose.onAllNodesWithTag(it).fetchSemanticsNodes().isNotEmpty() }
+        .associateWith { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+
+    private fun assertControlsOnSpread() {
+        val paper = config()[ReaderPaperBounds]
+        val origin = compose.onNodeWithTag("book_view_demo").fetchSemanticsNode().boundsInRoot.topLeft
+        val left = paper.first().translate(origin)
+        val right = paper.last().translate(origin)
+        val controls = controlBounds()
+        val viewport = compose.onNodeWithTag("book_view_demo").fetchSemanticsNode().boundsInRoot
+        if (viewport.width / compose.activity.resources.displayMetrics.density >= 800f) {
+            assertTrue("A wide spread has room for its clock", "reader_clock" in controls)
+        }
+        listOf("reader_top_close", "reader_top_contents", "reader_clock").filter { it in controls }.forEach {
+            assertTrue("$it stays on the left leaf even when it is blank", left.contains(controls.getValue(it).center))
+        }
+        assertTrue(controls.getValue("reader_quick_bookmark").center.x < right.left)
     }
 
     private fun turn(forward: Boolean) {

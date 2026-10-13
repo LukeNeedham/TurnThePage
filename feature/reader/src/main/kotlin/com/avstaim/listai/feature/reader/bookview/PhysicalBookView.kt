@@ -707,10 +707,9 @@ internal fun PhysicalBookView(
             if (idleSurfaces.right.isReadablePaperSurface())
                 add(layout.rightPage)
         }
-        val controlPaperBounds = buildList {
-            if (idleSurfaces.left.isReadablePaperSurface() && !idleSurfaces.left.isIntentionalBlank()) layout.leftPage?.let(::add)
-            if (idleSurfaces.right.isReadablePaperSurface() && !idleSurfaces.right.isIntentionalBlank()) add(layout.rightPage)
-        }
+        // An intentional blank is still a physical leaf. Removing it from this geometry
+        // squeezed all controls onto the right page at every title and part opening.
+        val controlPaperBounds = openPaperBounds
         val initialPageControlsLayout = readerTopControlLayout(canvasSize.width, pageControlInsets,
             density.density, controlPaperBounds).copy(onCoverMaterial =
                 (idleSurfaces.left as? BookVisualSurface.Cover)?.insideContent != null ||
@@ -748,7 +747,7 @@ internal fun PhysicalBookView(
                 // the semantic anchor. Its physical strip always hangs from the upper-right edge
                 // of the left leaf, immediately before the spine. This is also where the original
                 // passive indicator lived.
-                val spread = presentation == BookPresentation.SPREAD && visible.size > 1 && !idleSurfaces.left.isIntentionalBlank()
+                val spread = presentation == BookPresentation.SPREAD && visible.size > 1
                 val pageBounds = if (spread) layout.leftPage ?: layout.rightPage else layout.rightPage
                 val target48 = with(density) { 48.dp.toPx() }
                 val target32 = with(density) { 32.dp.toPx() }
@@ -1682,9 +1681,6 @@ private fun VisibleBookSurfaces.visibleText(): List<String> = listOfNotNull(left
 private fun BookVisualSurface?.isReadablePaperSurface(): Boolean =
     this is BookVisualSurface.Page || this == BookVisualSurface.PlainPaper ||
         this == BookVisualSurface.DarkPlainPaper || (this as? BookVisualSurface.Cover)?.insideContent != null
-
-private fun BookVisualSurface?.isIntentionalBlank(): Boolean =
-    (this as? BookVisualSurface.Page)?.surface?.paginated?.kind == com.avstaim.listai.reader.pagination.PageKind.BLANK
 
 private fun BookVisualSurface?.isWhitePaperSurface(): Boolean =
     this == BookVisualSurface.PlainPaper ||

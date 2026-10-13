@@ -38,8 +38,22 @@ fun PartVersoFoldScreenshot() { PartOpeningPreview(chapter = true) }
 @Composable
 fun PartLongTitleScreenshot() { PartOpeningPreview(longTitle = true) }
 
+@PreviewTest
+@Preview(name = "Part controls — stable across blank Fold light", widthDp = 1000, heightDp = 760, locale = "ru")
+@Preview(name = "Part controls — narrow Fold dark", widthDp = 700, heightDp = 600, locale = "en", uiMode = 0x20)
 @Composable
-private fun PartOpeningPreview(dark: Boolean = false, chapter: Boolean = false, longTitle: Boolean = false) {
+fun PartControlsScreenshot() { PartOpeningPreview(controls = true) }
+
+@PreviewTest
+@Preview(name = "Chapter controls — blank verso Fold light", widthDp = 1000, heightDp = 760, locale = "ru")
+@Preview(name = "Chapter controls — blank verso Fold dark", widthDp = 1000, heightDp = 760, locale = "en", uiMode = 0x20)
+@Composable
+fun ChapterControlsScreenshot() { PartOpeningPreview(chapter = true, controls = true) }
+
+@Composable
+private fun PartOpeningPreview(dark: Boolean = false, chapter: Boolean = false, longTitle: Boolean = false,
+    controls: Boolean = false) {
+    val graphite = dark || (controls && androidx.compose.foundation.isSystemInDarkTheme())
     val document = remember(longTitle) {
         fun text(id: String, value: String, role: ParagraphRole = ParagraphRole.BODY) =
             BookBlock.Paragraph(BlockId(id), listOf(InlineNode.Text(value)), role)
@@ -57,9 +71,13 @@ private fun PartOpeningPreview(dark: Boolean = false, chapter: Boolean = false, 
         ), parts = listOf(BookPart(listOf(BlockId("part"), BlockId("title")), listOf(BlockId("epigraph"), BlockId("author")))),
             chapters = listOf(BookChapter(listOf(BlockId("chapter"), BlockId("chapter-title")), 4, "четвёртая", "Глава четвёртая".length)))
     }
-    ListaiTheme(darkTheme = dark) {
+    ListaiTheme(darkTheme = graphite) {
         PhysicalBookView(emptyList(), document.metadata.title, document.metadata.authors.single(),
-            document = document, darkTheme = dark,
+            document = document, darkTheme = graphite,
+            forcedPresentation = com.avstaim.listai.feature.reader.bookview.BookPresentation.SPREAD.takeIf { controls },
+            onAddBookmark = if (controls) ({ _ -> }) else null,
+            pageControls = if (controls) ({ layout -> ReaderTopControls(layout, graphite,
+                {}, {}, {}, {}, showClock = true) }) else null,
             initialLocation = BookLocation(BlockId(if (chapter) "chapter" else "part"), 0, 0))
     }
 }
