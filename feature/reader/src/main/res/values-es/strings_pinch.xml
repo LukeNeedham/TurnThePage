@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pinch_title">Gesto con dos dedos</string>
+    <string name="reader_pinch_font">Cambiar tamaño del texto</string>
+    <string name="reader_pinch_temporary">Ampliación temporal</string>
+    <string name="reader_pinch_disabled">Desactivado</string>
+    <string name="reader_pinch_return">Volver a la página</string>
+    <string name="reader_pinch_preview">Tamaño del texto: %1$s</string>
+</resources>

@@ -254,14 +254,17 @@ fun PaperSettingsSheet(
 private fun PaperSettingsContent(preferences: ReaderPreferences,
     onPreferencesChange: (ReaderPreferences) -> Unit, onShowHints: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
+    val numberLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     PaperScreenSettings(preferences, onPreferencesChange)
+    InkRule()
+    PaperPinchSettings(preferences, onPreferencesChange)
     InkRule()
     Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         IconPress(PaperIcon.Minus, stringResource(R.string.insert_font_smaller), "reader_font_smaller", {
             onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp - 1f).coerceAtLeast(12f)))
         }, enabled = preferences.fontSizeSp > 12f)
-        Text(stringResource(R.string.insert_font_value, preferences.fontSizeSp.roundToInt()),
+        Text(java.lang.String.format(numberLocale, "%.1f", preferences.fontSizeSp),
             style = MaterialTheme.typography.headlineMedium, fontFamily = PlyosFontFamily, color = colors.onSurface)
         IconPress(PaperIcon.Plus, stringResource(R.string.insert_font_larger), "reader_font_larger", {
             onPreferencesChange(preferences.copy(fontSizeSp = (preferences.fontSizeSp + 1f).coerceAtMost(32f)))
@@ -750,4 +753,32 @@ private object ContentsTabShape : Shape {
         moveTo(cut, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height - cut)
         lineTo(size.width - cut, size.height); lineTo(0f, size.height); lineTo(0f, cut); close()
     })
+}
+
+
+@Composable
+private fun PaperPinchSettings(preferences: ReaderPreferences,
+    onPreferencesChange: (ReaderPreferences) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.reader_pinch_title), style = MaterialTheme.typography.labelMedium,
+            color = colors.onSurfaceVariant)
+        ReaderPinchMode.entries.forEach { mode ->
+            val selected = preferences.pinchMode == mode
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("reader_pinch_${mode.name.lowercase()}")
+                .selectable(selected, role = Role.RadioButton,
+                    onClick = { onPreferencesChange(preferences.copy(pinchMode = mode)) })
+                .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RadioButton(selected, onClick = null)
+                Text(stringResource(when (mode) {
+                    ReaderPinchMode.FONT_SIZE -> R.string.reader_pinch_font
+                    ReaderPinchMode.TEMPORARY_ZOOM -> R.string.reader_pinch_temporary
+                    ReaderPinchMode.DISABLED -> R.string.reader_pinch_disabled
+                }), Modifier.weight(1f), color = colors.onSurface)
+            }
+        }
+    }
 }

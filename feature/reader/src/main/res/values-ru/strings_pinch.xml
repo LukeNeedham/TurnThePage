@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pinch_title">Жест двумя пальцами</string>
+    <string name="reader_pinch_font">Менять размер текста</string>
+    <string name="reader_pinch_temporary">Временное увеличение</string>
+    <string name="reader_pinch_disabled">Отключён</string>
+    <string name="reader_pinch_return">Вернуть страницу</string>
+    <string name="reader_pinch_preview">Размер текста: %1$s</string>
+</resources>

@@ -301,6 +301,7 @@ fun ReaderScreen(
                     },
                     devicePosture = devicePosture, forcedPresentation = presentationMode.physical(),
                     outerPadding = 4.dp, coverInset = 3.dp, fontSizeSp = preferences.fontSizeSp,
+                    pinchMode = preferences.pinchMode,
                     onFontZoom = { factor ->
                         if (factor.isFinite() && factor > 0f) {
                             val size = readerFontSizeAfterZoom(preferences.fontSizeSp, factor)
@@ -341,7 +342,7 @@ fun ReaderScreen(
                     },
                     onNavigateToLocation = ::goTo, onNavigationState = { navigation = it },
                     navigationRequest = navigationRequest,
-                    noteBackEnabled = !insertOpen && !mediaOpen,
+                    noteBackEnabled = active && !insertOpen && !mediaOpen,
                     onNavigationRequestConsumed = { sequence ->
                         if (navigationRequest?.sequence == sequence) navigationRequest = null
                         if (hintsJumpSequence == sequence) {
@@ -549,3 +550,6 @@ val ReaderPdfPageIndices = SemanticsPropertyKey<List<Int>>("ReaderPdfPageIndices
 
 // Legacy test identifier; no production fullscreen control exists.
 const val READER_FULLSCREEN_BUTTON_TAG = "reader_fullscreen_button"
+
+val ReaderPinchScale = SemanticsPropertyKey<Float>("ReaderPinchScale")
+val ReaderPinchPan = SemanticsPropertyKey<Offset>("ReaderPinchPan")

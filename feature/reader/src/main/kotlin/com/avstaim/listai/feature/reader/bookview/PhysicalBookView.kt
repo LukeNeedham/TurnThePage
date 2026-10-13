@@ -9,6 +9,11 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.graphicsLayer
+import com.avstaim.listai.core.model.ReaderPinchMode
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
@@ -78,6 +89,8 @@ import com.avstaim.listai.feature.reader.ReaderPaginationComplete
 import com.avstaim.listai.feature.reader.ReaderLayoutIdentity
 import com.avstaim.listai.feature.reader.ReaderCacheBytes
 import com.avstaim.listai.feature.reader.ReaderCachedPages
+import com.avstaim.listai.feature.reader.ReaderPinchScale
+import com.avstaim.listai.feature.reader.ReaderPinchPan
 import com.avstaim.listai.feature.reader.ReaderSurfaceRenders
 import com.avstaim.listai.feature.reader.ReaderContentsLocation
 import com.avstaim.listai.feature.reader.ReaderPaperKinds
@@ -195,6 +208,7 @@ internal fun PhysicalBookView(
     onImageHoldStart: ((BookImageHit) -> Unit)? = null,
     onImageHoldEnd: (() -> Unit)? = null,
     onFontZoom: ((Float) -> Unit)? = null,
+    pinchMode: ReaderPinchMode = ReaderPinchMode.FONT_SIZE,
     onPdfPageZoom: ((PdfPageHit) -> Unit)? = null,
     onReturnToShelf: (() -> Unit)? = null,
     onNavigateToLocation: ((BookLocation) -> Unit)? = null,
@@ -242,6 +256,12 @@ internal fun PhysicalBookView(
     val imageHoldCallback by rememberUpdatedState(onImageHoldStart)
     val imageHoldEndCallback by rememberUpdatedState(onImageHoldEnd)
     val fontZoomCallback by rememberUpdatedState(onFontZoom)
+    val currentPinchMode by rememberUpdatedState(pinchMode)
+    var previewScale by remember(document?.id, readerSession, pinchMode) { mutableStateOf(1f) }
+    var previewPan by remember(document?.id, readerSession, pinchMode) { mutableStateOf(Offset.Zero) }
+    var pinchPreviewActive by remember { mutableStateOf(false) }
+    // A committed font change prepares a fresh semantic-anchor layout only once.
+    LaunchedEffect(fontSizeSp) { previewScale = 1f; previewPan = Offset.Zero }
     val pdfZoomCallback by rememberUpdatedState(onPdfPageZoom)
     val shelfCallback by rememberUpdatedState(onReturnToShelf)
     val navigateCallback by rememberUpdatedState(onNavigateToLocation)
@@ -264,15 +284,17 @@ internal fun PhysicalBookView(
         turnActiveCallback?.invoke(physicalTurnActive)
     }
     BoxWithConstraints(
-        modifier = modifier.onGloballyPositioned { coordinates ->
+        modifier = modifier.clipToBounds().onGloballyPositioned { coordinates ->
             viewportBoundsInWindow = coordinates.boundsInWindow()
         },
     ) {
         val density = LocalDensity.current
+        val numberLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
         val canvasSize = androidx.compose.ui.geometry.Size(
             width = constraints.maxWidth.coerceAtLeast(1).toFloat(),
             height = constraints.maxHeight.coerceAtLeast(1).toFloat(),
         )
+        LaunchedEffect(canvasSize) { previewScale = 1f; previewPan = Offset.Zero; pinchPreviewActive = false }
         val outerPaddingPx = with(density) { outerPadding.toPx() }
         val coverInsetPx = with(density) { coverInset.toPx() }
         val displayFeatureInWindow = remember(devicePosture) {
@@ -638,7 +660,8 @@ internal fun PhysicalBookView(
         val noteBackTarget = readingPosition?.noteId?.takeIf {
             ready?.notes?.returnOrigin(it, readingPosition.visit) != null
         }
-        BackHandler(enabled = noteBackEnabled && noteBackTarget != null && !externalTransitionActive) {
+        BackHandler(enabled = noteBackEnabled && noteBackTarget != null && !externalTransitionActive &&
+            !(pinchMode == ReaderPinchMode.TEMPORARY_ZOOM && previewScale > 1f)) {
             noteBackTarget?.let(::returnFromNote)
         }
         LaunchedEffect(navigationRequest, pagination, layout) {
@@ -842,6 +865,8 @@ internal fun PhysicalBookView(
             leaf.contains(point)
         }?.let { (leaf, surface) -> surface.paginated?.fixedPageTapRegions(leaf)?.firstOrNull() }
         val semanticsModifier = Modifier.semantics {
+            this[ReaderPinchScale] = previewScale
+            this[ReaderPinchPan] = previewPan
             contentDescription = bookDescription
             stateDescription = stateText
             this[ReaderPaperBounds] = openPaperBounds
@@ -954,6 +979,8 @@ internal fun PhysicalBookView(
                     gestureActive = true
                     var imageHeld = false
                     val pinch = ReaderPinchSession()
+                    val startingScale = previewScale
+                    val startingPan = previewPan
                     var pdfZoomTarget: PdfPageHit? = null
                     try {
                         // An in-flight settle blocks another single-finger action, but a
@@ -973,7 +1000,8 @@ internal fun PhysicalBookView(
                         var movedBeyondTapSlop = false
                         var direction: TurnDirection? = null
                         val touchedImage = imageRegions.firstOrNull { it.bounds.contains(down.position) }
-                        var holdEligible = !singleGestureBlocked && touchedImage != null && imageHoldCallback != null &&
+                        var holdEligible = !(currentPinchMode == ReaderPinchMode.TEMPORARY_ZOOM && startingScale > 1f) &&
+                            !singleGestureBlocked && touchedImage != null && imageHoldCallback != null &&
                             noteReturns.none { it.first.contains(down.position) } &&
                             noteLinks.none { it.first.contains(down.position) }
 
@@ -990,9 +1018,21 @@ internal fun PhysicalBookView(
                                 imageHoldCallback?.invoke(requireNotNull(touchedImage))
                                 continue
                             }
+                            // While magnified, a single finger moves the prepared surface,
+                            // never a leaf. Two fingers still enter the same pinch transaction.
+                            if (currentPinchMode == ReaderPinchMode.TEMPORARY_ZOOM &&
+                                startingScale > 1f && !pinch.claimed && event.changes.count { it.pressed } < 2) {
+                                val limitX = canvasSize.width * (previewScale - 1f) / 2f
+                                val limitY = canvasSize.height * (previewScale - 1f) / 2f
+                                val pan = previewPan + event.calculatePan()
+                                previewPan = Offset(pan.x.coerceIn(-limitX, limitX), pan.y.coerceIn(-limitY, limitY))
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) return@awaitEachGesture
+                                continue
+                            }
                             val pinchUpdate = pinch.update(
                                 pressedPointers = event.changes.count { it.pressed },
-                                incrementalFactor = event.calculateZoom(),
+                                incrementalFactor = if (currentPinchMode == ReaderPinchMode.DISABLED) 1f else event.calculateZoom(),
                                 cancelled = event.changes.any { !it.pressed && it.previousPressed && it.isConsumed },
                             )
                             if (pinchUpdate.ownsGesture) {
@@ -1008,14 +1048,32 @@ internal fun PhysicalBookView(
                                     cancelUncommittedTurn()
                                     gestureActive = true
                                 }
+                                val textZoomAllowed = bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary
+                                pinchPreviewActive = !pinchUpdate.finished && textZoomAllowed && pdfZoomTarget == null &&
+                                    currentPinchMode != ReaderPinchMode.DISABLED
+                                if (pdfZoomTarget == null && textZoomAllowed) previewScale = when (currentPinchMode) {
+                                    ReaderPinchMode.FONT_SIZE -> readerFontSizeAfterZoom(fontSizeSp, pinchUpdate.previewFactor) / fontSizeSp
+                                    ReaderPinchMode.TEMPORARY_ZOOM -> (startingScale * pinchUpdate.previewFactor).coerceIn(1f, 4f)
+                                    ReaderPinchMode.DISABLED -> 1f
+                                }
+                                if (currentPinchMode == ReaderPinchMode.TEMPORARY_ZOOM) {
+                                    val limitX = canvasSize.width * (previewScale - 1f).coerceAtLeast(0f) / 2f
+                                    val limitY = canvasSize.height * (previewScale - 1f).coerceAtLeast(0f) / 2f
+                                    previewPan = Offset(previewPan.x.coerceIn(-limitX, limitX),
+                                        previewPan.y.coerceIn(-limitY, limitY))
+                                }
                                 event.changes.forEach { it.consume() }
                                 if (pinchUpdate.finished) {
                                     gestureActive = false
                                     pinchUpdate.completedFactor?.let { factor ->
                                         val pdf = pdfZoomTarget
-                                        if (pdf != null) pdfZoomCallback?.invoke(pdf)
-                                        else if (bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary)
+                                        if (pdf != null && currentPinchMode != ReaderPinchMode.DISABLED) pdfZoomCallback?.invoke(pdf)
+                                        else if (currentPinchMode == ReaderPinchMode.FONT_SIZE && (bookState is PhysicalBookState.Open || bookState == PhysicalBookState.FrontBoundary))
                                             fontZoomCallback?.invoke(factor)
+                                    }
+                                    if (pinchUpdate.completedFactor == null) {
+                                        previewScale = startingScale
+                                        previewPan = startingPan
                                     }
                                     return@awaitEachGesture
                                 }
@@ -1147,9 +1205,12 @@ internal fun PhysicalBookView(
                         }
                     } catch (cancelled: CancellationException) {
                         pinch.cancel()
+                        previewScale = startingScale
+                        previewPan = startingPan
                         dragSession = null
                         throw cancelled
                     } finally {
+                        pinchPreviewActive = false
                         if (imageHeld) imageHoldEndCallback?.invoke()
                         gestureActive = false
                     }
@@ -1257,6 +1318,13 @@ internal fun PhysicalBookView(
         }
         val logicalProgress = bookState.logicalProgress(preparedPages.size)
 
+        val fixedHingeMask = remember(canvasSize, layout.spineBounds) {
+            layout.spineBounds?.takeIf { it.width > 0f }?.let { hinge ->
+                Path().apply {
+                    readerPinchHingeSafeRegions(Rect(Offset.Zero, canvasSize), hinge).forEach(::addRect)
+                }
+            }
+        }
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -1278,6 +1346,14 @@ internal fun PhysicalBookView(
                     }
                 }
                 .then(gestureModifier)
+                .drawWithContent {
+                    val mask = fixedHingeMask?.takeIf { previewScale != 1f || previewPan != Offset.Zero }
+                    if (mask == null) drawContent() else clipPath(mask) { this@drawWithContent.drawContent() }
+                }
+                .graphicsLayer {
+                    scaleX = previewScale; scaleY = previewScale
+                    translationX = previewPan.x; translationY = previewPan.y
+                }
                 .testTag("book_view_demo"),
         ) {
                 if (drawBackdrop) drawReaderBackdrop(darkTheme)
@@ -1366,6 +1442,32 @@ internal fun PhysicalBookView(
                 onAdd = { onAddBookmark?.invoke(it) },
                 onRemove = { onDeleteBookmark?.invoke(it) },
             )
+        }
+        if (pinchPreviewActive || (pinchMode == ReaderPinchMode.TEMPORARY_ZOOM && previewScale > 1f)) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                if (pinchMode == ReaderPinchMode.TEMPORARY_ZOOM) {
+                    BackHandler(enabled = noteBackEnabled && !externalTransitionActive) {
+                        previewScale = 1f; previewPan = Offset.Zero
+                    }
+                    Surface(modifier = Modifier.padding(24.dp), shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+                        TextButton(onClick = { previewScale = 1f; previewPan = Offset.Zero },
+                            modifier = Modifier.testTag("reader_zoom_return")) {
+                            Text(stringResource(R.string.reader_pinch_return))
+                        }
+                    }
+                } else {
+                    Surface(modifier = Modifier.padding(24.dp).testTag("reader_pinch_preview"),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shadowElevation = 2.dp) {
+                        Text(stringResource(R.string.reader_pinch_preview,
+                            java.lang.String.format(numberLocale, "%.1f", fontSizeSp * previewScale)),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                    }
+                }
+            }
         }
         if (bookState.isClosedCover() && transitionCoverProgress == null && !closingBook &&
             resolvedTurn?.frame == null && !physicalTurnActive) {

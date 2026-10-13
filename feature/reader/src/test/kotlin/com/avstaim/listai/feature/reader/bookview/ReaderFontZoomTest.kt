@@ -5,6 +5,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReaderFontZoomTest {
+    @Test fun `off centre physical hinge stays masked in fixed viewport coordinates`() {
+        val viewport = androidx.compose.ui.geometry.Rect(0f, 0f, 1000f, 800f)
+        val hinge = androidx.compose.ui.geometry.Rect(220f, 24f, 260f, 776f)
+        val regions = readerPinchHingeSafeRegions(viewport, hinge)
+        assertEquals(listOf(
+            androidx.compose.ui.geometry.Rect(0f, 0f, 220f, 800f),
+            androidx.compose.ui.geometry.Rect(260f, 0f, 1000f, 800f)), regions)
+        for (y in listOf(0f, 400f, 799f)) {
+            assertFalse(regions.any { it.contains(androidx.compose.ui.geometry.Offset(240f, y)) })
+            assertTrue(regions.any { it.contains(androidx.compose.ui.geometry.Offset(10f, y)) })
+            assertTrue(regions.any { it.contains(androidx.compose.ui.geometry.Offset(900f, y)) })
+        }
+        assertEquals(listOf(viewport), readerPinchHingeSafeRegions(viewport, null))
+    }
+
+    @Test fun `small intentional moves preview immediately but commit only after release`() {
+        val gesture = ReaderPinchSession()
+        gesture.update(2)
+        val moving = gesture.update(2, 1.025f)
+        assertEquals(1.025f, moving.previewFactor, .0001f)
+        assertNull(moving.completedFactor)
+        assertEquals(18.2f, readerFontSizeAfterZoom(18f, moving.previewFactor), .001f)
+        assertNotNull(gesture.update(0).completedFactor)
+    }
+
     @Test fun `second finger cancels curl once and release of only one finger cannot publish`() {
         val gesture = ReaderPinchSession()
         assertFalse(gesture.update(1).ownsGesture)
@@ -25,7 +50,7 @@ class ReaderFontZoomTest {
     }
 
     @Test fun `jitter and a pinch returning to its original distance do not reflow`() {
-        for (factors in listOf(listOf(1.03f), listOf(.97f), listOf(1.5f, 1f / 1.5f))) {
+        for (factors in listOf(listOf(1.003f), listOf(.997f), listOf(1.5f, 1f / 1.5f))) {
             val gesture = ReaderPinchSession()
             gesture.update(2)
             factors.forEach { assertNull(gesture.update(2, it).completedFactor) }
@@ -104,15 +129,15 @@ class ReaderFontZoomTest {
         gesture.update(2)
         repeat(16) { gesture.update(2, Float.MAX_VALUE) }
         gesture.update(2, .5f)
-        assertEquals(4f, requireNotNull(gesture.update(0).completedFactor), .001f)
+        assertEquals(16f, requireNotNull(gesture.update(0).completedFactor), .001f)
         val reduction = ReaderPinchSession()
         reduction.update(2)
         reduction.update(2, Float.MIN_VALUE)
-        assertEquals(.25f, requireNotNull(reduction.update(0).completedFactor), .001f)
+        assertEquals(.0625f, requireNotNull(reduction.update(0).completedFactor), .001f)
     }
 
     @Test fun `font size uses the preference limits and ignores invalid transforms`() {
-        assertEquals(24f, readerFontSizeAfterZoom(18f, 4f / 3f), .001f)
+        assertEquals(24f, readerFontSizeAfterZoom(18f, 16f / 9f), .001f)
         assertEquals(12f, readerFontSizeAfterZoom(18f, .01f), .001f)
         assertEquals(32f, readerFontSizeAfterZoom(18f, Float.MAX_VALUE), .001f)
         for (factor in listOf(Float.NaN, Float.POSITIVE_INFINITY, 0f, -1f)) {

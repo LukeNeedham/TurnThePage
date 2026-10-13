@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_pinch_title">Gesto con due dita</string>
+    <string name="reader_pinch_font">Cambia dimensione del testo</string>
+    <string name="reader_pinch_temporary">Ingrandimento temporaneo</string>
+    <string name="reader_pinch_disabled">Disattivato</string>
+    <string name="reader_pinch_return">Torna alla pagina</string>
+    <string name="reader_pinch_preview">Dimensione testo: %1$s</string>
+</resources>

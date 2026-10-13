@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.avstaim.listai.core.model.ReaderPinchMode
 import com.avstaim.listai.core.model.ReaderPreferences
 import com.avstaim.listai.core.model.ReaderScreenTimeoutMode
 import com.avstaim.listai.core.model.ReaderTheme
@@ -34,7 +35,8 @@ class AppPreferences(private val store: DataStore<Preferences>) {
             ?: ReaderScreenTimeoutMode.ALWAYS_ON
         ReaderPreferences(size, ReaderTheme.entries.firstOrNull { it.name == values[THEME] } ?: ReaderTheme.LIGHT,
             showClock = values[SHOW_CLOCK] ?: true,
-            screenTimeoutMode = timeoutMode)
+            screenTimeoutMode = timeoutMode,
+            pinchMode = ReaderPinchMode.entries.firstOrNull { it.name == values[PINCH_MODE] } ?: ReaderPinchMode.FONT_SIZE)
     }
     val shelfZoom = store.data.map { values ->
         ShelfZoom.entries.firstOrNull { it.name == values[SHELF_ZOOM] } ?: ShelfZoom.MEDIUM
@@ -58,6 +60,7 @@ class AppPreferences(private val store: DataStore<Preferences>) {
     suspend fun completeReaderOnboarding() { store.edit { it[READER_ONBOARDING_COMPLETED] = true } }
     suspend fun setReaderPreferences(preferences: ReaderPreferences) {
         store.edit { values ->
+            values[PINCH_MODE] = preferences.pinchMode.name
             values[FONT_SIZE] = preferences.fontSizeSp
             values[THEME] = preferences.theme.name
             values[SHOW_CLOCK] = preferences.showClock
@@ -72,6 +75,7 @@ class AppPreferences(private val store: DataStore<Preferences>) {
         val INITIALIZED = booleanPreferencesKey("initialized")
         val BUNDLED_BOOK_LANGUAGE = stringPreferencesKey("bundled_book_language")
         val READER_ONBOARDING_COMPLETED = booleanPreferencesKey("reader_onboarding_completed")
+        val PINCH_MODE = stringPreferencesKey("reader_pinch_mode")
         val FONT_SIZE = floatPreferencesKey("reader_font_size_sp")
         val THEME = stringPreferencesKey("reader_theme")
         val SHOW_CLOCK = booleanPreferencesKey("reader_show_clock")

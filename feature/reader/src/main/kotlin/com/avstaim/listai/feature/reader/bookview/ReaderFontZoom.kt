@@ -2,20 +2,22 @@ package com.avstaim.listai.feature.reader.bookview
 
 import kotlin.math.exp
 import kotlin.math.ln
+import kotlin.math.round
+import kotlin.math.sqrt
 
 private const val MIN_READER_FONT_SIZE_SP = 12f
 private const val MAX_READER_FONT_SIZE_SP = 32f
 private const val DEFAULT_READER_FONT_SIZE_SP = 18f
-private const val PINCH_JITTER_FACTOR = 1.06f
-private const val MIN_PINCH_FACTOR = .25f
-private const val MAX_PINCH_FACTOR = 4f
+private const val PINCH_JITTER_FACTOR = 1.02f
+private const val MIN_PINCH_FACTOR = .0625f
+private const val MAX_PINCH_FACTOR = 16f
 
 /** Applies one finished gesture to the same range accepted by ReaderPreferences. */
 internal fun readerFontSizeAfterZoom(currentSizeSp: Float, factor: Float): Float {
     val current = currentSizeSp.takeIf(Float::isFinite)
         ?.coerceIn(MIN_READER_FONT_SIZE_SP, MAX_READER_FONT_SIZE_SP) ?: DEFAULT_READER_FONT_SIZE_SP
     if (!factor.isFinite() || factor <= 0f) return current
-    return (current.toDouble() * factor).coerceIn(
+    return (round(current.toDouble() * sqrt(factor.toDouble()) * 10.0) / 10.0).coerceIn(
         MIN_READER_FONT_SIZE_SP.toDouble(), MAX_READER_FONT_SIZE_SP.toDouble()).toFloat()
 }
 
@@ -23,6 +25,7 @@ internal data class ReaderPinchUpdate(
     val ownsGesture: Boolean = false,
     val cancelPageTurn: Boolean = false,
     val finished: Boolean = false,
+    val previewFactor: Float = 1f,
     val completedFactor: Float? = null,
 )
 
@@ -39,6 +42,8 @@ internal class ReaderPinchSession {
     // Log accumulation preserves a return from any finite excursion without overflow.
     // Clamping intermediate moves would lose that excursion and change the final ratio.
     private var logFactor = 0.0
+    private fun previewFactor() = exp(logFactor.coerceIn(ln(MIN_PINCH_FACTOR.toDouble()),
+        ln(MAX_PINCH_FACTOR.toDouble()))).toFloat()
 
     fun update(pressedPointers: Int, incrementalFactor: Float = 1f,
         cancelled: Boolean = false): ReaderPinchUpdate {
@@ -58,10 +63,26 @@ internal class ReaderPinchSession {
             val factor = exp(logFactor.coerceIn(ln(MIN_PINCH_FACTOR.toDouble()),
                 ln(MAX_PINCH_FACTOR.toDouble()))).toFloat()
             return ReaderPinchUpdate(ownsGesture = true, cancelPageTurn = claim, finished = true,
-                completedFactor = factor.takeIf { meaningful && !this.cancelled })
+                previewFactor = factor, completedFactor = factor.takeIf { meaningful && !this.cancelled })
         }
-        return ReaderPinchUpdate(ownsGesture = true, cancelPageTurn = claim)
+        return ReaderPinchUpdate(ownsGesture = true, cancelPageTurn = claim, previewFactor = previewFactor())
     }
 
     fun cancel() { cancelled = true }
+}
+
+
+/** Fixed viewport clips stay independent of the bitmap scale and pan behind a physical hinge. */
+internal fun readerPinchHingeSafeRegions(
+    viewport: androidx.compose.ui.geometry.Rect,
+    physicalHinge: androidx.compose.ui.geometry.Rect?,
+): List<androidx.compose.ui.geometry.Rect> {
+    if (physicalHinge == null || physicalHinge.width <= 0f) return listOf(viewport)
+    val left = physicalHinge.left.coerceIn(viewport.left, viewport.right)
+    val right = physicalHinge.right.coerceIn(left, viewport.right)
+    if (right <= left) return listOf(viewport)
+    return buildList {
+        if (left > viewport.left) add(androidx.compose.ui.geometry.Rect(viewport.left, viewport.top, left, viewport.bottom))
+        if (right < viewport.right) add(androidx.compose.ui.geometry.Rect(right, viewport.top, viewport.right, viewport.bottom))
+    }
 }

@@ -46,6 +46,8 @@ class ReaderPinchFlowTest {
             show(fixture, mode, dark)
             val before = checkpoint(fixture)
             val paper = config()[ReaderPaperBounds].last()
+            val layoutBefore = config()[ReaderLayoutIdentity]
+            val rasterBefore = config()[ReaderSurfaceRenders]
 
             // No intermediate move may publish a font preference or change pagination.
             book().performTouchInput {
@@ -62,6 +64,11 @@ class ReaderPinchFlowTest {
             }
             assertEquals("Text size is committed only when both fingers are released", 18f, fixture.preferences.value.fontSizeSp, .001f)
             assertTrue(fixture.changes.isEmpty())
+            compose.onNodeWithTag("reader_pinch_preview").assertIsDisplayed()
+            assertTrue(config()[ReaderPinchScale] > 1f)
+            assertEquals(layoutBefore, config()[ReaderLayoutIdentity])
+            assertEquals(rasterBefore, config()[ReaderSurfaceRenders])
+            capture("text-${mode.name.lowercase()}-live-preview")
             book().performTouchInput { up(0); up(1) }
             compose.waitUntil(30_000) { fixture.preferences.value.fontSizeSp > 18f && resting() }
             val grown = fixture.preferences.value.fontSizeSp
@@ -86,7 +93,7 @@ class ReaderPinchFlowTest {
         compose.waitUntil(30_000) { fixture.preferences.value.fontSizeSp == 32f && resting() }
         assertEquals(originalPreferences.copy(fontSizeSp = 32f), fixture.preferences.value)
         assertSource(before, fixture)
-        pinch(book(), config()[ReaderPaperBounds].single(), .30f, .05f)
+        pinch(book(), config()[ReaderPaperBounds].single(), .30f, .035f)
         compose.waitUntil(30_000) { fixture.preferences.value.fontSizeSp == 12f && resting() }
         assertEquals(originalPreferences.copy(fontSizeSp = 12f), fixture.preferences.value)
         assertSource(before, fixture)
@@ -97,7 +104,7 @@ class ReaderPinchFlowTest {
         show(fixture, ReaderPresentationMode.SINGLE, dark = false)
         val before = checkpoint(fixture)
         val paper = config()[ReaderPaperBounds].single()
-        pinch(book(), paper, .15f, .153f)
+        pinch(book(), paper, .15f, .1505f)
         compose.waitUntil(30_000) { resting() }
         assertEquals(18f, fixture.preferences.value.fontSizeSp, .001f)
         assertTrue(fixture.changes.isEmpty())
@@ -122,6 +129,58 @@ class ReaderPinchFlowTest {
         compose.waitUntil(30_000) { resting() }
         assertEquals(18f, fixture.preferences.value.fontSizeSp, .001f)
         assertTrue("A cancelled pinch never publishes a preference", fixture.changes.isEmpty())
+        assertSource(before, fixture)
+    }
+
+    @Test fun temporaryMagnificationCanPanAndReturnWithoutChangingTypeOrSource() {
+        val fixture = textFixture()
+        fixture.preferences.value = fixture.preferences.value.copy(pinchMode = ReaderPinchMode.TEMPORARY_ZOOM)
+        show(fixture, ReaderPresentationMode.SINGLE, dark = false)
+        val before = checkpoint(fixture)
+        val originalLayout = config()[ReaderLayoutIdentity]
+        pinch(book(), config()[ReaderPaperBounds].single(), .12f, .24f)
+        compose.onNodeWithTag("reader_zoom_return").assertIsDisplayed()
+        val panBefore = config()[ReaderPinchPan]
+        book().performTouchInput { swipe(center, center + Offset(width * .12f, height * .08f), 250) }
+        assertNotEquals(panBefore, config()[ReaderPinchPan])
+        capture("text-temporary-pan")
+        assertEquals(originalLayout, config()[ReaderLayoutIdentity])
+        assertTrue(fixture.changes.isEmpty())
+        assertSource(before, fixture)
+        compose.onNodeWithTag("reader_zoom_return").performClick()
+        compose.onNodeWithTag("reader_zoom_return").assertDoesNotExist()
+        assertEquals(1f, config()[ReaderPinchScale], .001f)
+        assertEquals(Offset.Zero, config()[ReaderPinchPan])
+        pinch(book(), config()[ReaderPaperBounds].single(), .12f, .20f)
+        compose.waitUntil(10_000) { config()[ReaderPinchScale] > 1f }
+        compose.onNodeWithTag("reader_zoom_return").assertIsDisplayed()
+        val magnifiedScale = config()[ReaderPinchScale]
+        compose.onNodeWithTag("reader_top_settings").performClick()
+        compose.onNodeWithTag("reader_paper_insert").assertIsDisplayed()
+        systemBack()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("reader_paper_insert").fetchSemanticsNodes().isEmpty()
+        }
+        assertEquals("Back closes the card before resetting its underlying page", magnifiedScale,
+            config()[ReaderPinchScale], .001f)
+        assertTrue(fixture.changes.isEmpty())
+        assertSource(before, fixture)
+        systemBack()
+        compose.onNodeWithTag("reader_zoom_return").assertDoesNotExist()
+        assertSource(before, fixture)
+    }
+
+    @Test fun disabledPinchKeepsLayoutPreferencesAndSource() {
+        val fixture = textFixture()
+        fixture.preferences.value = fixture.preferences.value.copy(pinchMode = ReaderPinchMode.DISABLED)
+        show(fixture, ReaderPresentationMode.SINGLE, dark = true)
+        val before = checkpoint(fixture)
+        val originalLayout = config()[ReaderLayoutIdentity]
+        pinch(book(), config()[ReaderPaperBounds].single(), .12f, .24f)
+        compose.onNodeWithTag("reader_pinch_preview").assertDoesNotExist()
+        compose.onNodeWithTag("reader_zoom_return").assertDoesNotExist()
+        assertTrue(fixture.changes.isEmpty())
+        assertEquals(originalLayout, config()[ReaderLayoutIdentity])
         assertSource(before, fixture)
     }
 

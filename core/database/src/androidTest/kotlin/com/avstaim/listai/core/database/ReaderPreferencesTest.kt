@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.avstaim.listai.core.model.ReaderPinchMode
 import com.avstaim.listai.core.model.ReaderPreferences
 import com.avstaim.listai.core.model.ReaderScreenTimeoutMode
 import com.avstaim.listai.core.model.ReaderTheme
@@ -34,7 +35,7 @@ class ReaderPreferencesTest {
             preferences.selectBook("source-😀")
             preferences.completeReaderOnboarding()
             preferences.claimBundledBookLanguage("it")
-            val system = ReaderPreferences(25f, ReaderTheme.DARK, showClock = false,
+            val system = ReaderPreferences(25f, ReaderTheme.DARK, showClock = false, pinchMode = ReaderPinchMode.TEMPORARY_ZOOM,
                 screenTimeoutMode = ReaderScreenTimeoutMode.SYSTEM)
             preferences.setReaderPreferences(system)
             preferences.setShelfZoom(ShelfZoom.SMALL)
@@ -47,7 +48,7 @@ class ReaderPreferencesTest {
             assertTrue(preferences.initialized.first())
             assertTrue(preferences.readerOnboardingCompleted.first())
             assertEquals("it", preferences.bundledBookLanguage.first())
-            val always = ReaderPreferences(16f, ReaderTheme.SYSTEM,
+            val always = ReaderPreferences(16f, ReaderTheme.SYSTEM, pinchMode = ReaderPinchMode.DISABLED,
                 screenTimeoutMode = ReaderScreenTimeoutMode.ALWAYS_ON)
             preferences.setReaderPreferences(always)
             preferences.selectBook(null)
@@ -72,6 +73,7 @@ class ReaderPreferencesTest {
             store.edit {
                 it[floatPreferencesKey("reader_font_size_sp")] = Float.NaN
                 it[stringPreferencesKey("reader_theme")] = "UNKNOWN_FUTURE_VALUE"
+                it[stringPreferencesKey("reader_pinch_mode")] = "UNKNOWN_FUTURE_VALUE"
                 it[stringPreferencesKey("last_book")] = "original"
                 it[stringPreferencesKey("shelf_zoom")] = "UNKNOWN_FUTURE_VALUE"
                 it[stringPreferencesKey("reader_screen_timeout_mode")] = "UNKNOWN_FUTURE_VALUE"
