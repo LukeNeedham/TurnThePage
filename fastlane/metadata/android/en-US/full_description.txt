@@ -4,8 +4,10 @@ Import FB2, FB2.ZIP, EPUB 2/3 and PDF books, multiple files or a folder includin
 
 Find books by title or author, including books inside stacks. Drag books together into named stacks for an author, series or genre, reorder them or return them to the shelf. Pinch the shelf to choose one of three zoom levels. Search is available in the library.
 
-Features include book covers, physical page turns, bookmarks, saved reading progress, light/dark/system themes, Russian and English UI, and adjustable typography for FB2 and EPUB. PDF preserves its original page layout; PDF zoom, text search and font changes are not supported. DRM-protected EPUB and password-protected PDF files are not supported.
+Features include book covers, physical page turns, bookmarks, saved reading progress, light/dark/system themes, Russian, English, Spanish, German, French, Italian and Brazilian Portuguese UI, and adjustable typography for FB2 and EPUB. PDF preserves its original page layout and opens in a dedicated zoom and pan viewer; text search and font changes are not supported for PDF. DRM-protected EPUB and password-protected PDF files are not supported.
 
 Descriptions, title pages and contents are physical book pages. Chapters and parts have vector ornaments; titles begin on the right in a spread, while phones skip layout-only blank pages. Open FB2 and EPUB illustrations fullscreen and zoom with a pinch or double tap. A small clock at the page edge can be disabled.
+
+Choose what a pinch does while reading: resize text with a live preview, zoom the page temporarily, or disable the gesture. Keep the screen on or follow the system sleep setting. Guided hints demonstrate reading, bookmarks, illustrations, stacks, search and shelf zoom using the bundled sample book, translated into all seven languages. Only one sample edition is added, matching the system language with English as fallback.
 
 No account, ads, tracking or internet connection is required. Books and reading state are stored locally. When sharing, the app you choose receives temporary access to a copy of the selected book. Removing a book from the library leaves the original file intact. Android 8.0 or newer is required.
