@@ -13,6 +13,208 @@ import org.junit.Test
 class EpubBookParserTest {
     private val parser = EpubBookParser()
 
+    @Test fun `navigation promotes complete paragraph headings while preserving inline text and anchors`() = runBlocking {
+        val content = xhtml("""
+            <p id='part'><b>Part<br/>One</b></p><p id='chapter'><strong>Chapter I</strong></p>
+            <p id='text'>Text 😀 survives.</p><p><b>Unlisted emphasis</b></p>
+            <p id='different'>A longer paragraph.</p><p>Before <span id='inside'>Middle</span></p>
+        """)
+        val nav = xhtml("""<nav epub:type='toc'><ol><li><a href='chapter.xhtml#part'>Part One</a><ol>
+            <li><a href='chapter.xhtml#chapter'>Chapter I</a></li></ol></li>
+            <li><a href='chapter.xhtml#different'>A longer</a></li><li><a href='chapter.xhtml#inside'>Middle</a></li>
+            </ol></nav>""")
+        val document = parser.parse(book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='nav' href='nav.xhtml' media-type='application/xhtml+xml' properties='nav'/>",
+            extras = mapOf("OPS/nav.xhtml" to nav.toByteArray())).inputStream())
+        val plain = parser.parse(book(chapters = mapOf("chapter" to content)).inputStream())
+        assertEquals(1, document.parts.size)
+        assertEquals(1, document.chapters.size)
+        assertEquals("I", document.chapters.single().number)
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+        assertEquals(plain.blocks.map { it.id to it.plainText() }, document.blocks.map { it.id to it.plainText() })
+        assertTrue((document.blocks[0] as BookBlock.Heading).content.single() is InlineNode.Strong)
+        assertTrue(document.blocks.drop(2).all { it is BookBlock.Paragraph })
+    }
+
+    @Test fun `publisher grouped CSS title and immediate citation form a complete part without losing source`() = runBlocking {
+        val content = xhtml("""
+            <link rel="stylesheet" href="titles.css"/>
+            <span id='part'><div class='title1'><p>Книга вторая</p><p>Северный берег</p></div>
+            <div class='cite'><p id='quote'><em>Синтетический эпиграф.</em></p><p class='text-author'>Автор эпиграфа</p></div>
+            <p id='body'>Основной текст 😀.</p><div class='cite'><p>Поздняя обычная цитата.</p></div></span>
+            <div style='font-weight:bold'><p>Обычный жирный текст</p></div>
+            <div class='title1'><p>Книга третья</p><p>Остров</p></div><p>Основной текст.</p>
+            <div class='cite'><p>Отложенная цитата.</p></div>
+        """)
+        val stylesheet = ".title1 { font-size:1.8em; font-weight:bold; page-break-after:avoid; }"
+        fun archive(css: String) = book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='css' href='titles.css' media-type='text/css'/><item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/>",
+            spineAttributes = "toc='ncx'",
+            extras = mapOf("OPS/titles.css" to css.toByteArray(), "OPS/toc.ncx" to """
+                <ncx xmlns='http://www.daisy.org/z3986/2005/ncx/'><navMap><navPoint id='part'>
+                <navLabel><text>Книга вторая Северный берег</text></navLabel><content src='chapter.xhtml#part'/>
+                </navPoint></navMap></ncx>""".toByteArray()))
+        val document = parser.parse(archive(stylesheet).inputStream())
+        val part = document.parts.first()
+        val blocks = document.blocks.associateBy { it.id }
+        assertEquals(listOf("Книга вторая", "Северный берег"), part.headingBlockIds.map { blocks.getValue(it).plainText() })
+        assertEquals(listOf("Синтетический эпиграф.", "Автор эпиграфа"), part.epigraphBlockIds.map { blocks.getValue(it).plainText() })
+        assertEquals(2, document.parts.size)
+        assertTrue(document.parts.last().epigraphBlockIds.isEmpty())
+        assertTrue(document.chapters.isEmpty())
+        val body = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", "body"))
+        assertTrue(blocks.getValue(body.blockId) is BookBlock.Paragraph)
+        assertEquals(document.blocks.takeWhile { it.id != body.blockId }.sumOf { it.plainText().length + 1L }, body.fallbackGlobalOffset)
+        val plain = parser.parse(archive(stylesheet.replace("page-break-after:avoid;", "")).inputStream())
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+        assertEquals(plain.blocks.map { it.id to it.plainText() }, document.blocks.map { it.id to it.plainText() })
+    }
+
+    @Test fun `publisher title does not absorb nested block prose or citations`() = runBlocking {
+        val content = xhtml("""
+            <link rel='stylesheet' href='titles.css'/>
+            <div class='title1'><p id='label'><span>Книга первая</span></p>
+              <div class='cite'><p id='quote'><em>Цитата внутри контейнера.</em></p></div>
+              <section><p id='section'>Текст вложенного раздела.</p></section>
+              <div><p id='nested'>Текст вложенного блока 😀.</p></div>
+            </div><p id='after'>Основной текст.</p>
+        """)
+        val css = ".title1 { font-size:1.8em; font-weight:bold; page-break-after:avoid; }"
+        fun archive(styles: String) = book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='css' href='titles.css' media-type='text/css'/>",
+            extras = mapOf("OPS/titles.css" to styles.toByteArray()))
+        val document = parser.parse(archive(css).inputStream())
+        fun block(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        assertEquals(listOf(block("label")), document.parts.single().headingBlockIds)
+        for (source in listOf("quote", "section", "nested", "after")) {
+            assertTrue(source, document.blocks.first { it.id == block(source) } is BookBlock.Paragraph)
+        }
+        val plain = parser.parse(archive(css.replace("page-break-after:avoid;", "")).inputStream())
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+        assertEquals(plain.blocks.map { it.id to it.plainText() }, document.blocks.map { it.id to it.plainText() })
+    }
+
+    @Test fun `publisher styled titles retain explicit named division roles`() = runBlocking {
+        val content = xhtml("""
+            <link rel='stylesheet' href='titles.css'/>
+            <section epub:type='part'><div class='title1'><p id='part'>Winter</p><p>The coast</p></div>
+              <p id='body'>Body prose.</p><section epub:type='chapter'><div class='title2'><p id='chapter'>Arrival</p></div><p>Chapter prose.</p></section>
+            </section>
+            <section epub:type='epilogue'><div class='title1'><p id='ending'>Years later</p></div><p>Closing prose.</p></section>
+            <section epub:type='part'><p>Unmarked text.</p><section><div class='title2'><p id='nested'>Departure</p></div><p>Nested prose.</p></section></section>
+        """)
+        val css = ".title1 { font-size:1.8em; font-weight:bold; page-break-after:avoid; } .title2 { font-size:1.5em; font-weight:bold; page-break-after:avoid; }"
+        val document = parser.parse(book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='css' href='titles.css' media-type='text/css'/>",
+            extras = mapOf("OPS/titles.css" to css.toByteArray())).inputStream())
+        fun block(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        assertEquals(block("part"), document.parts.single().startBlockId)
+        assertEquals(2, document.parts.single().headingBlockIds.size)
+        assertEquals(listOf(block("chapter"), block("ending"), block("nested")), document.chapters.map { it.startBlockId })
+        assertEquals(BookChapterKind.EPILOGUE, document.chapters[1].kind)
+        assertTrue(document.blocks.first { it.id == block("body") } is BookBlock.Paragraph)
+    }
+
+    @Test fun `loose text before publisher title keeps its preceding source scope`() = runBlocking {
+        val content = xhtml("""
+            <link rel='stylesheet' href='titles.css'/>
+            <span id='loose'>Loose prose 😀.</span><div class='title1'><p id='part'>Книга первая</p><p>Север</p></div>
+            <p id='body'>Following prose.</p>
+        """)
+        val css = ".title1 { font-size:1.8em; font-weight:bold; page-break-after:avoid; }"
+        fun archive(styles: String) = book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='css' href='titles.css' media-type='text/css'/>",
+            extras = mapOf("OPS/titles.css" to styles.toByteArray()))
+        val document = parser.parse(archive(css).inputStream())
+        assertTrue(document.blocks.first() is BookBlock.Paragraph)
+        assertEquals("Loose prose 😀.", document.blocks.first().plainText())
+        assertEquals(document.blocks[1].id, document.parts.single().startBlockId)
+        assertEquals(listOf(document.blocks[1].id, document.blocks[2].id), document.parts.single().headingBlockIds)
+        val plain = parser.parse(archive(css.replace("page-break-after:avoid;", "")).inputStream())
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+        assertEquals(plain.blocks.map { it.id to it.plainText() }, document.blocks.map { it.id to it.plainText() })
+    }
+
+    @Test fun `only leading publisher metadata title is excluded from chapter numbering`() = runBlocking {
+        val content = xhtml("""
+            <link rel='stylesheet' href='titles.css'/>
+            <div class='title'><p id='author'>Author One</p><p id='title'>Quiet book</p></div>
+            <div class='title'><p id='part'>Part One</p><p>The Coast</p></div>
+            <section epub:type='chapter'><div class='title'><p id='chapter'>Arrival</p></div><p>Story text.</p></section>
+            <div class='title'><p id='later'>Quiet book</p></div><p>A later actual chapter.</p>
+        """)
+        val css = ".title { font-size:2.2em; font-weight:bold; page-break-after:avoid; }"
+        fun archive(body: String) = book(chapters = mapOf("chapter" to body),
+            extraManifest = "<item id='css' href='titles.css' media-type='text/css'/>",
+            extras = mapOf("OPS/titles.css" to css.toByteArray()))
+        val document = parser.parse(archive(content).inputStream())
+        fun block(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        assertEquals(block("part"), document.parts.single().startBlockId)
+        assertEquals(listOf(block("chapter"), block("later")), document.chapters.map { it.startBlockId })
+        assertEquals(listOf(1, 2), document.chapters.map { it.ordinal })
+        assertTrue(document.titlePageBlockIds.isEmpty())
+        assertEquals(listOf("Author One", "Quiet book"), document.blocks.take(2).map { it.plainText() })
+        val titleOnly = parser.parse(archive(xhtml("<link rel='stylesheet' href='titles.css'/><div class='title'><p>Quiet book</p></div><p>Text.</p>")).inputStream())
+        assertTrue(titleOnly.chapters.isEmpty())
+        val afterBody = parser.parse(archive(xhtml("<link rel='stylesheet' href='titles.css'/><p>Earlier prose.</p><div class='title'><p>Quiet book</p></div><p>Text.</p>")).inputStream())
+        assertEquals(1, afterBody.chapters.size)
+    }
+
+    @Test fun `navigation paragraph openings retain explicit divisions without promoting their prose`() = runBlocking {
+        val content = xhtml("""
+            <section epub:type='part'><p id='winter'><b>Winter</b></p><p id='body'>Ordinary bold <b>prose</b>.</p>
+              <section epub:type='chapter'><p id='arrival'>Arrival</p><p>Chapter text.</p></section>
+            </section>
+            <section epub:type='epilogue'><p id='later'>Ten years later</p><p>Closing text.</p></section>
+            <section epub:type='part'><p id='unlisted'>An unlisted part title</p><p>Unlisted body.</p>
+              <section><p id='nested'>Departure</p><p>Nested chapter text.</p></section>
+            </section>
+        """)
+        val nav = xhtml("""<nav epub:type='toc'><ol>
+            <li><a href='chapter.xhtml#winter'>Winter</a><ol><li><a href='chapter.xhtml#arrival'>Arrival</a></li>
+            <li><a href='chapter.xhtml#nested'>Departure</a></li></ol></li>
+            <li><a href='chapter.xhtml#later'>Ten years later</a></li>
+            </ol></nav>""")
+        val document = parser.parse(book(chapters = mapOf("chapter" to content),
+            extraManifest = "<item id='nav' href='nav.xhtml' media-type='application/xhtml+xml' properties='nav'/>",
+            extras = mapOf("OPS/nav.xhtml" to nav.toByteArray())).inputStream())
+        fun block(source: String) = document.locationsBySourceId.getValue(sourceKey("OPS/chapter.xhtml", source)).blockId
+        assertEquals(listOf(block("winter")), document.parts.single().headingBlockIds)
+        assertEquals(listOf(block("arrival"), block("later"), block("nested")), document.chapters.map { it.startBlockId })
+        assertEquals(BookChapterKind.EPILOGUE, document.chapters[1].kind)
+        assertEquals(listOf(1, null, 2), document.chapters.map { it.ordinal })
+        assertTrue(document.blocks.first { it.id == block("body") } is BookBlock.Paragraph)
+        assertTrue(document.blocks.first { it.id == block("unlisted") } is BookBlock.Paragraph)
+        val plain = parser.parse(book(chapters = mapOf("chapter" to content)).inputStream())
+        assertEquals(plain.locationsBySourceId, document.locationsBySourceId)
+        assertEquals(plain.blocks.map { it.id to it.plainText() }, document.blocks.map { it.id to it.plainText() })
+    }
+
+    @Test fun `NCX styled paragraph divisions work across spine files`() = runBlocking {
+        val ncx = """<ncx xmlns='http://www.daisy.org/z3986/2005/ncx/'><navMap>
+            <navPoint id='part'><navLabel><text>Часть первая</text></navLabel><content src='part.xhtml#part'/>
+            <navPoint id='chapter'><navLabel><text>Глава первая</text></navLabel><content src='chapter.xhtml#chapter'/></navPoint>
+            </navPoint></navMap></ncx>"""
+        val document = parser.parse(book(chapters = linkedMapOf(
+            "part" to xhtml("<p style='font-weight:bold' id='part'>Часть первая</p>"),
+            "chapter" to xhtml("<p class='title' id='chapter'>Глава первая</p><p>Текст 😀.</p>")),
+            extraManifest = "<item id='ncx' href='toc.ncx' media-type='application/x-dtbncx+xml'/>",
+            spineAttributes = "toc='ncx'", extras = mapOf("OPS/toc.ncx" to ncx.toByteArray())).inputStream())
+        assertEquals(document.blocks[0].id, document.parts.single().startBlockId)
+        assertEquals(document.blocks[1].id, document.chapters.single().startBlockId)
+        assertEquals("первая", document.chapters.single().number)
+        assertEquals(1, document.chapters.single().ordinal)
+        assertEquals(2, (document.blocks[1] as BookBlock.Heading).level)
+    }
+
+    @Test fun `ARIA heading semantics identifies paragraph titles without interpreting bold prose`() = runBlocking {
+        val document = parser.parse(book(chapters = mapOf("chapter" to xhtml(
+            "<p role='heading' aria-level='1' id='heading'><b>Arrival</b></p><p><b>Bold prose</b></p>"
+        ))).inputStream())
+        assertEquals(document.blocks.first().id, document.chapters.single().startBlockId)
+        assertTrue(document.blocks.last() is BookBlock.Paragraph)
+    }
+
     @Test fun `explicit epilogue groups its own header without numbering or moving source anchors`() = runBlocking {
         val content = """
             <section epub:type='part'><h1>Part One</h1><section epub:type='chapter'><h2 id='first'>Arrival</h2><p>Text 😀.</p></section></section>

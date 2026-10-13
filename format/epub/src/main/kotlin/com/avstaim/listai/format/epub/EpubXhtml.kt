@@ -12,8 +12,11 @@ internal class EpubContentState(val limits: EpubParserLimits) {
     val usedImages = mutableSetOf<String>()
     val firstImagesByPath = mutableMapOf<String, String>()
     val headingGroups = mutableListOf<BookHeadingGroup>()
+    val publisherHeadingStarts = mutableSetOf<BlockId>()
+    val navigationHeadingRoles = mutableMapOf<BlockId, BookHeadingRole>()
     val titlePageBlockIds = mutableListOf<BlockId>()
     val epigraphBlockIds = mutableSetOf<BlockId>()
+    val citationBlockIds = mutableSetOf<BlockId>()
     private var blockCount = 0
     private var globalOffset = 0L
     private var noteOffset = 0L
@@ -28,12 +31,15 @@ internal class EpubContentState(val limits: EpubParserLimits) {
 }
 
 private data class InlineStyle(val kind: String, val link: LinkTarget? = null)
-private class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>) {
+private class HtmlFrame(val tag: String, val styles: List<InlineStyle>, val types: Set<String>,
+    val publisherHeadingLevel: Int? = null, val citation: Boolean = false) {
+    var publisherHeadingGroup: Int? = null
     var partHeadingGroup: Int? = null
     var partHeadingContainer: HtmlFrame? = null
     var epilogueHeadingGroup: Int? = null
     var epilogueHeadingContainer: HtmlFrame? = null
     var lastHeadingGroup: Int? = null
+    var divisionOpeningSeen = false
 }
 private data class PendingAnchor(val key: String, val offset: Int)
 
@@ -95,7 +101,26 @@ internal class XhtmlHandler(
         if (properties["font-style"] in setOf("italic", "oblique") && styles.none { it.kind == "em" }) styles += InlineStyle("em")
         if (properties["font-weight"] in setOf("bold", "600", "700", "800", "900") && styles.none { it.kind == "strong" }) styles += InlineStyle("strong")
         if ((properties["text-decoration-line"] ?: properties["text-decoration"]).orEmpty().split(' ').contains("line-through") && styles.none { it.kind == "strike" }) styles += InlineStyle("strike")
-        frames += HtmlFrame(tag, styles, attrs.epubType())
+        // FB2-to-EPUB publishers often retain a grouped title as div + sibling p.
+        // Bold alone is never structural: require a title class, enlarged text and
+        // the explicit CSS instruction to keep the heading with its following content.
+        val headingSize = properties["font-size"]?.removeSuffix("em")?.toFloatOrNull()
+            ?.takeIf { properties["font-size"].orEmpty().endsWith("em") }
+        val publisherHeading = tag in setOf("div", "header") && classes.any { it.matches(Regex("title[0-9]*")) } &&
+            styles.any { it.kind == "strong" } && headingSize != null && headingSize > 1f &&
+            (properties["page-break-after"] == "avoid" || properties["break-after"] == "avoid")
+        val publisherLevel = if (!publisherHeading) null else when {
+            requireNotNull(headingSize) >= 2f -> 1
+            headingSize >= 1.7f -> 2
+            else -> 3
+        }
+        // A new publisher title cannot retrospectively own loose text before it.
+        // Commit that text while the previous source frame scope is still active.
+        if (publisherHeading && bodyDepth >= 0 && skipDepth < 0 && readable &&
+            attrs.getValue("hidden") == null && properties["display"] != "none" && properties["visibility"] != "hidden") {
+            flush()
+        }
+        frames += HtmlFrame(tag, styles, attrs.epubType(), publisherLevel, tag == "div" && "cite" in classes)
         if (tag == "body") {
             bodyDepth = depth
             if (linear) anchors += PendingAnchor(sourceKey(path), 0)
@@ -119,6 +144,9 @@ internal class XhtmlHandler(
         if (tag in BLOCK_TAGS) {
             flush()
             headingLevel = tag.takeIf { it.length == 2 && it[0] == 'h' && it[1] in '1'..'6' }?.get(1)?.digitToInt()
+            if (headingLevel == null && attrs.value("role").orEmpty().split(Regex("\\s+")).contains("heading")) {
+                headingLevel = attrs.value("aria-level")?.toIntOrNull()?.takeIf { it in 1..6 } ?: 2
+            }
             preformatted = tag == "pre"
         }
         val id = attrs.value("id") ?: attrs.value("xml:id") ?: if (tag == "a") attrs.value("name") else null
@@ -206,10 +234,20 @@ internal class XhtmlHandler(
     override fun endDocument() { if (!rootSeen) malformed() }
     private fun currentStyles(): List<InlineStyle> = frames.flatMap(HtmlFrame::styles)
     private fun nextId(): BlockId = BlockId("epub:$path:${ordinal++}")
+    private fun publisherHeadingOwner(): HtmlFrame? {
+        val ownerIndex = frames.indexOfLast { it.publisherHeadingLevel != null }
+        if (ownerIndex < 0) return null
+        // A title owns its direct text blocks and inline wrappers, never a nested
+        // quote, section or generic block container which happens to share its CSS.
+        val descendants = frames.drop(ownerIndex + 1)
+        if (descendants.any { it.tag in BLOCK_TAGS && it.tag !in TEXT_BLOCK_TAGS }) return null
+        if (descendants.count { it.tag in TEXT_BLOCK_TAGS } > 1) return null
+        return frames[ownerIndex]
+    }
     private fun flush() {
         if (buffer.isEmpty) return
         val content = buffer.nodes()
-        val level = headingLevel
+        val level = headingLevel ?: publisherHeadingOwner()?.publisherHeadingLevel
         val block = if (level == null) BookBlock.Paragraph(nextId(), content,
             if (preformatted) ParagraphRole.VERSE else ParagraphRole.BODY) else BookBlock.Heading(nextId(), level, content)
         append(block)
@@ -219,8 +257,52 @@ internal class XhtmlHandler(
         val location = state.append(block, noteBlocks)
         if (noteBlocks == null) {
             val types = frames.flatMap { it.types }.toSet()
+            // Retain division semantics as evidence for a later exact TOC paragraph
+            // match. Only the division's first own text block may be its opening;
+            // nested unmarked sections and later prose cannot inherit that role.
+            val division = frames.lastOrNull { frame -> frame.types.any { it in DIVISION_TYPES } }
+            val ownsBlock = division != null && frames.drop(frames.indexOf(division) + 1).dropLast(1)
+                .none { it.tag in setOf("section", "article", "aside", "nav", "footer") }
+            val firstOwnBlock = ownsBlock && !requireNotNull(division).divisionOpeningSeen
+            if (firstOwnBlock &&
+                block is BookBlock.Paragraph && block.role == ParagraphRole.BODY && "epigraph" !in types) {
+                val role = when {
+                    division.types.any { it == "part" || it == "volume" } -> BookHeadingRole.PART
+                    "chapter" in division.types -> BookHeadingRole.CHAPTER
+                    "epilogue" in division.types -> BookHeadingRole.EPILOGUE
+                    else -> BookHeadingRole.OTHER
+                }
+                state.navigationHeadingRoles[block.id] = role
+            }
+            if (ownsBlock && (block is BookBlock.Paragraph || block is BookBlock.Heading) && "epigraph" !in types) {
+                requireNotNull(division).divisionOpeningSeen = true
+            }
+            if (frames.any { it.citation }) state.citationBlockIds += block.id
             if ("epigraph" in types) state.epigraphBlockIds += block.id
             if (isTitlePage || "titlepage" in types) state.titlePageBlockIds += block.id
+            else if (block is BookBlock.Heading && publisherHeadingOwner() != null) {
+                val heading = requireNotNull(publisherHeadingOwner())
+                val index = heading.publisherHeadingGroup
+                if (index == null || state.blocks.getOrNull(state.blocks.lastIndex - 1)?.id !=
+                    state.headingGroups[index].blockIds.last()) {
+                    val role = when {
+                        "epigraph" in types -> BookHeadingRole.OTHER
+                        !ownsBlock -> BookHeadingRole.UNSPECIFIED
+                        division?.types?.any { it in setOf("prologue", "preface", "foreword", "introduction") } == true -> BookHeadingRole.OTHER
+                        !firstOwnBlock -> BookHeadingRole.UNSPECIFIED
+                        division?.types?.any { it == "part" || it == "volume" } == true -> BookHeadingRole.PART
+                        "chapter" in division?.types.orEmpty() -> BookHeadingRole.CHAPTER
+                        "epilogue" in division?.types.orEmpty() -> BookHeadingRole.EPILOGUE
+                        else -> BookHeadingRole.UNSPECIFIED
+                    }
+                    state.headingGroups += BookHeadingGroup(listOf(block.id), block.level, role)
+                    heading.publisherHeadingGroup = state.headingGroups.lastIndex
+                    state.publisherHeadingStarts += block.id
+                } else {
+                    val group = state.headingGroups[index]
+                    state.headingGroups[index] = group.copy(blockIds = group.blockIds + block.id)
+                }
+            }
             else if (block is BookBlock.Heading) {
                 // The nearest division owns the heading: a nested chapter must not inherit PART.
                 val owner = frames.lastOrNull { frame -> frame.types.any { it in DIVISION_TYPES } }

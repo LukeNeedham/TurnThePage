@@ -157,6 +157,56 @@ class EpubBookParser(
                         BookTocEntry(it.plainText(), state.blockLocations.getValue(it.id))
                     }
                 }
+                // Some publishers encode TOC headings as styled paragraphs. The navigation
+                // target is structural evidence only when it names the entire source block.
+                // Keep source IDs, inline content and offsets unchanged by the projection.
+                val blockIndices = state.blocks.mapIndexed { index, block -> block.id to index }.toMap()
+                val headingWhitespace = Regex("\\s+")
+                fun normalizedHeading(value: String) = value.trim().replace(headingWhitespace, " ")
+                fun projectNavigationHeadings(entries: List<BookTocEntry>, level: Int = 1) {
+                    entries.forEach { entry ->
+                        val index = blockIndices[entry.location.blockId]
+                        val block = index?.let(state.blocks::get)
+                        if (block is BookBlock.Paragraph && block.role == ParagraphRole.BODY &&
+                            entry.location.charOffset == 0 && block.id !in state.titlePageBlockIds &&
+                            block.id !in state.epigraphBlockIds &&
+                            normalizedHeading(block.plainText()) == normalizedHeading(entry.title)) {
+                            state.blocks[requireNotNull(index)] = BookBlock.Heading(block.id, level.coerceAtMost(6), block.content)
+                            state.headingGroups += BookHeadingGroup(listOf(block.id), level.coerceAtMost(6),
+                                state.navigationHeadingRoles[block.id] ?: BookHeadingRole.UNSPECIFIED)
+                        }
+                        projectNavigationHeadings(entry.children, level + 1)
+                    }
+                }
+                projectNavigationHeadings(resolvedToc)
+                // A publisher's opening book title is frontmatter, not chapter one.
+                // Keep the source flow intact; only its structural numbering role changes.
+                val firstGroupIndex = state.headingGroups.indices.minByOrNull { index ->
+                    blockIndices.getValue(state.headingGroups[index].blockIds.first())
+                }
+                firstGroupIndex?.let { index ->
+                    val group = state.headingGroups[index]
+                    val start = blockIndices.getValue(group.blockIds.first())
+                    val lines = group.blockIds.map { id -> normalizedHeading(state.blocks[blockIndices.getValue(id)].plainText()) }
+                    val bookTitle = normalizedHeading(title)
+                    val authors = manifest.authors.map(::normalizedHeading).toSet()
+                    val partIds = partOpenings(state.blocks, state.headingGroups).flatMapTo(mutableSetOf()) { it.headingBlockIds }
+                    if (group.role == BookHeadingRole.UNSPECIFIED && group.blockIds.first() in state.publisherHeadingStarts &&
+                        group.blockIds.none { it in partIds } && state.blocks.take(start).all { it is BookBlock.Image || it is BookBlock.Spacer } &&
+                        lines.count { it == bookTitle } == 1 && lines.all { it == bookTitle || it in authors }) {
+                        state.headingGroups[index] = group.copy(role = BookHeadingRole.OTHER)
+                    }
+                }
+                // A publisher citation becomes the divider's epigraph only directly
+                // after a recognized part. An ordinary/delayed citation stays prose.
+                val headingParts = partOpenings(state.blocks, state.headingGroups)
+                headingParts.forEach { part ->
+                    val next = blockIndices.getValue(part.headingBlockIds.last()) + 1
+                    val citation = state.blocks.drop(next).takeWhile {
+                        it.id in state.citationBlockIds || it is BookBlock.Spacer
+                    }.dropLastWhile { it.id !in state.citationBlockIds }
+                    state.epigraphBlockIds += citation.map { it.id }
+                }
                 val annotation = manifest.description?.takeIf(String::isNotBlank)
                 BookDocument(
                     id = BookId("sha256:" + digest.digest().joinToString("") { "%02x".format(Locale.ROOT, it.toInt() and 255) }),

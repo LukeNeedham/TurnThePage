@@ -6,7 +6,13 @@ NCX and EPUB 3 navigation documents. Specification: [EPUB 3.3](https://www.w3.or
 
 Supported content includes metadata and cover images, paragraphs/headings, inline
 emphasis, bold/strikethrough, raster images, hyperlinks, and semantic EPUB footnotes.
-Basic class/ID/tag selectors in linked or embedded CSS retain text emphasis. Reader
+ARIA heading roles and full paragraph titles exactly matched by EPUB 2/3 navigation
+produce the same structural chapter/part projections as XHTML headings. The first
+own paragraph of an explicitly marked part, chapter or epilogue retains that role
+when navigation identifies it; later prose and nested divisions do not inherit it. Publisher `div.title*` groups with bold enlarged `em` text and CSS break avoidance
+retain sibling title paragraphs as one structural opening. A `div.cite` immediately
+after a recognized part supplies its epigraph; delayed citations remain ordinary
+content. Bold prose alone is preserved as inline emphasis. Basic class/ID/tag selectors in linked or embedded CSS retain text emphasis. Reader
 preferences control page layout and type size; publication fonts, complex CSS layout,
 JavaScript, remote resources, multimedia and DRM are not rendered.
 
