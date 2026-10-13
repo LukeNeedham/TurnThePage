@@ -13,21 +13,19 @@
     <string name="reader_onboarding_bookmarks_title">Conserva il tuo posto</string>
     <string name="reader_onboarding_bookmarks_detail">Tocca il nastro in cima alla pagina per aggiungere o rimuovere un segnalibro. Apri Segnalibri nel menu di lettura per tornare a una posizione salvata.</string>
     <string name="reader_onboarding_illustrations_title">Guarda più da vicino</string>
-    <string name="reader_onboarding_illustrations_detail">Nei libri FB2 ed EPUB, tocca un’illustrazione per aprirla. Avvicina o allontana due dita, oppure tocca due volte, per cambiare lo zoom. Poi trascina l’immagine per vederne i dettagli. Tieni premuta un’illustrazione sulla pagina per un’anteprima rapida.</string>
+    <string name="reader_onboarding_illustrations_detail">Tocca l’illustrazione per aprirla. Tienila premuta sulla pagina per un’anteprima rapida.</string>
     <string name="reader_onboarding_stacks_title">Sullo scaffale: le pile</string>
     <string name="reader_onboarding_stacks_detail">Tieni premuta una copertina e trascinala al centro di un’altra. Attendi il suggerimento, rilascia e dai un nome alla pila. Tocca una pila per aprirla; tienila premuta e rilascia senza trascinarla per aprire il suo menu.</string>
     <string name="reader_onboarding_search_title">Sullo scaffale: la ricerca</string>
     <string name="reader_onboarding_search_detail">Tocca la lente d’ingrandimento o trascina verso il basso dalla parte alta dello scaffale. Cerca per titolo, autore o serie: sono inclusi anche i libri nelle pile.</string>
     <string name="reader_onboarding_shelf_zoom_title">Sullo scaffale: lo zoom</string>
-    <string name="reader_onboarding_shelf_zoom_detail">Avvicina due dita per vedere più libri; allontanale per avvicinare le copertine. Lo scaffale ha tre livelli di zoom. Puoi tornare qui in qualsiasi momento da Guida alla lettura nel menu del libro o nelle impostazioni dello scaffale.</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Avvicina due dita per vedere più libri; allontanale per avvicinare le copertine. Lo scaffale ha tre livelli di zoom. Puoi tornare qui in qualsiasi momento da Aiuto nel menu del libro o nelle impostazioni dello scaffale.</string>
     <string name="reader_onboarding_counter">%1$d di %2$d</string>
-    <string name="reader_onboarding_text_zoom_title">Testo più grande</string>
-    <string name="reader_onboarding_text_zoom_detail">Allontana due dita sulla pagina per ingrandire il testo; avvicinale per ridurlo. La dimensione cambia quando sollevi le dita. Il tuo posto nel libro e la dimensione scelta vengono salvati.</string>
-    <string name="reader_onboarding_pdf_zoom_title">Leggi un PDF da vicino</string>
-    <string name="reader_onboarding_pdf_zoom_detail">Allontana due dita su una pagina PDF per aprirla in una vista ingrandita. Avvicina o allontana le dita per cambiare lo zoom e trascina per spostarti. Tocca due volte per mostrare l’intera pagina o ingrandirla di nuovo. Chiudi la vista o premi Indietro per tornare alla stessa pagina.</string>
+    <string name="reader_onboarding_text_zoom_title">Più vicino e più lontano</string>
+    <string name="reader_onboarding_text_zoom_detail">Allarga due dita per ingrandire; avvicinale per ridurre. Per impostazione predefinita cambia la dimensione del testo. Nelle impostazioni puoi scegliere lo zoom della pagina. Il punto di lettura viene conservato.</string>
     <string name="reader_onboarding_skip">Salta</string>
     <string name="reader_onboarding_next">Avanti</string>
     <string name="reader_onboarding_done">Inizia a leggere</string>
-    <string name="reader_onboarding_replay">Guida alla lettura</string>
-    <string name="reader_onboarding_replay_detail">Gesti, segnalibri e biblioteca</string>
+    <string name="reader_onboarding_replay">Aiuto</string>
+    <string name="reader_onboarding_replay_detail">Come leggere</string>
 </resources>

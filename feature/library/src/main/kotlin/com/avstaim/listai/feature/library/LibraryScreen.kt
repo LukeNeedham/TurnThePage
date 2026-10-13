@@ -114,6 +114,8 @@ fun LibraryScreen(
     onUndo: () -> Unit = {},
     initialStackId: String? = null,
     initialSearchQuery: String? = null,
+    onSearchBoundsChanged: (Rect) -> Unit = {},
+    dismissSearchRequest: Long = 0L,
     restoredBookId: BookId? = null,
     returningBookId: BookId? = null,
     onReturnBookPositioned: (BookId, Rect?) -> Unit = { _, _ -> },
@@ -242,6 +244,9 @@ fun LibraryScreen(
     var catBounds by remember { mutableStateOf<Rect?>(null) }
     fun hideCat() { blankTapCount = 0; catHide++ }
     fun closeSearch() { searchOpen = false; keyboard?.hide(); focus.clearFocus(); hideCat() }
+    LaunchedEffect(dismissSearchRequest) {
+        if (dismissSearchRequest > 0L) closeSearch()
+    }
     fun openSearch() {
         requestSearchKeyboard = true
         if (searchOpen) { searchFocus.requestFocus(); keyboard?.show() } else searchOpen = true
@@ -558,7 +563,7 @@ fun LibraryScreen(
                     if (searchOpen) LibrarySearchStrip(query, { query = it }, ::closeSearch,
                         { keyboard?.hide(); focus.clearFocus() }, searchFocus, shelfEnabled, Modifier.widthIn(max = 640.dp).fillMaxWidth().graphicsLayer {
                             translationY = -20.dp.toPx() * (1f - searchReveal.value); alpha = searchReveal.value
-                        })
+                        }, onFieldBoundsChanged = onSearchBoundsChanged)
                     else stack?.let { current ->
                         val holdingBook = gestures.drag != null
                         Box(Modifier.widthIn(max = 520.dp).fillMaxWidth()) {
@@ -646,7 +651,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)) {
                     val searchLabel = stringResource(R.string.library_search)
                     LibraryShelfFab(searchLabel, shelfEnabled, { if (searchOpen) closeSearch() else openSearch() },
-                        Modifier.testTag("library_search")) { PaperSearchIcon() }
+                        Modifier.testTag("library_search").onGloballyPositioned { if (!searchOpen) onSearchBoundsChanged(it.boundsInRoot()) }) { PaperSearchIcon() }
                     val settingsLabel = stringResource(R.string.library_settings)
                     LibraryShelfFab(settingsLabel, shelfEnabled, { hideCat(); onSettings() },
                         Modifier.testTag("library_settings")) { PaperSettingsIcon() }

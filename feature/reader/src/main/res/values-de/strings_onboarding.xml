@@ -13,21 +13,19 @@
     <string name="reader_onboarding_bookmarks_title">Eine Stelle merken</string>
     <string name="reader_onboarding_bookmarks_detail">Tippe auf das Lesebändchen oben auf der Seite, um ein Lesezeichen zu setzen oder zu entfernen. Öffne Lesezeichen im Lesemenü, um zu einer gespeicherten Stelle zurückzukehren.</string>
     <string name="reader_onboarding_illustrations_title">Genauer hinsehen</string>
-    <string name="reader_onboarding_illustrations_detail">Tippe in FB2- und EPUB-Büchern auf eine Illustration, um sie zu öffnen. Ändere die Größe mit zwei Fingern oder durch Doppeltippen und verschiebe das Bild, um Details zu sehen. Halte eine Illustration auf der Seite gedrückt für eine schnelle Vorschau.</string>
+    <string name="reader_onboarding_illustrations_detail">Tippe auf die Illustration, um sie zu öffnen. Halte die Illustration auf der Seite gedrückt, um sie kurz anzusehen.</string>
     <string name="reader_onboarding_stacks_title">Im Bücherregal: Stapel</string>
     <string name="reader_onboarding_stacks_detail">Halte ein Cover gedrückt und ziehe es auf die Mitte eines anderen. Warte auf den Hinweis, lass los und benenne den Stapel. Tippe auf einen Stapel, um ihn zu öffnen. Halte ihn gedrückt und lass ohne Ziehen los, um sein Menü zu öffnen.</string>
     <string name="reader_onboarding_search_title">Im Bücherregal: Suche</string>
     <string name="reader_onboarding_search_detail">Tippe auf die Lupe oder ziehe oben im Bücherregal nach unten. Suche nach Titel, Autor oder Reihe — auch Bücher in Stapeln werden gefunden.</string>
     <string name="reader_onboarding_shelf_zoom_title">Bücher näher heranholen</string>
-    <string name="reader_onboarding_shelf_zoom_detail">Führe zwei Finger zusammen, um mehr Bücher zu sehen, oder ziehe sie auseinander, um Cover zu vergrößern. Das Bücherregal hat drei Größenstufen. Diese Anleitung findest du jederzeit unter Lesehilfe im Buchmenü oder in den Regaleinstellungen.</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Führe zwei Finger zusammen, um mehr Bücher zu sehen, oder ziehe sie auseinander, um Cover zu vergrößern. Das Bücherregal hat drei Größenstufen. Diese Anleitung findest du jederzeit unter Hilfe im Buchmenü oder in den Regaleinstellungen.</string>
     <string name="reader_onboarding_counter">%1$d von %2$d</string>
-    <string name="reader_onboarding_text_zoom_title">Größerer Text</string>
-    <string name="reader_onboarding_text_zoom_detail">Ziehe auf der Seite zwei Finger auseinander, um den Text zu vergrößern, oder führe sie zusammen, um ihn zu verkleinern. Die Größe ändert sich, sobald du die Finger anhebst. Deine Lesestelle und die gewählte Größe werden gespeichert.</string>
-    <string name="reader_onboarding_pdf_zoom_title">PDFs näher betrachten</string>
-    <string name="reader_onboarding_pdf_zoom_detail">Führe auf einer PDF-Seite zwei Finger zusammen, um die große Ansicht zu öffnen. Ändere dort die Größe mit zwei Fingern und verschiebe die Seite. Tippe doppelt für die ganze Seite oder zum erneuten Vergrößern. Schließe die Ansicht oder drücke Zurück, um zur selben Seite zurückzukehren.</string>
+    <string name="reader_onboarding_text_zoom_title">Näher und weiter</string>
+    <string name="reader_onboarding_text_zoom_detail">Spreize zwei Finger zum Vergrößern und führe sie zum Verkleinern zusammen. Standardmäßig ändert dies die Schriftgröße. In den Einstellungen kannst du zum Seitenzoom wechseln. Deine Lesestelle bleibt erhalten.</string>
     <string name="reader_onboarding_skip">Überspringen</string>
     <string name="reader_onboarding_next">Weiter</string>
     <string name="reader_onboarding_done">Lesen beginnen</string>
-    <string name="reader_onboarding_replay">Lesehilfe</string>
-    <string name="reader_onboarding_replay_detail">Gesten, Lesezeichen und dein Bücherregal</string>
+    <string name="reader_onboarding_replay">Hilfe</string>
+    <string name="reader_onboarding_replay_detail">So liest du</string>
 </resources>

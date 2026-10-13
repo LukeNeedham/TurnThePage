@@ -77,6 +77,7 @@ fun PaperReaderInsert(
     canBookmarkCurrent: Boolean = true,
     initialSection: PaperInsertSection = PaperInsertSection.MENU,
     onShowHints: (() -> Unit)? = null,
+    onSettingsOpened: () -> Unit = {},
 ) {
     var section by remember(initialSection) { mutableStateOf(
         if (navigation == null && initialSection == PaperInsertSection.PROGRESS) PaperInsertSection.MENU else initialSection) }
@@ -136,13 +137,15 @@ fun PaperReaderInsert(
                                 "reader_bookmarks", Modifier.weight(1f), ribbon = true, compact = compact) { section = PaperInsertSection.BOOKMARKS }
                             InsertPocket(stringResource(R.string.insert_type_title),
                                 stringResource(R.string.insert_type_detail), PaperIcon.Type,
-                                "reader_insert_settings", Modifier.weight(1f), compact = compact) { section = PaperInsertSection.SETTINGS }
+                                "reader_insert_settings", Modifier.weight(1f), compact = compact) { onSettingsOpened(); section = PaperInsertSection.SETTINGS }
                         }
                         Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
                         ContentsTab(onGoToToc, compact)
                         onReturnFromToc?.let {
                             InkAction(stringResource(R.string.insert_return_from_toc), "reader_insert_return_from_toc", it, PaperIcon.Return)
                         }
+                        InkAction(stringResource(R.string.insert_shelf), "reader_return_to_shelf", onReturnToShelf, PaperIcon.Shelf,
+                            modifier = Modifier.fillMaxWidth(), strong = true)
                         onShowHints?.let {
                             ReadingGuideInvitation(it, "reader_insert_guide", compact)
                         }
@@ -157,11 +160,8 @@ fun PaperReaderInsert(
                         Column { pockets() }
                     }
                     InkRule()
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        InkAction(stringResource(R.string.insert_read), "reader_insert_dismiss", onDismiss, PaperIcon.Forward,
-                            modifier = Modifier.weight(1f), strong = true)
-                        IconPress(PaperIcon.Shelf, stringResource(R.string.insert_shelf), "reader_return_to_shelf", onReturnToShelf)
-                    }
+                    InkAction(stringResource(R.string.insert_read), "reader_insert_dismiss", onDismiss, PaperIcon.Forward,
+                        modifier = Modifier.fillMaxWidth(), strong = true)
                 }
                 PaperInsertSection.SETTINGS -> {
                     PaperSettingsContent(preferences, onPreferencesChange, onShowHints)
@@ -254,10 +254,6 @@ fun PaperSettingsSheet(
 private fun PaperSettingsContent(preferences: ReaderPreferences,
     onPreferencesChange: (ReaderPreferences) -> Unit, onShowHints: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
-    onShowHints?.let {
-        ReadingGuideInvitation(it, "reader_show_hints")
-        InkRule()
-    }
     PaperScreenSettings(preferences, onPreferencesChange)
     InkRule()
     Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
@@ -299,6 +295,10 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
                 contentDescription = clockLabel
             })
     }
+    onShowHints?.let {
+        InkRule()
+        ReadingGuideInvitation(it, "reader_show_hints")
+    }
 }
 
 @Composable
@@ -338,8 +338,8 @@ private fun ReadingGuideInvitation(onClick: () -> Unit, tag: String, compact: Bo
         PaperInkIcon(PaperIcon.Description, Modifier.size(20.dp), colors.primary)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(stringResource(R.string.reader_onboarding_replay), color = colors.primary,
-                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.bodyLarge)
-            if (!compact) Text(stringResource(R.string.reader_onboarding_replay_detail),
+                fontFamily = PlyosFontFamily, style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.reader_onboarding_replay_detail),
                 color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
         PaperInkIcon(PaperIcon.Forward, Modifier.size(18.dp), colors.primary)

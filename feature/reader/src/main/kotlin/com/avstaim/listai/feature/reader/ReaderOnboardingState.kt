@@ -17,8 +17,8 @@ import com.avstaim.listai.feature.reader.bookview.readerMenuTapBounds
 import kotlin.math.abs
 
 enum class ReaderOnboardingStep(val gestureLesson: Boolean = false) {
-    MENU(true), DRAG_FORWARD(true), DRAG_BACKWARD(true), TAP_LEFT(true), TAP_RIGHT(true),
-    BOOKMARKS, ILLUSTRATIONS, STACKS, SEARCH, SHELF_ZOOM, TEXT_ZOOM, PDF_ZOOM,
+    MENU(true), DRAG_FORWARD(true), DRAG_BACKWARD(true), TEXT_ZOOM, TAP_LEFT(true), TAP_RIGHT(true),
+    BOOKMARKS, ILLUSTRATIONS, STACKS, SEARCH, SHELF_ZOOM,
 }
 
 /** This state owns instructions only. It has no book location and cannot turn a page. */
@@ -54,7 +54,11 @@ class ReaderOnboardingState internal constructor(initial: ReaderOnboardingSessio
     internal var gestureOrigin = Offset.Zero
     internal var calloutBounds: Rect? = null
 
+    var targetBounds by mutableStateOf<Rect?>(null)
+    var secondaryTargetBounds by mutableStateOf<Rect?>(null)
     val step: ReaderOnboardingStep? get() = session.step
+    val libraryStep: Boolean get() = step in setOf(ReaderOnboardingStep.STACKS, ReaderOnboardingStep.SEARCH, ReaderOnboardingStep.SHELF_ZOOM)
+    fun setReady(ready: Boolean) { readerReady = ready }
     val visible: Boolean get() = readerReady && step != null
 
     fun next() { session = session.next() }
@@ -73,7 +77,7 @@ class ReaderOnboardingState internal constructor(initial: ReaderOnboardingSessio
 @Composable
 fun rememberReaderOnboardingState(
     completed: Boolean?,
-    readerReady: Boolean,
+    readerReady: Boolean?,
     replayRequest: Long = 0L,
     onComplete: () -> Unit,
 ): ReaderOnboardingState {
@@ -83,7 +87,7 @@ fun rememberReaderOnboardingState(
     )) { ReaderOnboardingState() }
     val complete by rememberUpdatedState(onComplete)
     SideEffect {
-        state.readerReady = readerReady
+        if (readerReady != null) state.readerReady = readerReady
         state.session = state.session.prepare(completed, replayRequest)
     }
     LaunchedEffect(state.session.finished, state.session.replayRequest) {

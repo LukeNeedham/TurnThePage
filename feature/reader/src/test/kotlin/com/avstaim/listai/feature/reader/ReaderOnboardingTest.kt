@@ -22,6 +22,7 @@ class ReaderOnboardingTest {
                 assertEquals(session, session.performed(wrong))
             }
             session = session.performed(step)
+            if (session.step == ReaderOnboardingStep.TEXT_ZOOM) session = session.next()
         }
         assertEquals(ReaderOnboardingStep.BOOKMARKS, session.step)
         assertFalse(session.finished)
@@ -29,7 +30,7 @@ class ReaderOnboardingTest {
 
     @Test fun `feature tips stay on their step during reading gestures and complete with next`() {
         var session = ReaderOnboardingSession(ReaderOnboardingStep.BOOKMARKS.ordinal)
-        for (step in ReaderOnboardingStep.entries.filter { !it.gestureLesson }) {
+        for (step in ReaderOnboardingStep.entries.drop(ReaderOnboardingStep.BOOKMARKS.ordinal)) {
             assertEquals(step, session.step)
             ReaderOnboardingStep.entries.forEach { gesture ->
                 assertEquals(session, session.performed(gesture))
@@ -80,11 +81,11 @@ class ReaderOnboardingTest {
         state.readerReady = true
         assertTrue(state.visible)
         state.performed(ReaderOnboardingStep.DRAG_BACKWARD)
-        assertEquals(ReaderOnboardingStep.TAP_LEFT, state.step)
+        assertEquals(ReaderOnboardingStep.TEXT_ZOOM, state.step)
         state.readerReady = false
         assertFalse(state.visible)
         state.readerReady = true
-        assertEquals(ReaderOnboardingStep.TAP_LEFT, state.step)
+        assertEquals(ReaderOnboardingStep.TEXT_ZOOM, state.step)
         state.dismiss()
         assertFalse(state.visible)
     }
@@ -115,6 +116,21 @@ class ReaderOnboardingTest {
         assertNull(gesture(Offset(200f, 400f), Offset(230f, 400f)))
         assertNull(gesture(Offset(-30f, 400f), Offset(300f, 400f)))
         assertNull(gesture(Offset.Zero, viewport = Size.Zero))
+    }
+
+    @Test fun `pinch is fourth and library lessons follow all book lessons`() {
+        assertEquals(ReaderOnboardingStep.TEXT_ZOOM, ReaderOnboardingStep.entries[3])
+        val firstLibrary = ReaderOnboardingStep.STACKS.ordinal
+        assertTrue(ReaderOnboardingStep.ILLUSTRATIONS.ordinal < firstLibrary)
+        val state = ReaderOnboardingState(ReaderOnboardingSession(firstLibrary))
+        assertTrue(state.libraryStep)
+        state.next()
+        assertEquals(ReaderOnboardingStep.SEARCH, state.step)
+        state.next()
+        assertEquals(ReaderOnboardingStep.SHELF_ZOOM, state.step)
+        state.next()
+        assertNull(state.step)
+        assertFalse(state.libraryStep)
     }
 
     private fun gesture(

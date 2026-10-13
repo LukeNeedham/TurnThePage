@@ -108,6 +108,28 @@ class BundledBookImportTest {
         }
     }
 
+    @Test fun tutorialRestoresDeletedReservedSampleWithoutDuplicatesOrUnrelatedProgressChanges() = runBlocking {
+        fixture { context, repository, preferences ->
+            preferences.claimBundledBookLanguage("ru")
+            val other = repository.import("another.fb2") {
+                context.resources.openRawResource(bundledBookResource("fr"))
+            }
+            val location = BookLocation(repository.open(other).document.blocks.first().id, 0, 0)
+            val retained = ReadingProgress(location, CoverPosition.OPEN, .37f)
+            repository.saveProgress(other, retained)
+            repository.addBookmark(other, location, "Keep this place")
+            val sample = ensureBundledReadingBook(context, repository, preferences)
+            assertEquals("Седьмой огонь", repository.open(sample).book.title)
+            assertEquals(sample, ensureBundledReadingBook(context, repository, preferences))
+            assertEquals(2, repository.books.first().size)
+            repository.delete(sample)
+            assertEquals(sample, ensureBundledReadingBook(context, repository, preferences))
+            assertEquals(2, repository.books.first().size)
+            assertEquals(retained, repository.open(other).book.progress)
+            assertEquals(location, repository.bookmarks(other).first().single().location)
+        }
+    }
+
     private suspend fun fixture(block: suspend (Context, LibraryRepository, AppPreferences) -> Unit) {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(base.cacheDir, "bundled-import-${UUID.randomUUID()}").apply { mkdirs() }

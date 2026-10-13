@@ -7,6 +7,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
 import androidx.compose.runtime.saveable.SaveableStateRegistry
 import androidx.compose.ui.geometry.Offset
+import java.io.File
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.SystemClock
+import androidx.test.platform.app.InstrumentationRegistry
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -190,8 +197,10 @@ class Rc1OnboardingTest {
         waitForBook()
         assertNotEquals(next, semanticLocation())
 
-        book().performTouchInput { click(Offset(width * .08f, height * .5f)) }
+        compose.onNodeWithTag("reader_onboarding_next").performClick()
         awaitStep(5)
+        book().performTouchInput { click(Offset(width * .08f, height * .5f)) }
+        awaitStep(6)
         waitForBook()
         book().performTouchInput { click(Offset(width * .92f, height * .5f)) }
         awaitStep(ReaderOnboardingStep.BOOKMARKS.ordinal + 1)
@@ -212,7 +221,7 @@ class Rc1OnboardingTest {
         val source = fixture.progress.value.location
         val displayedSource = semanticLocation()
         val informationSteps = ReaderOnboardingStep.entries.drop(ReaderOnboardingStep.BOOKMARKS.ordinal)
-        assertEquals(7, informationSteps.size)
+        assertEquals(5, informationSteps.size)
         informationSteps.forEachIndexed { index, step ->
             awaitStep(step.ordinal + 1)
             compose.mainClock.advanceTimeBy(2_000)
@@ -303,6 +312,119 @@ class Rc1OnboardingTest {
         assertEquals(0, fixture.shelfReturns)
     }
 
+    @Test fun tutorialUsesBundledBookRealImageAndShelfThenSettingsCancelsIt() {
+        val controller = (compose.activity.application as ListaiApplication).controller
+        compose.waitUntil(30_000) { !controller.busy.value }
+        compose.runOnUiThread {
+            controller.completeReaderOnboarding()
+            controller.returnToShelf()
+        }
+        compose.waitUntil(30_000) { controller.readerOnboardingCompleted.value == true }
+        compose.runOnUiThread { compose.activity.setContent { ListaiTheme { ListaiApp() } } }
+        awaitShelf()
+        compose.onNodeWithTag("library_settings").performClick()
+        compose.onNodeWithTag("reader_show_hints").performScrollTo()
+        compose.mainClock.autoAdvance = false
+        try {
+        compose.onNodeWithTag("reader_show_hints").performClick()
+        awaitStep(1)
+        val selected = requireNotNull(controller.selection.value)
+        assertTrue("The guide always uses the built-in story", selected.opened.document.images.size >= 4)
+        assertNotNull(selected.opened.document.metadata.language)
+        repeat(ReaderOnboardingStep.ILLUSTRATIONS.ordinal) {
+            compose.onNodeWithTag("reader_onboarding_next").performClick()
+            awaitStep(it + 2)
+            if (it + 1 == ReaderOnboardingStep.BOOKMARKS.ordinal) {
+                waitForBook()
+                val bookmark = compose.onNodeWithTag("reader_quick_bookmark", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+                val finger = compose.onNodeWithTag("reader_onboarding").fetchSemanticsNode().config[ReaderOnboardingTargetBounds]
+                assertTrue("Bookmark finger $finger points at the real action $bookmark", bookmark.contains(finger.center))
+                captureGuide("bookmark")
+            }
+        }
+        awaitStep(ReaderOnboardingStep.ILLUSTRATIONS.ordinal + 1)
+        compose.waitUntil(30_000) {
+            compose.mainClock.advanceTimeBy(32)
+            book().fetchSemanticsNode().config.getOrElse(ReaderImageBounds) { emptyList() }.isNotEmpty()
+        }
+        captureGuide("illustration")
+        val image = book().fetchSemanticsNode().config[ReaderImageBounds].first()
+        book().performTouchInput { click(image.center) }
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag("reader_image_viewer").assertExists()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        awaitStep(ReaderOnboardingStep.ILLUSTRATIONS.ordinal + 1)
+        compose.onNodeWithTag("reader_onboarding_next").performClick()
+        awaitShelf()
+        awaitStep(ReaderOnboardingStep.STACKS.ordinal + 1)
+        assertNull(controller.selection.value)
+        compose.onNodeWithTag("library_screen").assertExists()
+        captureGuide("stacks")
+        compose.onNodeWithTag("reader_onboarding_next").performClick()
+        awaitStep(ReaderOnboardingStep.SEARCH.ordinal + 1)
+        captureGuide("search")
+        compose.onNodeWithTag("library_search").performClick()
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithTag("library_search_field").assertIsDisplayed()
+        compose.onNodeWithTag("library_search_field").performTextInput("Light")
+        compose.waitUntil(5_000) {
+            compose.mainClock.advanceTimeBy(32)
+            val bounds = compose.onNodeWithTag("library_search_field").fetchSemanticsNode().boundsInRoot
+            val target = compose.onNodeWithTag("reader_onboarding").fetchSemanticsNode().config.getOrElse(ReaderOnboardingTargetBounds) { androidx.compose.ui.geometry.Rect.Zero }
+            bounds.contains(target.center)
+        }
+        captureGuide("search-field")
+        val field = compose.onNodeWithTag("library_search_field").fetchSemanticsNode().boundsInRoot
+        val guideTarget = compose.onNodeWithTag("reader_onboarding").fetchSemanticsNode().config[ReaderOnboardingTargetBounds]
+        assertTrue("Finger $guideTarget follows the real search input $field", field.contains(guideTarget.center))
+        val callout = compose.onNodeWithTag("reader_onboarding_callout", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertFalse("The guide card leaves search input usable", callout.overlaps(field))
+        compose.onNodeWithTag("reader_onboarding_next").performClick()
+        awaitStep(ReaderOnboardingStep.SHELF_ZOOM.ordinal + 1)
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithTag("library_search_field").assertDoesNotExist()
+        captureGuide("shelf-zoom")
+        compose.onNodeWithTag("library_settings").performClick()
+        compose.mainClock.advanceTimeBy(100)
+        compose.onNodeWithTag("reader_onboarding").assertDoesNotExist()
+        // The guide and its infinite motion are gone; restore scrolling animations for the settings card.
+        compose.mainClock.autoAdvance = true
+        compose.onNodeWithTag("reader_show_hints").performScrollTo().assertExists()
+        } finally { compose.mainClock.autoAdvance = true }
+    }
+
+    private fun captureGuide(name: String) {
+        compose.mainClock.advanceTimeBy(900)
+        compose.waitForIdle()
+        val frame = CountDownLatch(1)
+        compose.runOnUiThread {
+            val view = compose.activity.window.decorView
+            if (Build.VERSION.SDK_INT >= 29) view.viewTreeObserver.registerFrameCommitCallback { frame.countDown() }
+            else view.viewTreeObserver.addOnDrawListener(object : android.view.ViewTreeObserver.OnDrawListener {
+                override fun onDraw() {
+                    view.post { view.viewTreeObserver.removeOnDrawListener(this) }
+                    view.postOnAnimation { view.postOnAnimation { frame.countDown() } }
+                }
+            })
+            view.invalidate()
+        }
+        assertTrue("Guide capture follows a rendered native frame", frame.await(5, TimeUnit.SECONDS))
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.waitForIdle(200, 5_000)
+        if (Build.VERSION.SDK_INT <= 27) SystemClock.sleep(500)
+        var bitmap: Bitmap? = null
+        repeat(3) {
+            if (bitmap == null) {
+                bitmap = automation.takeScreenshot()
+                if (bitmap == null) SystemClock.sleep(150)
+            }
+        }
+        val rendered = requireNotNull(bitmap) { "Native guide screenshot unavailable after three captures" }
+        val directory = File(compose.activity.getExternalFilesDir(null), "guide-validation").apply { mkdirs() }
+        File(directory, "$name.png").outputStream().use { rendered.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        rendered.recycle()
+    }
+
     private fun install(fixture: ReaderFixture) {
         val controller = (compose.activity.application as ListaiApplication).controller
         compose.waitUntil(30_000) { !controller.busy.value }
@@ -330,6 +452,7 @@ class Rc1OnboardingTest {
         val expected = compose.activity.getString(com.avstaim.listai.feature.reader.R.string.reader_onboarding_counter,
             step, ReaderOnboardingStep.entries.size)
         compose.waitUntil(30_000) {
+            if (!compose.mainClock.autoAdvance) compose.mainClock.advanceTimeBy(32)
             compose.onAllNodesWithTag("reader_onboarding_step").fetchSemanticsNodes().any {
                 it.config.getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { emptyList() }
                     .any { text -> text.text == expected }
@@ -339,6 +462,7 @@ class Rc1OnboardingTest {
     }
 
     private fun waitForBook() = compose.waitUntil(30_000) {
+        if (!compose.mainClock.autoAdvance) compose.mainClock.advanceTimeBy(32)
         compose.onAllNodesWithTag("book_view_demo").fetchSemanticsNodes().any {
             it.config.getOrElse(ReaderPaginationComplete) { false } &&
                 !it.config.getOrElse(ReaderJumpInProgress) { true } &&
@@ -350,7 +474,10 @@ class Rc1OnboardingTest {
     private fun semanticLocation() = book().fetchSemanticsNode().config[ReaderSemanticLocation]
     private fun transitionPhase() = compose.onAllNodesWithTag("shelf_reader_transition")
         .fetchSemanticsNodes().singleOrNull()?.config?.getOrElse(ShelfTransitionPhase) { "" }
-    private fun awaitShelf() = compose.waitUntil(30_000) { transitionPhase() == ShelfReaderPhase.SHELF.name }
+    private fun awaitShelf() = compose.waitUntil(30_000) {
+        if (!compose.mainClock.autoAdvance) compose.mainClock.advanceTimeBy(32)
+        transitionPhase() == ShelfReaderPhase.SHELF.name
+    }
 
     private fun importReplayBook(controller: LibraryController): BookId {
         val xml = """<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Guide replay ${UUID.randomUUID()}</book-title><lang>en</lang></title-info></description><body><section><p>${"The guide is requested for one reading session. ".repeat(160)}</p></section></body></FictionBook>"""

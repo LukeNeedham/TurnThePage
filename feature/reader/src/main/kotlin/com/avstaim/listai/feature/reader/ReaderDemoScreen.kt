@@ -101,6 +101,8 @@ fun ReaderScreen(
     onOnboardingComplete: () -> Unit = {},
     onboardingReplayRequest: Long = 0L,
     active: Boolean = true,
+    guideState: ReaderOnboardingState? = null,
+    onShowGuide: (() -> Unit)? = null,
 ) {
     var insertOpen by rememberSaveable(readerSession) { mutableStateOf(false) }
     var insertSection by rememberSaveable(readerSession) { mutableStateOf(PaperInsertSection.MENU) }
@@ -120,15 +122,22 @@ fun ReaderScreen(
     var handledExternalReplay by rememberSaveable(document.id.value) { mutableLongStateOf(0L) }
     var dispatchedExternalReplay by remember(document, readerSession) { mutableLongStateOf(0L) }
     var hintsOpening by remember(document, readerSession) { mutableStateOf(false) }
+    var hintsJumpSequence by remember(document, readerSession) { mutableLongStateOf(0L) }
     val atReadingPage = checkpoint.cover == CoverPosition.OPEN &&
         checkpoint.annotationLocation == null && checkpoint.titleLocation == null && checkpoint.tocEntryIndex == null
     val externalOpeningPending = onboardingReplayRequest > 0L &&
         handledExternalReplay != onboardingReplayRequest && !atReadingPage
-    val onboarding = rememberReaderOnboardingState(onboardingCompleted,
+    val localOnboarding = rememberReaderOnboardingState(if (guideState == null) onboardingCompleted else true,
         readerReady = transitionCoverProgress == null && !closingBook && !insertOpen && !mediaOpen &&
             !externalOpeningPending && !hintsOpening && checkpoint.cover == CoverPosition.OPEN &&
             navigation != null,
         replayRequest = onboardingReplayRequest + localReplay, onComplete = onOnboardingComplete)
+    val onboarding = guideState ?: localOnboarding
+    SideEffect {
+        if (guideState != null && !guideState.libraryStep) guideState.setReady(
+            active && transitionCoverProgress == null && !closingBook && !insertOpen && !mediaOpen &&
+                !externalOpeningPending && !hintsOpening && checkpoint.cover == CoverPosition.OPEN && navigation != null)
+    }
     // Let the central tap visibly reveal the real card before continuing the gesture guide.
     LaunchedEffect(insertOpen, onboarding.step) {
         if (insertOpen && onboarding.step == ReaderOnboardingStep.DRAG_FORWARD) {
@@ -166,8 +175,40 @@ fun ReaderScreen(
             dispatchedExternalReplay != onboardingReplayRequest &&
             transitionCoverProgress == null && !closingBook && navigation != null && onboarding.step != null) {
             dispatchedExternalReplay = onboardingReplayRequest
-            openReadingPageForHints()
-            if (atReadingPage) handledExternalReplay = onboardingReplayRequest
+            if (guideState != null && firstChapterLocation != null) {
+                hintsOpening = true
+                goTo(firstChapterLocation)
+                hintsJumpSequence = navigationSequence
+            } else {
+                openReadingPageForHints()
+                if (atReadingPage) handledExternalReplay = onboardingReplayRequest
+            }
+        }
+    }
+
+    LaunchedEffect(onboarding.step) {
+        onboarding.targetBounds = null
+        onboarding.secondaryTargetBounds = null
+        if (guideState != null && onboarding.step == ReaderOnboardingStep.BOOKMARKS) {
+            var offset = 0L
+            val chapterStart = firstChapterLocation?.fallbackGlobalOffset ?: 0L
+            for (block in document.readingBlocks()) {
+                if (offset >= chapterStart && block is BookBlock.Paragraph) {
+                    goTo(BookLocation(block.id, 0, offset))
+                    break
+                }
+                offset += block.plainText().length + 1L
+            }
+        }
+        if (onboarding.step == ReaderOnboardingStep.ILLUSTRATIONS) {
+            var offset = 0L
+            for (block in document.readingBlocks()) {
+                if (block is BookBlock.Image && block.imageId != document.metadata.coverImageId) {
+                    goTo(BookLocation(block.id, 0, offset))
+                    break
+                }
+                offset += block.plainText().length + 1L
+            }
         }
     }
 
@@ -197,6 +238,7 @@ fun ReaderScreen(
     }
     fun replayHints() {
         insertOpen = false
+        if (onShowGuide != null) { onShowGuide(); return }
         openReadingPageForHints()
         localReplay++
     }
@@ -250,10 +292,10 @@ fun ReaderScreen(
                         checkpoint = it
                         if (it.cover == CoverPosition.OPEN && it.annotationLocation == null &&
                             it.titleLocation == null && it.tocEntryIndex == null) {
-                            if (hintsOpening && dispatchedExternalReplay == onboardingReplayRequest) {
+                            if (hintsOpening && hintsJumpSequence == 0L && dispatchedExternalReplay == onboardingReplayRequest) {
                                 handledExternalReplay = onboardingReplayRequest
                             }
-                            hintsOpening = false
+                            if (hintsJumpSequence == 0L) hintsOpening = false
                         }
                         progressCallback?.invoke(it)
                     },
@@ -272,6 +314,14 @@ fun ReaderScreen(
                     onBookmarkableLocationChanged = { bookmarkableLocation = it },
                     onCenterTap = ::openMenu, onReturnToShelf = onReturnToShelf,
                     onPageNumberTap = { insertSection = PaperInsertSection.PROGRESS; insertOpen = true },
+                    onQuickBookmarkBoundsChanged = { bounds ->
+                        if (onboarding.step == ReaderOnboardingStep.BOOKMARKS)
+                            onboarding.targetBounds = bounds?.translate(bookOrigin + windowOrigin)
+                    },
+                    onVisibleImageBounds = { bounds ->
+                        if (onboarding.step == ReaderOnboardingStep.ILLUSTRATIONS)
+                            onboarding.targetBounds = bounds.firstOrNull()?.translate(bookOrigin + windowOrigin)
+                    },
                     onImageTap = { hit ->
                         document.imagesById[hit.image.imageId]?.let {
                             selectedImage = SelectedBookImage(it, hit.image.alternativeText,
@@ -294,6 +344,11 @@ fun ReaderScreen(
                     noteBackEnabled = !insertOpen && !mediaOpen,
                     onNavigationRequestConsumed = { sequence ->
                         if (navigationRequest?.sequence == sequence) navigationRequest = null
+                        if (hintsJumpSequence == sequence) {
+                            handledExternalReplay = dispatchedExternalReplay
+                            hintsJumpSequence = 0L
+                            hintsOpening = false
+                        }
                     },
                     transitionCoverProgress = transitionCoverProgress,
                     closingBook = closingBook,
@@ -320,7 +375,7 @@ fun ReaderScreen(
                             onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
                             onDescription = openFrontCover.takeIf { frontCover && hasDescription },
                             onShelf = onReturnToShelf,
-                            onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                            onSettings = { onboarding.dismiss(); insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
                             onContents = ::openContents,
                             onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
                             bookBounds = bookBounds,
@@ -333,7 +388,7 @@ fun ReaderScreen(
                             onRead = { (checkpoint.location ?: firstChapterLocation)?.let(::goTo) },
                             onDescription = openDescription.takeIf { hasDescription },
                             onShelf = onReturnToShelf,
-                            onSettings = { insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
+                            onSettings = { onboarding.dismiss(); insertSection = PaperInsertSection.SETTINGS; insertOpen = true },
                             onContents = ::openContents,
                             onBookmarks = { insertSection = PaperInsertSection.BOOKMARKS; insertOpen = true },
                             bookBounds = bookBounds, viewportBounds = viewportBounds,
@@ -369,6 +424,7 @@ fun ReaderScreen(
                         onRemoveCurrentBookmark = { currentBookmark?.let(onDeleteBookmark) },
                         initialSection = insertSection,
                         onShowHints = ::replayHints,
+                        onSettingsOpened = onboarding::dismiss,
                         modifier = Modifier.align(Alignment.Center).padding(
                             start = with(density) { left.toDp() } + 18.dp,
                             top = with(density) { top.toDp() } + 12.dp,
@@ -377,7 +433,7 @@ fun ReaderScreen(
                     )
                 }
             }
-            ReaderOnboardingOverlay(onboarding, darkTheme)
+            if (guideState == null || !onboarding.libraryStep) ReaderOnboardingOverlay(onboarding, darkTheme)
         }
         selectedImage?.let { selected ->
             // Lift only the illustration, leaving a single moving copy over the paper.

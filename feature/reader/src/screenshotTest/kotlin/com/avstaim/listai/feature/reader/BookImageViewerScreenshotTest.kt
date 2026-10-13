@@ -216,7 +216,7 @@ private fun illustrationOnPaper(): IllustrationSourceFixture {
 }
 
 /** A fixed-resolution book plate: borders and fine lines expose fit, cropping, and zoom errors. */
-private fun observatoryIllustration(): ImageBitmap {
+internal fun observatoryIllustration(): ImageBitmap {
     val bitmap = Bitmap.createBitmap(1200, 840, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)

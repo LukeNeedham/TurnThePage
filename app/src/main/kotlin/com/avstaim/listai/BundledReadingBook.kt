@@ -41,3 +41,14 @@ internal suspend fun importBundledReadingBookOnce(
     }
     preferences.completeBundledBookImport(sample.value)
 }
+
+/** Content-addressed import restores a deleted sample and reuses the existing edition without duplicates. */
+internal suspend fun ensureBundledReadingBook(
+    context: Context, repository: LibraryRepository, preferences: AppPreferences,
+): com.avstaim.listai.core.model.BookId {
+    val language = preferences.claimBundledBookLanguage(bundledBookLanguage(
+        LocaleManagerCompat.getSystemLocales(context)[0] ?: Locale.ROOT))
+    return repository.import("stage4_reading_sample_$language.fb2") {
+        context.resources.openRawResource(bundledBookResource(language))
+    }
+}

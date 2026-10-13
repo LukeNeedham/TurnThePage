@@ -57,6 +57,9 @@ import com.avstaim.listai.core.model.CoverPosition
 import com.avstaim.listai.feature.library.LibraryScreen
 import com.avstaim.listai.feature.library.ShelfBookFlight
 import com.avstaim.listai.feature.library.shelfBookSourceRect
+import com.avstaim.listai.feature.reader.ReaderOnboardingOverlay
+import com.avstaim.listai.feature.reader.ReaderOnboardingStep
+import com.avstaim.listai.feature.reader.rememberReaderOnboardingState
 import com.avstaim.listai.feature.reader.ReaderScreen
 import com.avstaim.listai.feature.reader.PaperSettingsSheet
 import kotlinx.coroutines.flow.filterNotNull
@@ -91,6 +94,10 @@ fun ListaiApp(
     val onboardingCompleted by controller.readerOnboardingCompleted.collectAsState()
     var shelfSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var hintsRequest by rememberSaveable { mutableStateOf(0L) }
+    var guideBookId by rememberSaveable { mutableStateOf<String?>(null) }
+    val guide = rememberReaderOnboardingState(onboardingCompleted, readerReady = null,
+        replayRequest = hintsRequest, onComplete = controller::completeReaderOnboarding)
+    var automaticGuideRequested by rememberSaveable { mutableStateOf(false) }
     val busy by controller.busy.collectAsState()
     val importing by controller.importing.collectAsState()
     var importDialogDismissed by rememberSaveable(importing) { mutableStateOf(false) }
@@ -117,6 +124,7 @@ fun ListaiApp(
     val readerCoverFaces = remember { mutableStateMapOf<BookId, CoverPosition>() }
     val readerArtwork = remember { mutableStateMapOf<BookId, ImageBitmap>() }
     var viewport by remember { mutableStateOf(Rect.Zero) }
+    var shelfSearchBounds by remember { mutableStateOf<Rect?>(null) }
     val shelfBounds = remember { mutableStateMapOf<BookId, Rect>() }
     var positionedReturnBook by remember { mutableStateOf<Pair<BookId, Rect?>?>(null) }
     var returnFlight by remember { mutableStateOf<ShelfReturnFlight?>(null) }
@@ -251,6 +259,45 @@ fun ListaiApp(
             flightBook = null
         }
     }
+    fun showGuide() {
+        shelfSettingsOpen = false
+        hintsRequest++
+        controller.openTutorialBook()
+    }
+    LaunchedEffect(onboardingCompleted, busy) {
+        if (onboardingCompleted == false && !busy && !automaticGuideRequested) {
+            automaticGuideRequested = true
+            showGuide()
+        }
+    }
+    LaunchedEffect(selection?.session) {
+        if (selection?.tutorial == true) guideBookId = selection?.opened?.book?.id?.value
+    }
+    LaunchedEffect(guide.step) {
+        if (guide.libraryStep && selection != null) returnToShelf()
+    }
+    // Read layout state during composition so late shelf measurements retarget the guide.
+    val guideViewport = viewport
+    val guideBooks = shelfBounds.values.filter { it.width > 0f && it.height > 0f && it.overlaps(guideViewport) }
+        .sortedWith(compareBy<Rect> { it.top }.thenBy { it.left })
+    val guideSearchBounds = shelfSearchBounds
+    SideEffect {
+        if (guide.libraryStep) {
+            guide.setReady(phase == ShelfReaderPhase.SHELF && !busy && !shelfSettingsOpen)
+            val visibleBooks = guideBooks
+            if (guide.step == ReaderOnboardingStep.STACKS) {
+                guide.targetBounds = visibleBooks.firstOrNull()
+                guide.secondaryTargetBounds = visibleBooks.getOrNull(1)
+            } else if (guide.step == ReaderOnboardingStep.SEARCH) {
+                guide.targetBounds = guideSearchBounds
+                guide.secondaryTargetBounds = null
+            } else if (guide.step == ReaderOnboardingStep.SHELF_ZOOM) {
+                guide.targetBounds = guideViewport.takeIf { it.width > 0f && it.height > 0f }
+                    ?.copy(bottom = guideViewport.top + guideViewport.height * .8f)
+                guide.secondaryTargetBounds = null
+            }
+        }
+    }
     SideEffect { onReaderVisibleChange(selection != null && !busy) }
     BackHandler(enabled = busy || importing || selection != null || phase != ShelfReaderPhase.SHELF) { returnToShelf() }
     BackHandler(enabled = shelfSettingsOpen && phase == ShelfReaderPhase.SHELF) { shelfSettingsOpen = false }
@@ -271,6 +318,7 @@ fun ListaiApp(
         LibraryScreen(books, importing, { picker.launch(arrayOf("*/*")) }, controller::cancelImport,
             onOpen = { id ->
                 if (phase == ShelfReaderPhase.SHELF && !busy) {
+                    guide.dismiss()
                     flightBook = books.firstOrNull { it.id == id }
                     readerCoverBounds.remove(id)
                     returnBookId = null
@@ -289,7 +337,11 @@ fun ListaiApp(
                 if (bounds == null) shelfBounds.remove(id) else shelfBounds[id] = bounds
             },
             versionLabel = "v${BuildConfig.VERSION_NAME}",
-            onSettings = { shelfSettingsOpen = true },
+            onSettings = { guide.dismiss(); shelfSettingsOpen = true },
+            dismissSearchRequest = if (guide.step == ReaderOnboardingStep.SHELF_ZOOM) hintsRequest else 0L,
+            onSearchBoundsChanged = { bounds ->
+                shelfSearchBounds = bounds
+            },
             darkTheme = darkTheme,
             catalog = catalog,
             shelfZoom = shelfZoom,
@@ -320,10 +372,8 @@ fun ListaiApp(
                 // A shelf request belongs to this reader instance. Keep its input stable
                 // through replay/settings and recreation, but consume the pending request
                 // before a later book can accidentally inherit it.
-                val readerHintsRequest = rememberSaveable { hintsRequest }
-                LaunchedEffect(readerHintsRequest) {
-                    if (hintsRequest == readerHintsRequest) hintsRequest = 0L
-                }
+                val isGuideBook = selected.tutorial || selected.opened.book.id.value == guideBookId
+                val readerHintsRequest = if (isGuideBook) hintsRequest else 0L
                 ReaderScreen(
                     document = selected.opened.document,
                     modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (readerVisible) 1f else 0f }
@@ -349,9 +399,10 @@ fun ListaiApp(
                         if (artwork == null) readerArtwork.remove(selected.opened.book.id)
                         else readerArtwork[selected.opened.book.id] = artwork
                     },
-                    onboardingCompleted = onboardingCompleted,
+                    onboardingCompleted = true,
                     onOnboardingComplete = controller::completeReaderOnboarding,
                     onboardingReplayRequest = readerHintsRequest,
+                    guideState = guide.takeIf { isGuideBook }, onShowGuide = ::showGuide,
                 )
             }
         }
@@ -383,12 +434,10 @@ fun ListaiApp(
             PaperSettingsSheet(preferences, controller::setReaderPreferences,
                 onDismiss = { shelfSettingsOpen = false },
                 modifier = Modifier.align(Alignment.Center).displayCutoutPadding().padding(18.dp),
-                onShowHints = if (books.isNotEmpty()) {{
-                    shelfSettingsOpen = false
-                    hintsRequest++
-                    controller.open(books.first().id)
-                }} else null)
+                onShowHints = ::showGuide)
+
         }
+        if (guide.libraryStep) ReaderOnboardingOverlay(guide, darkTheme)
     }
     if (importing && !importDialogDismissed) {
         AlertDialog(onDismissRequest = ::returnToShelf,

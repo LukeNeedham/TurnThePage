@@ -15,6 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -47,7 +50,8 @@ internal fun LibraryShelfFab(label: String, enabled: Boolean, onClick: () -> Uni
 /** Paper controls stay outside the shelf gesture host, including their full touch targets. */
 @Composable
 internal fun LibrarySearchStrip(query: String, onQueryChange: (String) -> Unit, onClose: () -> Unit,
-    onDone: () -> Unit, focusRequester: FocusRequester, enabled: Boolean, modifier: Modifier = Modifier) {
+    onDone: () -> Unit, focusRequester: FocusRequester, enabled: Boolean, modifier: Modifier = Modifier,
+    onFieldBoundsChanged: (Rect) -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     Surface(modifier, color = colors.surface, shape = RoundedCornerShape(3.dp), shadowElevation = 4.dp,
         border = BorderStroke(.7.dp, colors.outlineVariant.copy(alpha = .65f))) {
@@ -59,7 +63,8 @@ internal fun LibrarySearchStrip(query: String, onQueryChange: (String) -> Unit, 
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
                 cursorBrush = SolidColor(colors.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onDone() }),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).focusRequester(focusRequester).testTag("library_search_field"),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).focusRequester(focusRequester).testTag("library_search_field")
+                    .onGloballyPositioned { onFieldBoundsChanged(it.boundsInRoot()) },
                 decorationBox = { field -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                     if (query.isEmpty()) Text(stringResource(R.string.library_search_hint), color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -187,6 +187,8 @@ internal fun PhysicalBookView(
     onAddBookmark: ((BookLocation) -> Unit)? = null,
     onDeleteBookmark: ((Bookmark) -> Unit)? = null,
     onBookmarkableLocationChanged: ((BookLocation?) -> Unit)? = null,
+    onQuickBookmarkBoundsChanged: ((Rect?) -> Unit)? = null,
+    onVisibleImageBounds: ((List<Rect>) -> Unit)? = null,
     onCenterTap: (() -> Unit)? = null,
     onPageNumberTap: (() -> Unit)? = null,
     onImageTap: ((BookImageHit) -> Unit)? = null,
@@ -826,6 +828,10 @@ internal fun PhysicalBookView(
             visiblePageLeaves.flatMap { (leaf, surface) ->
                 surface.paginated?.imageTapRegions(leaf).orEmpty()
             }
+        }
+        androidx.compose.runtime.SideEffect {
+            onQuickBookmarkBoundsChanged?.invoke(quickBookmarkPlacement?.bounds)
+            onVisibleImageBounds?.invoke(imageRegions.map { it.bounds })
         }
         val pdfRegions = remember(bookState, visiblePageLeaves) {
             visiblePageLeaves.flatMap { (leaf, surface) ->

@@ -47,6 +47,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
 
+    screenshotTestImplementation(project(":feature:library"))
     screenshotTestImplementation(platform(libs.androidx.compose.bom))
     screenshotTestImplementation(libs.androidx.compose.ui.tooling)
     screenshotTestImplementation(libs.screenshot.validation.api)

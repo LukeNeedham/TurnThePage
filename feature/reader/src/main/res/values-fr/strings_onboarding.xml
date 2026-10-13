@@ -13,21 +13,19 @@
     <string name="reader_onboarding_bookmarks_title">Gardez votre place</string>
     <string name="reader_onboarding_bookmarks_detail">Touchez le ruban en haut de la page pour ajouter ou retirer un marque-page. Dans le menu de lecture, ouvrez Marque-pages pour retrouver un emplacement enregistré.</string>
     <string name="reader_onboarding_illustrations_title">Regardez de plus près</string>
-    <string name="reader_onboarding_illustrations_detail">Dans les livres FB2 et EPUB, touchez une illustration pour l’ouvrir. Rapprochez ou écartez deux doigts, ou touchez deux fois, pour zoomer. Faites ensuite glisser l’image pour voir les détails. Maintenez le doigt sur une illustration de la page pour un aperçu rapide.</string>
+    <string name="reader_onboarding_illustrations_detail">Touchez l’illustration pour l’ouvrir. Maintenez-la sur la page pour un aperçu rapide.</string>
     <string name="reader_onboarding_stacks_title">Sur l’étagère : les piles</string>
     <string name="reader_onboarding_stacks_detail">Maintenez le doigt sur une couverture et faites-la glisser au centre d’une autre. Attendez l’indication, relâchez, puis nommez votre pile. Touchez une pile pour l’ouvrir ; maintenez puis relâchez sans déplacer le doigt pour ouvrir son menu.</string>
     <string name="reader_onboarding_search_title">Sur l’étagère : la recherche</string>
     <string name="reader_onboarding_search_detail">Touchez la loupe ou faites glisser vers le bas depuis le haut de l’étagère. Recherchez par titre, auteur ou série ; les livres dans les piles sont inclus.</string>
     <string name="reader_onboarding_shelf_zoom_title">Sur l’étagère : le zoom</string>
-    <string name="reader_onboarding_shelf_zoom_detail">Rapprochez deux doigts pour voir plus de livres ; écartez-les pour rapprocher les couvertures. L’étagère propose trois niveaux de zoom. Retrouvez ce guide à tout moment via Guide de lecture dans le menu du livre ou les réglages de l’étagère.</string>
+    <string name="reader_onboarding_shelf_zoom_detail">Rapprochez deux doigts pour voir plus de livres ; écartez-les pour rapprocher les couvertures. L’étagère propose trois niveaux de zoom. Retrouvez ce guide à tout moment via Aide dans le menu du livre ou les réglages de l’étagère.</string>
     <string name="reader_onboarding_counter">%1$d sur %2$d</string>
-    <string name="reader_onboarding_text_zoom_title">Un texte plus grand</string>
-    <string name="reader_onboarding_text_zoom_detail">Écartez deux doigts sur la page pour agrandir le texte ; rapprochez-les pour le réduire. La taille change quand vous relevez les doigts. Votre place dans le livre et la taille choisie sont enregistrées.</string>
-    <string name="reader_onboarding_pdf_zoom_title">Lisez un PDF de plus près</string>
-    <string name="reader_onboarding_pdf_zoom_detail">Écartez deux doigts sur une page PDF pour l’ouvrir en grand. Rapprochez ou écartez les doigts pour zoomer, puis faites glisser pour vous déplacer. Touchez deux fois pour afficher la page entière ou l’agrandir à nouveau. Fermez la vue ou appuyez sur Retour pour retrouver la même page.</string>
+    <string name="reader_onboarding_text_zoom_title">Plus près ou plus loin</string>
+    <string name="reader_onboarding_text_zoom_detail">Écartez deux doigts pour agrandir ; rapprochez-les pour réduire. Par défaut, le geste change la taille du texte. Les réglages permettent de choisir le zoom de page. Votre position de lecture est conservée.</string>
     <string name="reader_onboarding_skip">Passer</string>
     <string name="reader_onboarding_next">Suivant</string>
     <string name="reader_onboarding_done">Commencer à lire</string>
-    <string name="reader_onboarding_replay">Guide de lecture</string>
-    <string name="reader_onboarding_replay_detail">Gestes, marque-pages et bibliothèque</string>
+    <string name="reader_onboarding_replay">Aide</string>
+    <string name="reader_onboarding_replay_detail">Comment lire</string>
 </resources>

@@ -23,7 +23,8 @@ import kotlinx.coroutines.flow.*
 data class ImportProgress(val completed: Int = 0, val currentName: String? = null)
 data class ImportSummary(val added: Int, val duplicates: Int, val failed: Int, val skipped: Int, val cancelled: Boolean)
 
-data class ReaderSelection(val opened: OpenedBook, val initialProgress: ReadingProgress, val session: Long)
+data class ReaderSelection(val opened: OpenedBook, val initialProgress: ReadingProgress, val session: Long,
+    val tutorial: Boolean = false)
 
 /** Application-lifetime commands survive composition disposal and Activity recreation. */
 class LibraryController(
@@ -143,11 +144,23 @@ class LibraryController(
         }
     }
 
-    private suspend fun select(id: BookId, stillRequested: () -> Boolean = { true }) {
+    fun openTutorialBook() {
+        val request = ++openRequest
+        enqueue {
+            if (request != openRequest) return@enqueue
+            _busy.value = true
+            try {
+                val id = ensureBundledReadingBook(context, repository, preferences)
+                select(id, tutorial = true) { request == openRequest }
+            } finally { _busy.value = false }
+        }
+    }
+
+    private suspend fun select(id: BookId, tutorial: Boolean = false, stillRequested: () -> Boolean = { true }) {
         val opened = repository.open(id)
         if (!stillRequested()) return
         checkpoint = opened.book.progress
-        _selection.value = ReaderSelection(opened, opened.book.progress, ++serial)
+        _selection.value = ReaderSelection(opened, opened.book.progress, ++serial, tutorial)
     }
 
     fun import(uri: Uri, flags: Int = 0) = importBooks(listOf(uri), flags)

@@ -22,6 +22,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -41,6 +43,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -54,6 +57,8 @@ import com.avstaim.listai.feature.reader.bookview.BookPresentation
 import com.avstaim.listai.feature.reader.bookview.PhysicalBookView
 import com.avstaim.listai.feature.reader.demo.FakeBookDocumentFactory
 import com.avstaim.listai.feature.reader.demo.toDemoPages
+
+val ReaderOnboardingTargetBounds = SemanticsPropertyKey<androidx.compose.ui.geometry.Rect>("ReaderOnboardingTargetBounds")
 
 /**
  * Attach to the ancestor Box containing the physical book and the guide. Observes gestures
@@ -101,6 +106,10 @@ fun ReaderOnboardingOverlay(
 ) {
     if (!state.visible) return
     val step = state.step ?: return
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    var calloutRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val target = state.targetBounds?.takeIf { it.width > 0f && it.height > 0f }
+    val secondaryTarget = state.secondaryTargetBounds?.takeIf { it.width > 0f && it.height > 0f }
     BackHandler { state.dismiss() }
     val paper = if (darkTheme) Color(0xFF2E3D4B) else Color(0xFFF5F8FB)
     val ink = if (darkTheme) Color(0xFFDEE7F0) else Color(0xFF203447)
@@ -118,25 +127,43 @@ fun ReaderOnboardingOverlay(
         ReaderOnboardingStep.SEARCH -> R.string.reader_onboarding_search_title to R.string.reader_onboarding_search_detail
         ReaderOnboardingStep.SHELF_ZOOM -> R.string.reader_onboarding_shelf_zoom_title to R.string.reader_onboarding_shelf_zoom_detail
         ReaderOnboardingStep.TEXT_ZOOM -> R.string.reader_onboarding_text_zoom_title to R.string.reader_onboarding_text_zoom_detail
-        ReaderOnboardingStep.PDF_ZOOM -> R.string.reader_onboarding_pdf_zoom_title to R.string.reader_onboarding_pdf_zoom_detail
     }
-    BoxWithConstraints(modifier.fillMaxSize().testTag("reader_onboarding")) {
+    BoxWithConstraints(modifier.fillMaxSize().onGloballyPositioned { overlayOrigin = it.positionInRoot() }
+        .testTag("reader_onboarding").semantics {
+        target?.let { this[ReaderOnboardingTargetBounds] = it }
+    }) {
         val compact = maxHeight < 500.dp
+        val targetIsLow = target?.center?.y?.minus(overlayOrigin.y)
+            ?.let { it > constraints.maxHeight * .55f } == true
         val scroll = key(step) { rememberScrollState() }
-        if (step.gestureLesson) {
+        run {
             val phase by key(step) {
                 val motion = rememberInfiniteTransition(label = "reading gesture demonstration")
                 motion.animateFloat(0f, 1f,
                     infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "finger position")
             }
             Canvas(Modifier.fillMaxSize()) {
-                drawGuideFinger(step, illustrationProgress ?: phase, accent, paper)
+                val card = calloutRect?.translate(-overlayOrigin)
+                val freeCenter = card?.let {
+                    if (it.top > size.height * .25f)
+                        Offset(size.width * .5f, ((it.top - 54.dp.toPx()) * .5f).coerceAtLeast(28.dp.toPx()))
+                    else Offset(size.width * .5f, (it.bottom + size.height - 54.dp.toPx()) * .5f)
+                } ?: Offset(size.width * .5f, size.height * .4f)
+                drawGuideFinger(step, illustrationProgress ?: phase, accent, paper,
+                    if (step == ReaderOnboardingStep.TEXT_ZOOM || step == ReaderOnboardingStep.SHELF_ZOOM) freeCenter
+                    else target?.center?.minus(overlayOrigin),
+                    secondaryTarget?.center?.minus(overlayOrigin))
             }
         }
-        Column(Modifier.align(Alignment.BottomCenter).safeDrawingPadding()
+        Column(Modifier.align(if (targetIsLow) Alignment.TopCenter else Alignment.BottomCenter).safeDrawingPadding()
             .padding(horizontal = 20.dp, vertical = if (compact) 10.dp else 24.dp)
-            .widthIn(max = 420.dp).fillMaxWidth()
-            .onGloballyPositioned { state.calloutBounds = it.boundsInRoot() }
+            .padding(bottom = if (state.libraryStep && !targetIsLow) 84.dp else 0.dp)
+            .widthIn(max = 420.dp).fillMaxWidth().heightIn(max = maxHeight * .55f)
+            .testTag("reader_onboarding_callout")
+            .onGloballyPositioned {
+                calloutRect = it.boundsInRoot()
+                state.calloutBounds = it.boundsInRoot()
+            }
             .shadow(5.dp, shape, ambientColor = Color(0xFF102A41), spotColor = Color(0xFF102A41))
             .background(paper.copy(alpha = .97f), shape)
             .drawBehind {
@@ -145,8 +172,8 @@ fun ReaderOnboardingOverlay(
             }
             .pointerInput(Unit) { detectTapGestures {} }
             .semantics { liveRegion = LiveRegionMode.Polite }
-            .verticalScroll(scroll)
             .padding(start = 18.dp, end = 14.dp, top = if (compact) 9.dp else 14.dp, bottom = 2.dp)) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(scroll)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(title), Modifier.weight(1f), color = ink,
                     fontSize = if (compact) 16.sp else 18.sp,
@@ -160,6 +187,7 @@ fun ReaderOnboardingOverlay(
             Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
             Text(stringResource(detail), color = ink.copy(alpha = .88f),
                 fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 17.sp else 20.sp)
+            }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = state::dismiss, modifier = Modifier.testTag("reader_onboarding_skip")) {
                     Text(stringResource(R.string.reader_onboarding_skip), color = accent)
@@ -176,31 +204,47 @@ fun ReaderOnboardingOverlay(
 }
 
 /** Animation never calls reader actions: only a real user gesture can change reading progress. */
-private fun DrawScope.drawGuideFinger(step: ReaderOnboardingStep, phase: Float, ink: Color, paper: Color) {
+private fun DrawScope.drawGuideFinger(step: ReaderOnboardingStep, phase: Float, ink: Color, paper: Color,
+    target: Offset? = null, secondaryTarget: Offset? = null) {
     val fade = minOf((phase / .12f).coerceIn(0f, 1f), ((1f - phase) / .2f).coerceIn(0f, 1f))
     if (fade == 0f) return
-    val drag = step == ReaderOnboardingStep.DRAG_FORWARD || step == ReaderOnboardingStep.DRAG_BACKWARD
+    val drag = step == ReaderOnboardingStep.DRAG_FORWARD || step == ReaderOnboardingStep.DRAG_BACKWARD ||
+        (step == ReaderOnboardingStep.STACKS && secondaryTarget != null)
     val travel = ((phase - .2f) / .5f).coerceIn(0f, 1f)
     val eased = travel * travel * (3f - 2f * travel)
+    if (step == ReaderOnboardingStep.TEXT_ZOOM || step == ReaderOnboardingStep.SHELF_ZOOM) {
+        val center = target ?: Offset(size.width * .5f, size.height * .4f)
+        val separation = size.width * (.07f + .1f * kotlin.math.sin(phase * kotlin.math.PI).toFloat())
+        drawGuideFinger(ReaderOnboardingStep.MENU, phase, ink, paper, center - Offset(separation, 0f))
+        drawGuideFinger(ReaderOnboardingStep.MENU, phase, ink, paper, center + Offset(separation, 0f))
+        return
+    }
     val fromX = when (step) {
         ReaderOnboardingStep.MENU -> .5f
         ReaderOnboardingStep.DRAG_FORWARD -> .77f
         ReaderOnboardingStep.DRAG_BACKWARD -> .23f
         ReaderOnboardingStep.TAP_LEFT -> .08f
         ReaderOnboardingStep.TAP_RIGHT -> .92f
-        else -> return
+        else -> if (target != null) target.x / size.width else return
     }
     val toX = when (step) {
         ReaderOnboardingStep.DRAG_FORWARD -> .27f
         ReaderOnboardingStep.DRAG_BACKWARD -> .73f
         else -> fromX
     }
-    val point = Offset(size.width * (fromX + (toX - fromX) * eased), size.height * .5f)
+    val point = if (step == ReaderOnboardingStep.STACKS && target != null && secondaryTarget != null)
+        target + (secondaryTarget - target) * eased
+        else target ?: Offset(size.width * (fromX + (toX - fromX) * eased), size.height * .5f)
     if (drag) {
         drawLine(ink.copy(alpha = fade * .24f), Offset(size.width * fromX, point.y), point,
             strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
         drawCircle(ink.copy(alpha = fade * .2f), 7.dp.toPx(), Offset(size.width * fromX, point.y),
             style = Stroke(1.dp.toPx()))
+    } else if (step == ReaderOnboardingStep.STACKS) {
+        // A one-book shelf can teach the real long press without inventing a second cover.
+        val pulse = .5f + .5f * kotlin.math.sin(phase * kotlin.math.PI * 4).toFloat()
+        drawCircle(ink.copy(alpha = fade * (.25f + .2f * pulse)), (12f + 3f * pulse).dp.toPx(), point,
+            style = Stroke(1.4.dp.toPx()))
     } else {
         val ripple = ((phase - .28f) / .4f).coerceIn(0f, 1f)
         drawCircle(ink.copy(alpha = (1f - ripple) * fade * .6f), (10f + 19f * ripple).dp.toPx(), point,
