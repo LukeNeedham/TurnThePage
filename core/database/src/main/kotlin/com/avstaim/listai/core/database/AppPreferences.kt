@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.avstaim.listai.core.model.ReaderPreferences
+import com.avstaim.listai.core.model.ReaderScreenTimeoutMode
 import com.avstaim.listai.core.model.ReaderTheme
 import com.avstaim.listai.core.model.ShelfZoom
 import kotlinx.coroutines.flow.map
@@ -29,8 +30,11 @@ class AppPreferences(private val store: DataStore<Preferences>) {
     val readerOnboardingCompleted = store.data.map { it[READER_ONBOARDING_COMPLETED] ?: false }
     val reader = store.data.map { values ->
         val size = values[FONT_SIZE]?.takeIf { it.isFinite() && it in 12f..32f } ?: 18f
+        val timeoutMode = ReaderScreenTimeoutMode.entries.firstOrNull { it.name == values[SCREEN_TIMEOUT_MODE] }
+            ?: ReaderScreenTimeoutMode.ALWAYS_ON
         ReaderPreferences(size, ReaderTheme.entries.firstOrNull { it.name == values[THEME] } ?: ReaderTheme.LIGHT,
-            showClock = values[SHOW_CLOCK] ?: true)
+            showClock = values[SHOW_CLOCK] ?: true,
+            screenTimeoutMode = timeoutMode)
     }
     val shelfZoom = store.data.map { values ->
         ShelfZoom.entries.firstOrNull { it.name == values[SHELF_ZOOM] } ?: ShelfZoom.MEDIUM
@@ -57,6 +61,7 @@ class AppPreferences(private val store: DataStore<Preferences>) {
             values[FONT_SIZE] = preferences.fontSizeSp
             values[THEME] = preferences.theme.name
             values[SHOW_CLOCK] = preferences.showClock
+            values[SCREEN_TIMEOUT_MODE] = preferences.screenTimeoutMode.name
         }
     }
 
@@ -70,6 +75,7 @@ class AppPreferences(private val store: DataStore<Preferences>) {
         val FONT_SIZE = floatPreferencesKey("reader_font_size_sp")
         val THEME = stringPreferencesKey("reader_theme")
         val SHOW_CLOCK = booleanPreferencesKey("reader_show_clock")
+        val SCREEN_TIMEOUT_MODE = stringPreferencesKey("reader_screen_timeout_mode")
         val SHELF_ZOOM = stringPreferencesKey("shelf_zoom")
     }
 }

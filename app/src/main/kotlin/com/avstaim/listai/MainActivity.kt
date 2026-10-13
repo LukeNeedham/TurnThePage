@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
@@ -17,10 +18,12 @@ import androidx.lifecycle.lifecycleScope
 import com.avstaim.listai.core.adaptive.WindowManagerDevicePostureProvider
 import com.avstaim.listai.core.designsystem.ListaiTheme
 import com.avstaim.listai.core.model.ReaderTheme
+import com.avstaim.listai.core.model.ReaderScreenTimeoutMode
 
 class MainActivity : ComponentActivity() {
     private var readerVisible = false
     private var foreground = false
+    private var screenTimeoutMode = ReaderScreenTimeoutMode.ALWAYS_ON
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +34,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val devicePosture by postureProvider.posture.collectAsState()
             val preferences by controller.readerPreferences.collectAsState()
+            SideEffect {
+                screenTimeoutMode = preferences.screenTimeoutMode
+                updateScreenAwake()
+            }
             val darkTheme = when (preferences.theme) {
                 ReaderTheme.LIGHT -> false
                 ReaderTheme.DARK -> true
@@ -90,7 +97,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateScreenAwake() {
-        if (foreground && readerVisible) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val keepAwake = foreground && readerVisible && screenTimeoutMode == ReaderScreenTimeoutMode.ALWAYS_ON
+        val currentlyKeptAwake = window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        if (keepAwake == currentlyKeptAwake) return
+        if (keepAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 

@@ -14,4 +14,7 @@
     <string name="reader_back_boundary_state">Fin des pages imprimées</string>
     <string name="reader_enter_fullscreen">Passer en plein écran</string>
     <string name="reader_exit_fullscreen">Quitter le plein écran</string>
+    <string name="reader_screen_title">Écran</string>
+    <string name="reader_screen_always_on">Garder l’écran allumé pendant la lecture</string>
+    <string name="reader_screen_system">Suivre les réglages de l’appareil</string>
 </resources>

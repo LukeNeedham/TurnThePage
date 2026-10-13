@@ -8,10 +8,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -255,6 +258,8 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
         ReadingGuideInvitation(it, "reader_show_hints")
         InkRule()
     }
+    PaperScreenSettings(preferences, onPreferencesChange)
+    InkRule()
     Text(stringResource(R.string.insert_text_size), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         IconPress(PaperIcon.Minus, stringResource(R.string.insert_font_smaller), "reader_font_smaller", {
@@ -293,6 +298,34 @@ private fun PaperSettingsContent(preferences: ReaderPreferences,
             modifier = Modifier.testTag("reader_show_clock").semantics {
                 contentDescription = clockLabel
             })
+    }
+}
+
+@Composable
+private fun PaperScreenSettings(
+    preferences: ReaderPreferences,
+    onPreferencesChange: (ReaderPreferences) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.reader_screen_title), style = MaterialTheme.typography.labelMedium,
+            color = colors.onSurfaceVariant)
+        ReaderScreenTimeoutMode.entries.forEach { mode ->
+            val selected = preferences.screenTimeoutMode == mode
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("reader_screen_timeout_${mode.name.lowercase()}")
+                .selectable(selected = selected, role = Role.RadioButton,
+                    onClick = { onPreferencesChange(preferences.copy(screenTimeoutMode = mode)) })
+                .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RadioButton(selected = selected, onClick = null)
+                Text(stringResource(when (mode) {
+                    ReaderScreenTimeoutMode.ALWAYS_ON -> R.string.reader_screen_always_on
+                    ReaderScreenTimeoutMode.SYSTEM -> R.string.reader_screen_system
+                }), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = colors.onSurface)
+            }
+        }
     }
 }
 

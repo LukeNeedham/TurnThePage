@@ -1,7 +1,16 @@
 package com.avstaim.listai
 
+import android.provider.Settings
+import android.view.WindowManager
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -13,8 +22,10 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.Lifecycle
 import com.avstaim.listai.core.model.BookId
 import com.avstaim.listai.core.model.ReaderPreferences
+import com.avstaim.listai.core.model.ReaderScreenTimeoutMode
 import com.avstaim.listai.core.model.ReaderTheme
 import com.avstaim.listai.feature.reader.ReaderContentsLocation
 import com.avstaim.listai.feature.reader.ReaderJumpInProgress
@@ -33,6 +44,101 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PaperControlsFlowTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test fun screenSleepChoiceIsSharedPersistsAndFollowsActivityLifecycle() {
+        val controller = (compose.activity.application as ListaiApplication).controller
+        compose.waitUntil(30_000) { !controller.busy.value }
+        val previousSelection = controller.selection.value
+        val originalPreferences = controller.readerPreferences.value
+        val systemTimeout = Settings.System.getInt(compose.activity.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT)
+        var fixtureId: BookId? = null
+        fun keptAwake() = compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+        fun chooseMode(mode: ReaderScreenTimeoutMode) {
+            val tag = "reader_screen_timeout_${mode.name.lowercase()}"
+            compose.onNodeWithTag(tag).performScrollTo()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).performClick()
+            compose.waitUntil(10_000) { controller.readerPreferences.value.screenTimeoutMode == mode }
+            compose.onNodeWithTag(tag).assertIsSelected()
+        }
+        try {
+            val id = importFixture(controller).also { fixtureId = it }
+            compose.runOnUiThread {
+                controller.setReaderPreferences(ReaderPreferences())
+                controller.completeReaderOnboarding()
+                controller.open(id)
+            }
+            compose.waitUntil(30_000) {
+                !controller.busy.value && controller.selection.value?.opened?.book?.id == id &&
+                    controller.readerPreferences.value == ReaderPreferences()
+            }
+            waitForBook()
+            compose.onNodeWithTag("closed_book_read").performClick()
+            compose.waitUntil(30_000) { controller.selection.value?.initialProgress?.cover == com.avstaim.listai.core.model.CoverPosition.OPEN }
+            waitForBook()
+            val startingAnchor = controller.selection.value?.initialProgress?.location
+            compose.onNodeWithTag("book_view_demo").performTouchInput {
+                click(Offset(width * .86f, height * .54f))
+            }
+            compose.waitUntil(30_000) { controller.selection.value?.initialProgress?.location != startingAnchor }
+            waitForBook()
+            val anchor = requireNotNull(controller.selection.value).initialProgress.location
+            compose.waitUntil(10_000) { keptAwake() }
+            openInsert()
+            compose.onNodeWithTag("reader_insert_settings").performClick()
+            compose.onNodeWithTag("reader_screen_timeout_always_on").assertIsSelected()
+            chooseMode(ReaderScreenTimeoutMode.SYSTEM)
+            compose.onNodeWithTag("reader_screen_timeout_always_on").assertIsNotSelected()
+            compose.waitUntil(10_000) { !keptAwake() }
+            compose.onNodeWithTag("bookmarks_close").performScrollTo().performClick()
+            compose.activityRule.scenario.recreate()
+            waitForBook()
+            assertEquals(ReaderScreenTimeoutMode.SYSTEM, controller.readerPreferences.value.screenTimeoutMode)
+            assertFalse(keptAwake())
+            assertEquals(anchor, controller.selection.value?.initialProgress?.location)
+            compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            assertFalse(keptAwake())
+            compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            waitForBook()
+            assertFalse(keptAwake())
+
+            openInsert()
+            compose.onNodeWithTag("reader_insert_settings").performClick()
+            chooseMode(ReaderScreenTimeoutMode.ALWAYS_ON)
+            compose.waitUntil(10_000) { keptAwake() }
+            compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            assertFalse(keptAwake())
+            compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            compose.waitUntil(10_000) { keptAwake() }
+            compose.onNodeWithTag("bookmarks_close").performScrollTo().performClick()
+            openInsert()
+            compose.onNodeWithTag("reader_return_to_shelf").performScrollTo().performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("shelf_reader_transition").fetchSemanticsNodes().any {
+                    it.config.getOrElse(ShelfTransitionPhase) { "" } == ShelfReaderPhase.SHELF.name
+                }
+            }
+            assertFalse(keptAwake())
+            compose.onNodeWithTag("library_settings").performClick()
+            compose.onNodeWithTag("reader_screen_timeout_always_on").assertIsSelected()
+            chooseMode(ReaderScreenTimeoutMode.SYSTEM)
+            compose.onNodeWithTag("settings_close").performClick()
+            compose.onNodeWithTag("library_book_${id.value}").performClick()
+            waitForBook()
+            assertFalse(keptAwake())
+            assertEquals(systemTimeout, Settings.System.getInt(compose.activity.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT))
+        } finally {
+            compose.runOnUiThread {
+                controller.setReaderPreferences(originalPreferences)
+                fixtureId?.let(controller::delete)
+                previousSelection?.let { controller.open(it.opened.book.id) } ?: controller.returnToShelf()
+            }
+            compose.waitUntil(30_000) {
+                !controller.busy.value && controller.readerPreferences.value == originalPreferences &&
+                    controller.selection.value?.opened?.book?.id == previousSelection?.opened?.book?.id &&
+                    runBlocking { controller.repository.books.first().none { it.id == fixtureId } }
+            }
+        }
+    }
 
     @Test fun settingsPersistExactRulerCanCancelAndContentsCanReturnToTheOriginalAnchor() {
         val controller = (compose.activity.application as ListaiApplication).controller
@@ -68,7 +174,7 @@ class PaperControlsFlowTest {
             compose.onNodeWithTag("reader_font_larger").performClick()
             val expectedSize = fixturePreferences.fontSizeSp + 1
             compose.waitUntil(10_000) { controller.readerPreferences.value.fontSizeSp == expectedSize }
-            compose.onNodeWithTag("reader_theme_dark").performClick()
+            compose.onNodeWithTag("reader_theme_dark").performScrollTo().performClick()
             compose.waitUntil(10_000) { controller.readerPreferences.value.theme == ReaderTheme.DARK }
             compose.onNodeWithTag("bookmarks_close").performScrollTo().performClick()
             compose.activityRule.scenario.recreate()

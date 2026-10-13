@@ -14,4 +14,7 @@
     <string name="reader_back_boundary_state">Ende der bedruckten Seiten</string>
     <string name="reader_enter_fullscreen">Vollbild öffnen</string>
     <string name="reader_exit_fullscreen">Vollbild verlassen</string>
+    <string name="reader_screen_title">Bildschirm</string>
+    <string name="reader_screen_always_on">Beim Lesen eingeschaltet lassen</string>
+    <string name="reader_screen_system">Geräteeinstellungen verwenden</string>
 </resources>
