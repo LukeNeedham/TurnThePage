@@ -15,7 +15,7 @@ screenshot = "0.0.1-alpha15"
 window = "1.5.1"
 room = "2.8.4"
 datastore = "1.2.1"
-ksp = "2.3.9"
+ksp = "2.3.12"
 
 [libraries]
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
