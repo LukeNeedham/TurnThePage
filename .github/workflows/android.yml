@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload reports and APKs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-host-results
           if-no-files-found: ignore
@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload instrumentation reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-device-results-api-${{ matrix.api-level }}
           if-no-files-found: ignore
